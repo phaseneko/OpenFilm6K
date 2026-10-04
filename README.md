@@ -149,7 +149,7 @@ Full license texts: [`THIRD_PARTY/`](THIRD_PARTY/).
 
 ## License
 
-GPL-3.0 — see [COPYING](COPYING).
+GPL-3.0 — see [LICENSE](LICENSE).
 
 ## Author
 
