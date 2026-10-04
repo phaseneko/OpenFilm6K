@@ -86,14 +86,15 @@ First connect the camera to the Wi-Fi hotspot of the phone that runs the host ap
 |---|---|
 | Shutter half | auto focus (center / spot as configured) |
 | Shutter full | take a photo → grade on the phone → upload |
-| LEFT / RIGHT | cycle the dial mode: Mode / Shutter / Aperture / ISO / EV / Film |
-| WHEEL | adjust the highlighted parameter (or EV directly) |
-| AEL short press | enter/exit focus-area adjust mode (move the spot with the wheel) |
+| UP / DOWN / LEFT / RIGHT | move the highlight between the adjustable parameters (Mode / Shutter / Aperture / ISO / EV / Film) |
+| Control dial | adjust the highlighted parameter |
+| Wheel | exposure compensation (EV) — fixed function |
+| AEL short press | enter/exit focus-area adjust mode (move the spot with the control dial) |
 | **AEL long press** | lock the screen: 3-second countdown, then the display blanks (brightness to minimum). Release during the countdown cancels. Any key wakes it. |
 | **C2 short press** | cycle the watermark mode (none / date / exposure / date+exposure / frame / collage / film / film+exposure) |
 | FN | open the film browser (inside it, C1 toggles the favorite mark) |
 | ENTER (center) | change the camera mode (P → A → S → M); inside the film browser it loads the highlighted film |
-| C1 (hold) + wheel | on the main screen: quickly cycle between favorited films |
+| C1 (hold) + control dial | on the main screen: quickly cycle between favorited films |
 | MENU | quit the app |
 | PLAY | avoid pressing — it leaves the app and opens the system image viewer |
 
