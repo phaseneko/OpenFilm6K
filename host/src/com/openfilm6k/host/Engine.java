@@ -504,7 +504,7 @@ public class Engine {
                         int rc = nProcessFile(imgPath, outPath, lf != null ? lf.getAbsolutePath() : null, nds, ovs, lut2, nn, lut2 != null ? score : 0f);
                         long _n1 = android.os.SystemClock.elapsedRealtime();
                         dbg("TIMING nativeFile=" + (_n1 - _n0) + "ms rc=" + rc);
-                        if (rc == 0) return outPath;
+                        if (rc == 0) { Exif.carry(new java.io.File(imgPath), new java.io.File(outPath)); return outPath; }
                         dbg("nProcessFile rc=" + rc + " -> fallback");
                     }
                 }
@@ -521,7 +521,7 @@ public class Engine {
                 dbg(String.format(java.util.Locale.US,
                     "TIMING total=%dms (decode+scale=%d nativeRest=%d) %dx%d",
                     _t1 - _t0, _td, (_t1 - _t0) - _td, src.getWidth(), src.getHeight()));
-                if (_ok) { dbg("native OK"); return outPath; }
+                if (_ok) { dbg("native OK"); Exif.carry(new java.io.File(imgPath), new java.io.File(outPath)); return outPath; }
                 dbg("native miss -> java path");
                 int w = src.getWidth(), h = src.getHeight();
                 int[] mts = new int[1];
@@ -684,6 +684,7 @@ public class Engine {
                 FileOutputStream fo = new FileOutputStream(of);
                 rotated.compress(Bitmap.CompressFormat.JPEG, 92, fo);
                 fo.close();
+                Exif.carry(new File(imgPath), of);   // keep the capture's EXIF on the Java path too
                 return outPath;
             } catch (Throwable t) {
                 MainActivity.say("process EX " + t);

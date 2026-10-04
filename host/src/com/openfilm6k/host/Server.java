@@ -8,6 +8,12 @@ import java.util.*;
 public class Server {
     private static final Server I = new Server();
     private static final java.io.File galDir = new java.io.File("/sdcard/DCIM/OpenFilm6K");
+    /** Scratch area for the upload + in-flight render. The leading dot keeps MediaStore from
+     *  indexing it: it used to be OpenFilm6K/camera/, whose JPEGs became a second "camera"
+     *  album in the gallery and duplicated every shot. The graded result now only ever
+     *  exists in DCIM/OpenFilm6K. The original stays here because collage() re-renders the
+     *  other three films from it and the EXIF/notification read it. */
+    private static final java.io.File workDir = new java.io.File("/sdcard/OpenFilm6K/.work");
 
     /** progress reporter for the film-library extraction */
     public interface InstallReporter { void onProgress(int done, int total); void onDone(int copied, String error); }
@@ -107,6 +113,33 @@ public class Server {
     static Server get() { return I; }
     private volatile boolean up = false;
     private static android.content.Context ctx;   // app context, for the stamp typeface
+
+    /** One-time cleanup for builds that used to keep the upload + a graded copy under
+     *  OpenFilm6K/camera/. Those JPEGs were indexed by MediaStore as a second "camera" album
+     *  holding a duplicate of every shot. Both the files and their media-store rows go, so the
+     *  stale album disappears instead of lingering as an empty folder.
+     *  Only touches OpenFilm6K/camera/ — graded files in DCIM are the ones we keep. */
+    private void dropLegacyCameraDir() {
+        try {
+            java.io.File old = new java.io.File("/sdcard/OpenFilm6K/camera");
+            java.io.File[] fs = old.listFiles();
+            if (fs == null || fs.length == 0) { if (old.isDirectory()) old.delete(); return; }
+            java.util.ArrayList<String> paths = new java.util.ArrayList<String>();
+            for (java.io.File f : fs) paths.add(f.getAbsolutePath());
+            for (java.io.File f : fs) f.delete();
+            old.delete();
+            // scan AFTER deleting: the scanner sees the paths are gone and purges their
+            // media-store rows, which is what actually makes the stale album disappear
+            if (ctx != null) {
+                try {
+                    android.media.MediaScannerConnection.scanFile(ctx,
+                            paths.toArray(new String[0]), new String[]{"image/jpeg", "image/png"}, null);
+                } catch (Throwable ig) {}
+            }
+            MainActivity.say("cleanup: removed legacy camera/ album (" + fs.length + " files)");
+        } catch (Throwable t) { MainActivity.say("cleanup skipped: " + t); }
+    }
+
     /** last time the camera hit /ping or /films (0 = never) — drives the notification's connection status */
     static volatile long lastCamSeen = 0;
     static boolean camConnected() {
@@ -120,6 +153,7 @@ public class Server {
     }
 
     void start() {
+        dropLegacyCameraDir();
         if (up) return;
         up = true;
         Thread t = new Thread(new Runnable() { public void run() { loop(); } }, "http");
@@ -177,11 +211,11 @@ public class Server {
         try {
         if (path.startsWith("/ingest")) {
             // camera upload: POST /ingest?film=&name=&orig=&len=[&stamp=..&stamp2=..&b=1&x=1], body = JPEG bytes.
-            // Save the original, render it with the film pipeline, keep both under camera/.
+            // Save the original to the hidden scratch dir, render it into the gallery album.
             String film = q.get("film"), name = q.get("name"), orig = q.get("orig");
             if (film == null || name == null || len <= 0) { resp = "ERR params"; }
             else {
-                java.io.File dir = new java.io.File("/sdcard/OpenFilm6K/camera");
+                java.io.File dir = workDir;
                 dir.mkdirs();
                 java.io.File src = new java.io.File(dir, name);
                 java.io.FileOutputStream fo = new java.io.FileOutputStream(src);
@@ -200,28 +234,22 @@ public class Server {
                     for (String k : new String[]{"stamp", "stamp2", "b", "x"})
                         if (q.get(k) != null) extras.append(' ').append(k).append('=').append(q.get(k));
                     if (extras.length() > 0) MainActivity.say("ingest stamps:" + extras);
+                    // grab the camera's EXIF (APP1) from the untouched upload BEFORE anything
+                    // re-encodes it, then carry it onto the final graded JPEG.
+                    byte[] exifApp1 = Exif.app1Of(src);
+                    if (exifApp1 == null) Engine.dbg("ingest: source carries no APP1/EXIF: " + name);
                     // render order: watermark goes onto the ORIGINAL right after capture, BEFORE all our grading passes
                     java.io.File pipeIn = textStampOriginal(src, q);
-                    java.io.File out = new java.io.File(dir, "graded_" + name);
+                    // render straight into the gallery album: one output file, no second copy
+                    galDir.mkdirs();
+                    java.io.File out = new java.io.File(galDir, "graded_" + name);
                     String r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
                     if (pipeIn != src) pipeIn.delete();
                     if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
                         r = stamped(out, src, film, q);   // polaroid frame / collage stay output-level
-                    // the graded result lands in the phone gallery (album "OpenFilm6K") and gets media-scanned
-                    if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
-                        try {
-                            java.io.File gal = new java.io.File("/sdcard/DCIM/OpenFilm6K");
-                            gal.mkdirs();
-                            java.io.File gdst = new java.io.File(gal, out.getName());
-                            java.io.FileInputStream fi = new java.io.FileInputStream(out);
-                            java.io.FileOutputStream fo2 = new java.io.FileOutputStream(gdst);
-                            byte[] bb = new byte[65536]; int nn;
-                            while ((nn = fi.read(bb)) > 0) fo2.write(bb, 0, nn);
-                            fi.close(); fo2.close();
-                            if (ctx != null) android.media.MediaScannerConnection.scanFile(ctx,
-                                    new String[]{gdst.getAbsolutePath()}, new String[]{"image/jpeg"}, null);
-                        } catch (Throwable t2) { MainActivity.say("gallery " + t2); }
-                    }
+                    // EXIF goes on last, so it survives the engine's encode AND the polaroid/collage frame
+                    if (exifApp1 != null && r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
+                        Exif.carryBytes(out, exifApp1);
                     resp = r != null && r.startsWith("ERR") == false && new java.io.File(r).exists()
                             ? "OK " + out.getName() : "ERR render " + r;
 
@@ -232,7 +260,7 @@ public class Server {
                         final String expoF = readExposure(src);
                         final String timeF = readTime(src);
                         final android.graphics.Bitmap thumbF = decodeThumb(new java.io.File(r));
-                        final String gpath = new java.io.File(galDir, out.getName()).getAbsolutePath();
+                        final String gpath = out.getAbsolutePath();
                         android.media.MediaScannerConnection.scanFile(ctx,
                             new String[]{gpath}, new String[]{"image/jpeg"},
                             new android.media.MediaScannerConnection.OnScanCompletedListener() {
@@ -242,6 +270,9 @@ public class Server {
                                 }
                             });
                     } catch (Throwable t3) { MainActivity.say("notif prep: " + t3); }
+                    // the original has served its purpose (EXIF, collage, notification): drop it now
+                    // that the notification has already read it, so the scratch dir keeps no JPEGs
+                    if (src.exists()) src.delete();
                 }
             }
         }
@@ -402,7 +433,10 @@ public class Server {
             if (!f.equals(film) && !f.startsWith("EDITTMP")) picks.add(f);
         }
         if (picks.isEmpty()) return graded.getAbsolutePath();
-        java.io.File tmp = new java.io.File(graded.getParentFile(), "tmp_collage.jpg");
+        // scratch, NOT graded's folder: graded now lives in the gallery album, and a stray
+        // tmp_collage.jpg would flash there as its own "photo". Prefixed with the graded name
+        // so two concurrent ingests can't collide.
+        java.io.File tmp = new java.io.File(workDir, "tmp_collage_" + graded.getName());
         java.util.ArrayList<android.graphics.Bitmap> cells = new java.util.ArrayList<android.graphics.Bitmap>();
         try {
             for (int i = 0; i < picks.size(); i++) {
