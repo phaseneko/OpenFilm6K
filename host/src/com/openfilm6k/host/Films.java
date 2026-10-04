@@ -59,15 +59,30 @@ public class Films {
         } catch (Throwable t) { MainActivity.say("saveGrades " + film + ": " + t); }
     }
 
-    /** resolve the film's lut= against the shared luts dir (imported/ and legacy films/ as fallbacks) */
+    /** user-imported .cube files (settings dialog "custom LUT") */
+    public static final String CUSTOM_LUTS = ROOT + "/custom/luts";
+
+    /** resolve the film's lut= to an actual file.
+     *  lut= stores a BARE FILENAME (decoupled from location), so search every known LUT home.
+     *  An absolute path in lut= is still honoured, which keeps films saved by older builds
+     *  working — naively joining an absolute child onto LUTS yields luts/sdcard/... which never exists. */
     public static File lutFile(String film) {
         String lut = props(film).getProperty("lut", film + ".cube").trim();
-        File f = new File(LUTS, lut);
+        if (lut.length() == 0) return null;
+        File direct = new File(lut);
+        if (direct.isAbsolute() && direct.exists()) return direct;   // legacy films, absolute lut=
+        String base = lut.startsWith("/") ? lut.substring(lut.lastIndexOf('/') + 1) : lut;
+        if (base.length() == 0) return null;
+        // film-local wins: the editor stages a preview LUT under films/<film>/, and that copy is
+        // the one it just wrote — a same-named file in luts/ or custom/luts/ must not shadow it.
+        File leg = new File(ROOT + "/films/" + film, base);   // EDITTMP / legacy layouts
+        if (leg.exists()) return leg;
+        File f  = new File(LUTS, base);
         if (f.exists()) return f;
-        File imp = new File(LUTS + "/imported", lut);
-        if (imp.exists()) return imp;
-        File leg = new File(ROOT + "/films/" + film, lut);   // EDITTMP / legacy layouts
-        return leg.exists() ? leg : null;
+        File cu = new File(CUSTOM_LUTS, base);
+        if (cu.exists()) return cu;
+        File imp = new File(LUTS + "/imported", base);
+        return imp.exists() ? imp : null;
     }
 
     public static float f(String film, String key, float def) {
