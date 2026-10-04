@@ -91,7 +91,8 @@ First connect the camera to the Wi-Fi hotspot of the phone that runs the host ap
 | Wheel | exposure compensation (EV) — fixed function |
 | AEL short press | enter/exit focus-area adjust mode (move the spot with the control dial) |
 | **AEL long press** | lock the screen: 3-second countdown, then the display blanks (brightness to minimum). Release during the countdown cancels. Any key wakes it. |
-| **C2 short press** | cycle the watermark mode (none / date / exposure / date+exposure / frame / collage / film / film+exposure) |
+| **C2 short press** | cycle the watermark mode. The status bar shows the current mode as a symbol: *(blank)* none · **D** date (bottom-left) · **E** exposure ¹ (bottom-right) · **DE** date + exposure · **B** polaroid frame · **X** four-film collage · **F** film name · **FE** film name + exposure ¹ |
+> ¹ exposure = shutter / aperture / ISO, e.g. `1/60 F2.8 ISO400`
 | FN | open the film browser (inside it, C1 toggles the favorite mark) |
 | ENTER (center) | change the camera mode (P → A → S → M); inside the film browser it loads the highlighted film |
 | C1 (hold) + control dial | on the main screen: quickly cycle between favorited films |
