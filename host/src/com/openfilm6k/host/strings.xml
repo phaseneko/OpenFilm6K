@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources><string name="app_name">OpenFilm6K</string>    <string name="a11yDesc">Keep the render service running so the camera app can connect (OpenFilm6K)</string>
+</resources>
