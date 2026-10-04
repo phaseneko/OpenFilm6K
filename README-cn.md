@@ -144,7 +144,7 @@ cd camera && bash build.sh
 
 ## 许可证
 
-GPL-3.0 — 见 [COPYING](COPYING)。
+GPL-3.0 — 见 [LICENSE](LICENSE)。
 
 ## 作者
 
