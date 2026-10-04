@@ -493,20 +493,25 @@ public class EditorActivity extends Activity {
             int n = sceneSpin.getAdapter().getCount();
             if (n > 0) sceneSpin.setSelection((sceneSpin.getSelectedItemPosition() - 1 + n) % n);
         }});
-        rowSM.addView(prevBtn, new LinearLayout.LayoutParams(0, -2, 0.34f));
         rowSM.addView(sceneSpinWrap, new LinearLayout.LayoutParams(0, -2, 1f));
         Button nextBtn = new Button(this); nextBtn.setText("▶"); nextBtn.setMinWidth(0); nextBtn.setMinimumWidth(0); nextBtn.setPadding(0,0,0,0);
         nextBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
             int n = sceneSpin.getAdapter().getCount();
             if (n > 0) sceneSpin.setSelection((sceneSpin.getSelectedItemPosition() + 1) % n);
         }});
-        rowSM.addView(nextBtn, new LinearLayout.LayoutParams(0, -2, 0.34f));
         colR.addView(rowSM);
         rowTop.addView(colR, new LinearLayout.LayoutParams(0, -2, 2f));
         root.addView(rowTop);
 
         split = new SplitView(this);
-        root.addView(split, new LinearLayout.LayoutParams(-1, 900));
+        // ◀/▶ always live on the preview: flush with its left/right edges, vertically centered (Win98 raised style kept)
+        android.widget.FrameLayout splitWrap = new android.widget.FrameLayout(this);
+        splitWrap.addView(split, new android.widget.FrameLayout.LayoutParams(-1, 900));
+        android.widget.FrameLayout.LayoutParams pl = new android.widget.FrameLayout.LayoutParams(Ux.dp(40), Ux.dp(40), android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL);
+        splitWrap.addView(prevBtn, pl);
+        android.widget.FrameLayout.LayoutParams pr = new android.widget.FrameLayout.LayoutParams(Ux.dp(40), Ux.dp(40), android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL);
+        splitWrap.addView(nextBtn, pr);
+        root.addView(splitWrap, new LinearLayout.LayoutParams(-1, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView nh = new TextView(this); nh.setText(L.s("pipelineNodes")); nh.setPadding(12, 14, 12, 2);
         root.addView(nh);
@@ -746,7 +751,7 @@ public class EditorActivity extends Activity {
         {   // section header + nodes area rhythm
             LinearLayout.LayoutParams np = (LinearLayout.LayoutParams) nodesBox.getLayoutParams();
             np.topMargin = Ux.dp(6); nodesBox.setLayoutParams(np);
-            LinearLayout.LayoutParams sp2 = (LinearLayout.LayoutParams) split.getLayoutParams();
+            android.view.ViewGroup.MarginLayoutParams sp2 = (android.view.ViewGroup.MarginLayoutParams) split.getLayoutParams();
             sp2.topMargin = Ux.dp(8); sp2.bottomMargin = Ux.dp(2); split.setLayoutParams(sp2);
         }
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
@@ -1215,7 +1220,6 @@ public class EditorActivity extends Activity {
             TextView al = new TextView(this); al.setText("α"); al.setPadding(6, 18, 2, 0);
             if (showAlpha) row.addView(al, new LinearLayout.LayoutParams(-2, -2));
             Button amin = new Button(this); amin.setText("−"); amin.setMinWidth(0); amin.setMinimumWidth(0); amin.setPadding(0,0,0,0);
-            if (showAlpha) row.addView(amin, new LinearLayout.LayoutParams(0, -2, 0.22f));
             SeekBar asb = new SeekBar(this);
             asb.setMax(1000); asb.setThumb(Ux.thumb98()); asb.setProgress(Math.round(nd.p.get("alpha") * 1000));
             alphaBars.add(asb); alphaOwners.add(nd);
@@ -1225,7 +1229,7 @@ public class EditorActivity extends Activity {
             aval.setLetterSpacing(0.25f);
             aval.getPaint().setFakeBoldText(true);
             aval.setTextSize(14);
-            aval.setGravity(android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
+            aval.setGravity(android.view.Gravity.CENTER);
             alphaVals.add(aval);
             final boolean[] astep = {false};
             asb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -1239,9 +1243,12 @@ public class EditorActivity extends Activity {
             Button apl = new Button(this); apl.setText("+"); apl.setMinWidth(0); apl.setMinimumWidth(0); apl.setPadding(0,0,0,0);
             LinearLayout acell = new LinearLayout(this); acell.setOrientation(LinearLayout.VERTICAL);
             acell.addView(asb, new LinearLayout.LayoutParams(-1, Ux.dp(22)));   // slider hugs the top edge
-            acell.addView(aval, new LinearLayout.LayoutParams(-1, 0, 1f));      // fills the rest of the cell, text pinned to the bottom
-            row.addView(acell, new LinearLayout.LayoutParams(0, Ux.dp(44), showAlpha ? 1.0f : 0f));
-            if (showAlpha) row.addView(apl, new LinearLayout.LayoutParams(0, -2, 0.22f));
+            LinearLayout abtnRow = new LinearLayout(this);                      // [−] value [+] on one line below
+            abtnRow.addView(amin, new LinearLayout.LayoutParams(0, -2, 1f));
+            abtnRow.addView(aval, new LinearLayout.LayoutParams(0, -2, 1.4f));
+            abtnRow.addView(apl, new LinearLayout.LayoutParams(0, -2, 1f));
+            acell.addView(abtnRow, new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT));
+            row.addView(acell, new LinearLayout.LayoutParams(0, Ux.dp(46), showAlpha ? 1.0f : 0f));
             android.view.View.OnClickListener aclk = new android.view.View.OnClickListener() {
                 public void onClick(android.view.View v) {
                     float dv = (v == apl) ? 0.1f : -0.1f;

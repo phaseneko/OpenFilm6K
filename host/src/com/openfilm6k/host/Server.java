@@ -504,14 +504,14 @@ public class Server {
         android.graphics.PorterDuffXfermode screen = new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SCREEN);
 
         android.graphics.Paint bloom = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        bloom.setColor(0x88FF4D00);                       // wide soft red bloom under everything
+        bloom.setColor(0x66FF4D00);                       // wide soft red bloom under everything
         if (tf != null) bloom.setTypeface(tf);
         bloom.setTextSize(ts);
-        bloom.setMaskFilter(new android.graphics.BlurMaskFilter(ts * 0.22f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // reduced bloom
+        bloom.setMaskFilter(new android.graphics.BlurMaskFilter(ts * 0.11f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // reduced bloom
         bloom.setXfermode(screen);
 
         android.graphics.Paint glyph = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        glyph.setColor(0xFFFF7A30);                       // THE glyph: bright red-orange, softly blurred edges
+        glyph.setColor(0xEEFF7A30);                       // THE glyph: bright red-orange, softly blurred edges
         if (tf != null) glyph.setTypeface(tf);
         glyph.setTextSize(ts);
         glyph.setStyle(android.graphics.Paint.Style.FILL_AND_STROKE);
@@ -521,17 +521,17 @@ public class Server {
 
         // glow = stacked blurred glyphs (shadowLayer never renders on this path)
         android.graphics.Paint h2 = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        h2.setColor(0xCCFFB060);                          // wide warm haze
+        h2.setColor(0x99FFB060);                          // wide warm haze
         if (tf != null) h2.setTypeface(tf);
         h2.setTextSize(ts);
-        h2.setMaskFilter(new android.graphics.BlurMaskFilter(ts * 1.2f, android.graphics.BlurMaskFilter.Blur.NORMAL));
+        h2.setMaskFilter(new android.graphics.BlurMaskFilter(ts * 0.6f, android.graphics.BlurMaskFilter.Blur.NORMAL));
         h2.setXfermode(screen);
 
         android.graphics.Paint h1 = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        h1.setColor(0xE8FFA040);                          // tight bright halo
+        h1.setColor(0xAEFFA040);                          // tight bright halo
         if (tf != null) h1.setTypeface(tf);
         h1.setTextSize(ts);
-        h1.setMaskFilter(new android.graphics.BlurMaskFilter(ts * 0.50f, android.graphics.BlurMaskFilter.Blur.NORMAL));
+        h1.setMaskFilter(new android.graphics.BlurMaskFilter(ts * 0.25f, android.graphics.BlurMaskFilter.Blur.NORMAL));
         h1.setXfermode(screen);
 
         return new android.graphics.Paint[]{bloom, h2, h1, glyph};   // order: bloom -> wide glow -> tight glow -> crisp glyph
