@@ -1401,8 +1401,10 @@ public class EditorActivity extends Activity {
                     csp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                         public void onItemSelected(AdapterView<?> pp, View vv, int pos, long id2) {
                             String pick = cl.get(pos);
-                            boolean isCustom = pos < nCustom;   // rows before the divider are custom
-                            String lutVal = isCustom ? CUSTOM_LUTS + "/" + pick + ".cube" : pick + ".cube";
+                            // store the bare filename only. Location is resolved by Films.lutFile()
+                            // across luts/ + custom/luts/, so the property no longer hardcodes a path
+                            // and keeps working if the file moves.
+                            String lutVal = pick + ".cube";
                             String flm2 = selFilm();
                             if (!lutVal.equals(Films.s(flm2, "lut", ""))) { Films.setProp(flm2, "lut", lutVal); renderPreview(); }
                         }
@@ -1495,7 +1497,7 @@ public class EditorActivity extends Activity {
         return f;
     }
     static final String CUSTOM_SCENES = "/sdcard/OpenFilm6K/custom/scenes";   // user reference photos
-    static final String CUSTOM_LUTS = "/sdcard/OpenFilm6K/custom/luts";       // user .cube files
+    static final String CUSTOM_LUTS = Films.CUSTOM_LUTS;                      // user .cube files (single source of truth)
 
     static java.util.ArrayList<String> listDirNames(String dir, String ext) {
         java.util.ArrayList<String> out = new java.util.ArrayList<String>();
@@ -2114,9 +2116,11 @@ public class EditorActivity extends Activity {
                 File tmpDir = new File(Films.ROOT + "/films", "EDITTMP");
                 tmpDir.mkdirs();
                 java.io.File lsrc = Films.lutFile(editKey());
-                if (lsrc == null) lsrc = new File(Films.LUTS, "lut.cube");
-                copy(lsrc, new File(tmpDir, "lut.cube"));
-                StringBuilder props = new StringBuilder("lut=lut.cube\nchain=").append(chain).append('\n');
+                // no LUT for this film (or its file vanished): stage with no lut= key at all so the
+                // engine renders the chain without colour grading, instead of throwing on a missing copy.
+                String lutLine = lsrc == null ? "" : "lut=lut.cube\n";
+                if (lsrc != null) copy(lsrc, new File(tmpDir, "lut.cube"));
+                StringBuilder props = new StringBuilder(lutLine).append("chain=").append(chain).append('\n');
                 for (Map.Entry<String, Float> e : prm.entrySet())
                     props.append(e.getKey()).append('=').append(e.getValue()).append('\n');
                 for (Node nd2 : nodes) if (nd2.type.equals("overlay") && nd2.list.length() > 0)
