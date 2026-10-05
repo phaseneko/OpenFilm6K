@@ -739,7 +739,7 @@ public class EditorActivity extends Activity {
         {   // the whole node list lives in one big group box, label riding the frame
             LinearLayout gN = new LinearLayout(this); gN.setOrientation(LinearLayout.VERTICAL);
             gN.setBackground(new Ux.Etched());
-            gN.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+            gN.setPadding(Ux.dp(8), Ux.dp(10), Ux.dp(8), Ux.dp(8));
             root.removeView(nodesBox);
             gN.addView(nodesBox, new LinearLayout.LayoutParams(-1, -2));
             Ux.styleHeader(nh);
@@ -759,9 +759,11 @@ public class EditorActivity extends Activity {
 
         // ---- strict metrics pass: one control height, aligned labels, even section rhythm ----
         LinearLayout[] rows = {rowTop, rowSM, rowDN, addRow, dnPrevRow};
-        for (LinearLayout r : rows) {
+        int[] rowTopM = {0, 10, 0, 0, 6};   // group-leading rows sit flush in the box padding; nested rows keep their gap
+        for (int ri = 0; ri < rows.length; ri++) {
+            LinearLayout r = rows[ri];
             LinearLayout.LayoutParams rp = (LinearLayout.LayoutParams) r.getLayoutParams();
-            rp.topMargin = Ux.dp(10);
+            rp.topMargin = Ux.dp(rowTopM[ri]);
             rp.bottomMargin = 0;
             r.setLayoutParams(rp);
             for (int i = 0; i < r.getChildCount(); i++) {
