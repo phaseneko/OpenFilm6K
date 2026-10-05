@@ -53,6 +53,7 @@ public class MainActivity extends Activity {
     static android.app.Dialog winDlg(Activity a, String title, android.view.View body) {
         final android.app.Dialog dlg = new android.app.Dialog(a);
         dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));   // kill the system's rounded dialog backdrop: the window takes the square frame98 shape
         android.widget.LinearLayout box = new android.widget.LinearLayout(a);
         box.setOrientation(android.widget.LinearLayout.VERTICAL);
         int fp = Ux.dp(2);
@@ -121,6 +122,7 @@ public class MainActivity extends Activity {
         msg.setText(L.s("dataInstalling")); msg.setTextSize(14); msg.setTextColor(Ux.TXT);
         final android.widget.ProgressBar pb = new android.widget.ProgressBar(a, null, android.R.attr.progressBarStyleHorizontal);
         pb.setIndeterminate(false); pb.setMax(1);
+        pb.setProgressDrawable(Ux.thinTrack98());   // win98 sunken groove — the framework default has rounded caps
         b.addView(msg);
         b.addView(pb, new android.widget.LinearLayout.LayoutParams(-1, Ux.dp(18)));
         final android.app.Dialog dlg = winDlg(a, "OpenFilm6K", b);
@@ -128,7 +130,7 @@ public class MainActivity extends Activity {
         dlg.show();
         final android.app.Dialog[] resDlg = new android.app.Dialog[1];
         new Thread(new Runnable() { public void run() {
-            try { Server.get().start(a.getApplicationContext()); } catch (Throwable ig) {}
+            try { Server.get().startForInstall(a.getApplicationContext()); } catch (Throwable ig) {}
             Server.installAssets(new Server.InstallReporter() {
                 public void onProgress(final int done, final int total) {
                     a.runOnUiThread(new Runnable() { public void run() { pb.setMax(Math.max(1, total)); pb.setProgress(done); } });
