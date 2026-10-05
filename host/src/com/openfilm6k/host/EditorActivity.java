@@ -81,6 +81,7 @@ public class EditorActivity extends Activity {
     int expanded = -1;
     boolean editNight = false;   // day/night tab when the film is split
     boolean memSplit = false;    // in-memory split flag — persisted only on save
+    String memLut = null;        // in-memory lut= (bare filename) — persisted only on save; null = as loaded
     ArrayList<Node> nodesDay = new ArrayList<Node>(), nodesNight = new ArrayList<Node>();
     Button dnTabDay, dnTabNight, dnPrev;
     LinearLayout dnRow;
@@ -440,10 +441,11 @@ public class EditorActivity extends Activity {
         LinearLayout rowTop = new LinearLayout(this);
         filmSpin = new Spinner(this);
         android.widget.FrameLayout filmSpinWrap = Ux.wrapSpinner(this, filmSpin);
-        List<String> films = new ArrayList<String>();
-        for (String f : Films.list()) if (!f.startsWith("EDITTMP") && !f.equals("TEST0") && !f.equals("G2TEST")) films.add(f);
-        filmSpin.setAdapter(new StdSpinnerAdapter(this, films));
-        ((StdSpinnerAdapter) filmSpin.getAdapter()).spin = filmSpin;
+        List<String> films = filmChoices();
+        StdSpinnerAdapter fa = new StdSpinnerAdapter(this, films);
+        applyDiv(fa, films);
+        filmSpin.setAdapter(fa);
+        fa.spin = filmSpin;
         filmSpin.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             public void onItemSelected(AdapterView<?> p, View v, int pos, long id) { loadFilm(); updateDelBtn(); }
             public void onNothingSelected(AdapterView<?> p) {}
@@ -920,11 +922,29 @@ public class EditorActivity extends Activity {
         delBtn.setAlpha(user ? 1f : 0.38f);
     }
 
+    /** film dropdown entries: user-made films first, then an un-selectable divider, then the built-ins */
+    private java.util.List<String> filmChoices() {
+        java.util.List<String> user = new java.util.ArrayList<String>(), off = new java.util.ArrayList<String>();
+        for (String f : Films.list()) {
+            if (f.startsWith("EDITTMP") || f.equals("TEST0") || f.equals("G2TEST")) continue;
+            if ("user".equals(Films.s(f, "origin", ""))) user.add(f); else off.add(f);
+        }
+        java.util.List<String> out = new java.util.ArrayList<String>(user);
+        if (!user.isEmpty() && !off.isEmpty()) out.add(DIV);
+        out.addAll(off);
+        return out;
+    }
+
+    private void applyDiv(StdSpinnerAdapter a, java.util.List<String> l) {
+        for (int i = 0; i < l.size(); i++) if (DIV.equals(l.get(i))) a.div.add(i);
+    }
+
     private void rebuildFilmSpinner(String select) {
-        java.util.List<String> fs2 = new java.util.ArrayList<String>();
-        for (String f : Films.list()) if (!f.startsWith("EDITTMP") && !f.equals("TEST0") && !f.equals("G2TEST")) fs2.add(f);
-        filmSpin.setAdapter(new StdSpinnerAdapter(this, fs2));
-        ((StdSpinnerAdapter) filmSpin.getAdapter()).spin = filmSpin;
+        java.util.List<String> fs2 = filmChoices();
+        StdSpinnerAdapter fa2 = new StdSpinnerAdapter(this, fs2);
+        applyDiv(fa2, fs2);
+        filmSpin.setAdapter(fa2);
+        fa2.spin = filmSpin;
         if (select != null) for (int i = 0; i < fs2.size(); i++) if (fs2.get(i).equals(select)) { filmSpin.setSelection(i); break; }
         else if (!fs2.isEmpty()) filmSpin.setSelection(0);
         updateDelBtn();
@@ -981,6 +1001,7 @@ public class EditorActivity extends Activity {
         String f0 = selFilm();
         if (f0 == null) return;
         memSplit = Films.isSplit(f0);
+        memLut = Films.s(f0, "lut", null);   // reload (⟳) re-reads the stored value, discarding unsaved picks
         if (!memSplit) dnPreview = false;   // day/night preview is meaningless (and would stage empty chains) on a non-split film
         if (splitCbRef != null) { splitGuard = true; splitCbRef.setChecked(memSplit); splitGuard = false; }
         nodesDay = new ArrayList<Node>(); nodesNight = new ArrayList<Node>();
@@ -1123,6 +1144,7 @@ public class EditorActivity extends Activity {
         if (f0 == null) return;
         commitSlot();
         boolean wasSplit = Films.isSplit(f0);
+        if (memLut != null) Films.setProp(f0, "lut", memLut);   // the only place lut= is written
         if (memSplit && !wasSplit) Films.enableSplit(f0);   // creates variant files (seeded from base)
         if (!memSplit && wasSplit) Films.setProp(f0, "daynight", "");
         if (memSplit) {
@@ -1380,12 +1402,14 @@ public class EditorActivity extends Activity {
                         java.io.File[] a2 = new java.io.File(Films.LUTS).listFiles();
                         if (a2 != null) {
                             java.util.ArrayList<String> sys = new java.util.ArrayList<String>();
-                            for (java.io.File f : a2) if (f.getName().endsWith(".cube")) sys.add(f.getName());
+                            for (java.io.File f : a2) { String n = f.getName();
+                                if (n.endsWith(".cube")) sys.add(n.substring(0, n.length() - 5)); }   // bare name, like the custom block
                             java.util.Collections.sort(sys);
                             cl.addAll(sys);
                         }
                         java.io.File[] a3 = new java.io.File(Films.LUTS + "/imported").listFiles();
-                        if (a3 != null) for (java.io.File f : a3) if (f.getName().endsWith(".cube") && !cl.contains(f.getName())) cl.add(f.getName());
+                        if (a3 != null) for (java.io.File f : a3) { String n = f.getName();
+                            if (n.endsWith(".cube")) { String p2 = n.substring(0, n.length() - 5); if (!cl.contains(p2)) cl.add(p2); } }
                     } catch (Throwable ig) {}
                     if (cl.isEmpty()) cl.add("lut.cube");
                     Spinner csp = new Spinner(this);
@@ -1394,7 +1418,7 @@ public class EditorActivity extends Activity {
                     if (nCustom > 0) cspA.div.add(nCustom);   // divider after the custom block
                     csp.setAdapter(cspA);
                     android.widget.FrameLayout cspW = Ux.wrapSpinner(this, csp);
-                    String cur = Films.s(flm, "lut", "lut.cube");
+                    String cur = memLut != null ? memLut : Films.s(selFilm(), "lut", "lut.cube");   // unsaved pick first; lut= lives on the BASE film
                     String curName = new java.io.File(cur).getName();
                     if (curName.endsWith(".cube")) curName = curName.substring(0, curName.length() - 5);
                     for (int q = 0; q < cl.size(); q++) if (cl.get(q).equals(curName)) { csp.setSelection(q); break; }
@@ -1404,9 +1428,9 @@ public class EditorActivity extends Activity {
                             // store the bare filename only. Location is resolved by Films.lutFile()
                             // across luts/ + custom/luts/, so the property no longer hardcodes a path
                             // and keeps working if the file moves.
-                            String lutVal = pick + ".cube";
-                            String flm2 = selFilm();
-                            if (!lutVal.equals(Films.s(flm2, "lut", ""))) { Films.setProp(flm2, "lut", lutVal); renderPreview(); }
+                            // EDIT STATE ONLY: never touch the file — the pick lands on disk when the user presses save
+                            memLut = pick + ".cube";
+                            renderPreview();
                         }
                         public void onNothingSelected(AdapterView<?> pp) {}
                     });
@@ -2115,7 +2139,8 @@ public class EditorActivity extends Activity {
                 ref = BitmapFactory.decodeFile(src, o);   // reference is always the original
                 File tmpDir = new File(Films.ROOT + "/films", "EDITTMP");
                 tmpDir.mkdirs();
-                java.io.File lsrc = Films.lutFile(editKey());
+                String lutRef = memLut != null ? memLut : Films.s(selFilm(), "lut", editKey() + ".cube");   // memory first, then stored
+                java.io.File lsrc = lutRef == null ? null : Films.lutFileByName(selFilm(), lutRef);
                 // no LUT for this film (or its file vanished): stage with no lut= key at all so the
                 // engine renders the chain without colour grading, instead of throwing on a missing copy.
                 String lutLine = lsrc == null ? "" : "lut=lut.cube\n";

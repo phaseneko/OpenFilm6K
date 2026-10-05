@@ -68,6 +68,13 @@ public class Films {
      *  working — naively joining an absolute child onto LUTS yields luts/sdcard/... which never exists. */
     public static File lutFile(String film) {
         String lut = props(film).getProperty("lut", film + ".cube").trim();
+        return lutFileByName(film, lut);
+    }
+
+    /** resolve an explicit lut= value (bare filename or legacy path) to an actual file; film = owner key for the film-local dir */
+    public static File lutFileByName(String film, String lut) {
+        if (lut == null) return null;
+        lut = lut.trim();
         if (lut.length() == 0) return null;
         File direct = new File(lut);
         if (direct.isAbsolute() && direct.exists()) return direct;   // legacy films, absolute lut=
@@ -83,6 +90,17 @@ public class Films {
         if (cu.exists()) return cu;
         File imp = new File(LUTS + "/imported", base);
         return imp.exists() ? imp : null;
+    }
+
+    /** films ordered user-made first (editor + camera browser put customs on top, divider after) */
+    public static List<String> listUserFirst() {
+        List<String> user = new ArrayList<>(), off = new ArrayList<>();
+        for (String k : list()) {
+            if ("user".equals(s(k, "origin", ""))) user.add(k); else off.add(k);
+        }
+        List<String> out = new ArrayList<>(user);
+        out.addAll(off);
+        return out;
     }
 
     public static float f(String film, String key, float def) {
