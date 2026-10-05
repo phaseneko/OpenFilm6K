@@ -1000,6 +1000,10 @@ public class EditorActivity extends Activity {
         boolean split = memSplit;
         if (dnTabDay == null) return;
         // radio-tab look: the active side is pressed IN, the inactive side stays raised (no alpha dimming)
+        int tabVis = split ? android.view.View.VISIBLE : android.view.View.GONE;   // day/night controls only exist while split is on
+        dnTabDay.setVisibility(tabVis);
+        dnTabNight.setVisibility(tabVis);
+        dnPrev.setVisibility(tabVis);
         boolean daySel = split && !dnPreview && !editNight;
         boolean nightSel = split && !dnPreview && editNight;
         boolean prevSel = split && dnPreview;
@@ -1041,6 +1045,7 @@ public class EditorActivity extends Activity {
         memLut = Films.s(f0, "lut", null);   // reload (⟳) re-reads the stored value, discarding unsaved picks
         if (!memSplit) dnPreview = false;   // day/night preview is meaningless (and would stage empty chains) on a non-split film
         if (splitCbRef != null) { splitGuard = true; splitCbRef.setChecked(memSplit); splitGuard = false; }
+        updateDnUI();   // keep the day/night buttons in step with the reloaded split state
         nodesDay = new ArrayList<Node>(); nodesNight = new ArrayList<Node>();
         String film = editKey();
         nodes.clear(); expanded = -1;
