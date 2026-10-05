@@ -111,9 +111,9 @@ public class Engine {
     static { try { System.loadLibrary("of6k"); NATIVE = true; dbg("libof6k loaded"); } catch (Throwable t) { NATIVE = false; dbg("libof6k load FAIL: " + t); } }
     private native boolean nInit();
     /** full native: jpeg file -> chain -> jpeg file (turbojpeg decode/encode, tiled GL). 0 = ok */
-    private native int nProcessFile(String inPath, String outPath, String lutPath, float[] nodes, String[] overlays, String lutPath2, float[] nodesNight, float score);
+    private native int nProcessFile(String inPath, String outPath, String lutPath, float[] nodes, String[] overlays, String lutPath2, float[] nodesNight, float score, String[] nodeLuts, String[] nodeLutsNight);
     /** renders chain into direct buf (RGBA, w*h*4) in place. node rows: 11 floats each */
-    private native int nRender(int w, int h, java.nio.ByteBuffer buf, String lutPath, float[] nodes, String[] overlays, String lutPath2, float score);
+    private native int nRender(int w, int h, java.nio.ByteBuffer buf, String lutPath, float[] nodes, String[] overlays, String lutPath2, float score, String[] nodeLuts);
     private static boolean nInited = false;
     private static java.nio.ByteBuffer nBuf = null;
 
@@ -189,7 +189,7 @@ public class Engine {
         return out.toArray(new String[0]);
     }
 
-    private float[] buildNodes(String film) {
+    private float[] buildNodes(String film, java.util.List<String> nodeLuts) {
         java.util.List<Float> out = new java.util.ArrayList<Float>();
         for (String step : Films.s(film, "chain", "lut,grade,glow,grain,vig").split(",")) {
             step = step.trim();
@@ -207,6 +207,14 @@ public class Engine {
             float[] P = new float[12];
             if (ty.equals("lut")) {
                 P[0] = 0; P[1] = al;   // strength folded into alpha
+                P[2] = 0;              // per-node lut texture index, resolved natively from the path below
+                String nf = Films.props(film).getProperty("lut@" + nid + ".file", "").trim();
+                String npath = "";
+                if (!nf.isEmpty()) {
+                    java.io.File f3 = Films.lutFileByName(film, nf);
+                    if (f3 != null) npath = f3.getAbsolutePath();
+                }
+                nodeLuts.add(npath);
             } else if (ty.equals("grade")) {
                 P[0] = 1;
                 P[1] = np(film, ty, nid, "exposure", 0); P[2] = np(film, ty, nid, "contrast", 0);
@@ -240,6 +248,7 @@ public class Engine {
                 P[3] = np(film, ty, nid, "end", 1); P[4] = np(film, ty, nid, "r", 0);
                 P[5] = np(film, ty, nid, "g", 0); P[6] = np(film, ty, nid, "b", 0); P[7] = al;
             } else continue;
+            if (!ty.equals("lut")) nodeLuts.add("");
             for (float v : P) out.add(v);
         }
         float[] r = new float[out.size()];
@@ -259,11 +268,12 @@ public class Engine {
             nBuf.position(0);
             src.copyPixelsToBuffer(nBuf);
             if (nBuf.position() != cap) return false;
-            float[] nodes = buildNodes(film);
+            java.util.List<String> nl = new java.util.ArrayList<String>();
+            float[] nodes = buildNodes(film, nl);   // packs the per-node lut path column alongside
             java.io.File lf = Films.lutFile(film);
             String lp = lf != null ? lf.getAbsolutePath() : null;
             nBuf.position(0);
-            int rc = nRender(w, h, nBuf, lp, nodes, new String[0], null, 0f);
+            int rc = nRender(w, h, nBuf, lp, nodes, new String[0], null, 0f, nl.toArray(new String[0]));
             if (rc != 0) return false;
             nBuf.position(0);
             android.graphics.Bitmap outBm = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
@@ -482,7 +492,8 @@ public class Engine {
                     String low = imgPath.toLowerCase(java.util.Locale.US);
                     if (nInited && (low.endsWith(".jpg") || low.endsWith(".jpeg") || low.endsWith(".raw"))) {
                         String dayKey = Films.isSplit(film) ? film + ".day" : film;   // day half reads the .day variant when split
-                        float[] nds = buildNodes(dayKey);
+                        java.util.List<String> nlD = new java.util.ArrayList<String>();
+                        float[] nds = buildNodes(dayKey, nlD);
                         java.io.File lf = Films.lutFile(dayKey);
                         long _n0 = android.os.SystemClock.elapsedRealtime();
                         String[] ovs = buildOverlays(film);
@@ -491,17 +502,19 @@ public class Engine {
                         float score = ov != null ? ov : dayNightScore(imgPath);
                         String lut2 = null;
                         float[] nn = null;
+                        java.util.List<String> nlN = new java.util.ArrayList<String>();
                         if (Films.isSplit(film) && score > 0.001f) {
-                            nn = buildNodes(film + ".night");
+                            nn = buildNodes(film + ".night", nlN);
                             java.io.File lf2 = Films.lutFile(film + ".night");
                             if (lf2 != null && nn.length > 0) {
                                 if (score >= 0.999f) {   // short-circuit: pure night, single render
-                                    nds = nn; lf = lf2; nn = null;
+                                    nds = nn; lf = lf2; nn = null; nlD = nlN;
                                 } else lut2 = lf2.getAbsolutePath();   // output blend: chains may differ freely
                             } else { nn = null; dbg("daynight: night lut missing, day only"); }
                         }
                         dbg("daynight score=" + score + " blend=" + (lut2 != null));
-                        int rc = nProcessFile(imgPath, outPath, lf != null ? lf.getAbsolutePath() : null, nds, ovs, lut2, nn, lut2 != null ? score : 0f);
+                        int rc = nProcessFile(imgPath, outPath, lf != null ? lf.getAbsolutePath() : null, nds, ovs, lut2, nn, lut2 != null ? score : 0f,
+                                              nlD.toArray(new String[0]), nn != null ? nlN.toArray(new String[0]) : new String[0]);
                         long _n1 = android.os.SystemClock.elapsedRealtime();
                         dbg("TIMING nativeFile=" + (_n1 - _n0) + "ms rc=" + rc);
                         if (rc == 0) { Exif.carry(new java.io.File(imgPath), new java.io.File(outPath)); return outPath; }

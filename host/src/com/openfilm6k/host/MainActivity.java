@@ -111,7 +111,7 @@ public class MainActivity extends Activity {
             permDlg.show();
             return;
         }
-        if (filmsMissing()) showInstall(a);
+        if (filmsMissing() || Server.versionNeedsInstall(a)) showInstall(a);   // first run or a new APK version: restate official data
     }
 
     /** win98 progress dialog; incremental install — only missing files are written */

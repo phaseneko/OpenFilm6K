@@ -227,6 +227,41 @@ static float g_ox = 0, g_oy = 0, g_fw = 0, g_fh = 0;
 struct Lut { std::string path; long mtime; long size; int n; GLuint tex; };
 static Lut g_lut;
 static bool g_lutValid = false;
+// per-node LUT textures: index 1..N; index 0 always means "the base g_lut".
+// entries are cached by path+mtime+size and never reloaded unless the file changes.
+static std::vector<Lut> g_extra;
+static bool parseCube(const char* path, std::vector<float>& d, int& n);   // fwd: defined below the cache
+static int lutIndexFor(const char* path) {
+    if (!path || !*path) return 0;
+    struct stat st;
+    if (stat(path, &st) != 0) return 0;
+    for (size_t i = 0; i < g_extra.size(); i++) {
+        Lut& L = g_extra[i];
+        if (L.n > 0 && L.path == path && L.mtime == st.st_mtime && L.size == st.st_size) return (int) i + 1;
+    }
+    std::vector<float> d; int n = 0;
+    if (!parseCube(path, d, n) || n <= 0) return 0;
+    Lut L; L.path = path; L.mtime = st.st_mtime; L.size = st.st_size; L.n = n;
+    glGenTextures(1, &L.tex);
+    glBindTexture(GL_TEXTURE_3D, L.tex);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    int nnn = n * n * n;
+    std::vector<unsigned char> bytes(nnn * 4, 255);
+    for (int i = 0; i < nnn; i++) for (int ch = 0; ch < 3; ch++) {
+        float v = d[i * 3 + ch] * 255.0f;
+        int iv = (int) (v + (v >= 0 ? 0.5f : -0.5f));
+        bytes[i * 4 + ch] = (unsigned char) (iv < 0 ? 0 : (iv > 255 ? 255 : iv));
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, n, n, n, 0, GL_RGBA, GL_UNSIGNED_BYTE, bytes.data());
+    g_extra.push_back(L);
+    LOGI("per-node lut uploaded: %s (idx %d, n=%d)", path, (int) g_extra.size(), n);
+    return (int) g_extra.size();
+}
 
 #define CHECK_GL() do { GLenum e = glGetError(); if (e) { LOGE("GL err 0x%x line %d", e, __LINE__); } } while (0)
 
@@ -409,9 +444,12 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
     switch (type) {
         case N_LUT: {
             if (P[1] <= 0) break;
+            int li = (int) P[2];   // 0 = base film lut, >=1 = per-node lut (g_extra)
+            const Lut* L = &g_lut;
+            if (li > 0 && li <= (int) g_extra.size()) L = &g_extra[li - 1];
             glUseProgram(g_progLut);
             glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_3D, g_lut.tex);
+            glBindTexture(GL_TEXTURE_3D, L->tex);
             glUniform1i(glGetUniformLocation(g_progLut, "uLut"), 1);
             glUniform1f(glGetUniformLocation(g_progLut, "uOn"), P[1]);
             glActiveTexture(GL_TEXTURE0);
@@ -636,7 +674,7 @@ Java_com_openfilm6k_host_Engine_nInit(JNIEnv*, jobject) {
 JNIEXPORT jint JNICALL
 Java_com_openfilm6k_host_Engine_nRender(JNIEnv* env, jobject, jint w, jint h, jobject buf,
                                         jstring lutPath, jfloatArray nodes, jobjectArray overlays,
-                                        jstring lutPath2, jfloat score) {
+                                        jstring lutPath2, jfloat score, jobjectArray nodeLuts) {
     if (!g_inited) return -1;
     g_ovPaths.clear(); g_ovIdx = 0;
     unsigned char* px = (unsigned char*) env->GetDirectBufferAddress(buf);
@@ -648,6 +686,18 @@ Java_com_openfilm6k_host_Engine_nRender(JNIEnv* env, jobject, jint w, jint h, jo
     if (!eglMakeCurrent(g_dpy, g_surf, g_surf, g_ctx)) { LOGE("makeCurrent fail"); return -3; }
     int rc = 0;
     do {
+        // resolve per-node luts into P[2] (needs the GL context)
+        if (nodeLuts) {
+            jsize nl = env->GetArrayLength(nodeLuts);
+            for (int i = 0; i < nNodes && i < nl; i++) {
+                if ((int) nd[i * 12] != N_LUT) continue;
+                jstring s2 = (jstring) env->GetObjectArrayElement(nodeLuts, i);
+                if (!s2) continue;
+                const char* cs = env->GetStringUTFChars(s2, nullptr);
+                nd[i * 12 + 2] = (float) lutIndexFor(cs);
+                env->ReleaseStringUTFChars(s2, cs);
+            }
+        }
         // LUT needed?
         bool needLut = false;
         for (int i = 0; i < nNodes; i++) if ((int) nd[i * 12] == N_LUT && nd[i * 12 + 1] > 0) { needLut = true; break; }
@@ -730,7 +780,8 @@ Java_com_openfilm6k_host_Engine_nRender(JNIEnv* env, jobject, jint w, jint h, jo
 JNIEXPORT jint JNICALL
 Java_com_openfilm6k_host_Engine_nProcessFile(JNIEnv* env, jobject, jstring inPath, jstring outPath,
                                              jstring lutPath, jfloatArray nodes, jobjectArray overlays,
-                                             jstring lutPath2, jfloatArray nodesNight, jfloat score) {
+                                             jstring lutPath2, jfloatArray nodesNight, jfloat score,
+                                             jobjectArray nodeLuts, jobjectArray nodeLutsNight) {
     if (!g_inited) return -1;
     g_ovPaths.clear();
     if (overlays) {
@@ -781,6 +832,29 @@ Java_com_openfilm6k_host_Engine_nProcessFile(JNIEnv* env, jobject, jstring inPat
         }
         bool hasGlow = needGlow;
         if (needLut && lp) loadLut(lp);
+        // resolve per-node luts into P[2] (context is current here)
+        if (nodeLuts) {
+            jsize nl = env->GetArrayLength(nodeLuts);
+            for (int i = 0; i < nNodes && i < nl; i++) {
+                if ((int) nd[i * 12] != N_LUT) continue;
+                jstring s2 = (jstring) env->GetObjectArrayElement(nodeLuts, i);
+                if (!s2) continue;
+                const char* cs = env->GetStringUTFChars(s2, nullptr);
+                nd[i * 12 + 2] = (float) lutIndexFor(cs);
+                env->ReleaseStringUTFChars(s2, cs);
+            }
+        }
+        if (nodeLutsNight && ndN) {
+            jsize nl = env->GetArrayLength(nodeLutsNight);
+            for (int i = 0; i < nNight && i < nl; i++) {
+                if ((int) ndN[i * 12] != N_LUT) continue;
+                jstring s2 = (jstring) env->GetObjectArrayElement(nodeLutsNight, i);
+                if (!s2) continue;
+                const char* cs = env->GetStringUTFChars(s2, nullptr);
+                ndN[i * 12 + 2] = (float) lutIndexFor(cs);
+                env->ReleaseStringUTFChars(s2, cs);
+            }
+        }
         int LIMIT = 4096 - 8;
         // glow apron must cover the widest fetch: blur taps reach +-radius px, dilate +-(0.6*radius)
         float maxGR = 0.0f;

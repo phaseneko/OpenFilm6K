@@ -28,6 +28,7 @@ public class Server {
     public static synchronized void installAssets(InstallReporter r) {
         try {
             java.io.File base = new java.io.File("/sdcard/OpenFilm6K");
+            final int ver = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).versionCode;
             // read the file manifest — AssetManager.list() returns NOTHING for plain zip entries
             // added by `aapt add` (no directory records), so we ship films/index.txt instead
             java.io.BufferedReader rd = new java.io.BufferedReader(new java.io.InputStreamReader(ctx.getAssets().open("films/index.txt")));
@@ -55,6 +56,7 @@ public class Server {
                 copied++;
                 if (r != null) r.onProgress(copied, jobs.size());
             }
+            ctx.getSharedPreferences("of6k", 0).edit().putInt("installedVer", ver).commit();   // done: this version's data is in place
             if (r != null) r.onDone(copied, null);
             else if (copied > 0) MainActivity.say("installed " + copied + " bundled film files");
         } catch (Throwable t) {
@@ -149,9 +151,17 @@ public class Server {
         return lastCamSeen > 0 && System.currentTimeMillis() - lastCamSeen < 600000;   // camera idles quietly between pings
     }
 
+    /** true when the running APK version has not installed its data yet (or the marker predates it) */
+    public static boolean versionNeedsInstall(android.content.Context c) {
+        try {
+            int ver = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionCode;
+            return c.getSharedPreferences("of6k", 0).getInt("installedVer", -1) != ver;
+        } catch (Throwable t) { return true; }
+    }
+
     void start(android.content.Context c) {
         ctx = c.getApplicationContext();
-        installAssets(null);   // retryable: runs again on every start, e.g. after permission grant
+        if (versionNeedsInstall(ctx)) installAssets(null);   // overwrite once per APK version, silent (service boots)
         start();
     }
 
