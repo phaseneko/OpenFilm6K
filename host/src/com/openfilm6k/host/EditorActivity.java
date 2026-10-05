@@ -37,7 +37,7 @@ import java.util.Map;
 public class EditorActivity extends Activity {
 
     // ---------- node model ----------
-    static class Node { String type, id; LinkedHashMap<String, Float> p = new LinkedHashMap<String, Float>(); String list = ""; }
+    static class Node { String type, id; LinkedHashMap<String, Float> p = new LinkedHashMap<String, Float>(); String list = ""; String file; }   // file = per-node lut (lut nodes only; null = the film lut)
     static final String[] TYPES = {"lut", "grade", "glow", "grain", "vig", "sharp", "overlay", "hue"};
     static final String[] TLABEL = {"tLut", "tGrade", "tGlow", "tGrain", "tVig", "tSharp", "tOverlay", "tHue"};   // i18n keys
     static String[] tlTr() {   // translated copy for adapters
@@ -983,7 +983,7 @@ public class EditorActivity extends Activity {
     private static ArrayList<Node> copyNodes(ArrayList<Node> src) {
         ArrayList<Node> out = new ArrayList<Node>();
         for (Node n : src) {
-            Node c = new Node(); c.type = n.type; c.id = n.id; c.list = n.list;
+            Node c = new Node(); c.type = n.type; c.id = n.id; c.list = n.list; c.file = n.file;
             c.p.putAll(n.p);
             out.add(c);
         }
@@ -1018,6 +1018,10 @@ public class EditorActivity extends Activity {
             if (id.isEmpty()) id = String.valueOf(n);
             Node nd = new Node(); nd.type = ty; nd.id = id;
             if (ty.equals("overlay")) nd.list = Films.s(film, ty + "@" + id + ".list", "");
+            if (ty.equals("lut")) {
+                String pf = Films.props(film).getProperty("lut@" + id + ".file", "").trim();
+                nd.file = pf.isEmpty() ? null : pf;
+            }
             nd.p.put("enable", Films.f(film, ty + "@" + id + ".enable", 1f));
             nd.p.put("alpha", strengthOf(film, ty, id));
             for (String[] sp : PSPEC[typeIdx(ty)]) {
@@ -1098,6 +1102,10 @@ public class EditorActivity extends Activity {
             if (id.isEmpty()) id = String.valueOf(n);
             Node nd = new Node(); nd.type = ty; nd.id = id;
             if (ty.equals("overlay")) nd.list = Films.s(key, ty + "@" + id + ".list", "");
+            if (ty.equals("lut")) {
+                String pf = Films.props(key).getProperty("lut@" + id + ".file", "").trim();
+                nd.file = pf.isEmpty() ? null : pf;
+            }
             nd.p.put("enable", Films.f(key, ty + "@" + id + ".enable", 1f));
             nd.p.put("alpha", strengthOf(key, ty, id));
             for (String[] sp : PSPEC[typeIdx(ty)]) {
@@ -1179,6 +1187,8 @@ public class EditorActivity extends Activity {
         Films.savePipeline(key, chainStr(), allParams());
         for (Node nd2 : slot) if (nd2.type.equals("overlay"))
             Films.setProp(key, "overlay@" + nd2.id + ".list", nd2.list);
+        for (Node nd2 : slot) if (nd2.type.equals("lut"))
+            Films.setProp(key, "lut@" + nd2.id + ".file", nd2.file == null ? "" : nd2.file);
         nodes = keep;
     }
 
@@ -1418,18 +1428,19 @@ public class EditorActivity extends Activity {
                     if (nCustom > 0) cspA.div.add(nCustom);   // divider after the custom block
                     csp.setAdapter(cspA);
                     android.widget.FrameLayout cspW = Ux.wrapSpinner(this, csp);
-                    String cur = memLut != null ? memLut : Films.s(selFilm(), "lut", "lut.cube");   // unsaved pick first; lut= lives on the BASE film
+                    String cur = nd.file != null ? nd.file
+                               : (memLut != null ? memLut : Films.s(selFilm(), "lut", "lut.cube"));   // the file this node actually renders through
                     String curName = new java.io.File(cur).getName();
                     if (curName.endsWith(".cube")) curName = curName.substring(0, curName.length() - 5);
-                    for (int q = 0; q < cl.size(); q++) if (cl.get(q).equals(curName)) { csp.setSelection(q); break; }
+                    boolean matched = false;
+                    for (int q = 0; q < cl.size(); q++) if (cl.get(q).equals(curName)) { csp.setSelection(q); matched = true; break; }
+                    if (!matched) csp.setSelection(android.view.View.NO_ID);   // dangling reference: show empty
                     csp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                         public void onItemSelected(AdapterView<?> pp, View vv, int pos, long id2) {
                             String pick = cl.get(pos);
-                            // store the bare filename only. Location is resolved by Films.lutFile()
-                            // across luts/ + custom/luts/, so the property no longer hardcodes a path
-                            // and keeps working if the file moves.
-                            // EDIT STATE ONLY: never touch the file — the pick lands on disk when the user presses save
-                            memLut = pick + ".cube";
+                            // per-node edit state: stored in the node, lands on disk at save. The bare
+                            // filename is resolved by Films.lutFileByName() across luts/ + custom/luts/.
+                            nd.file = pick + ".cube";
                             renderPreview();
                         }
                         public void onNothingSelected(AdapterView<?> pp) {}
@@ -2150,6 +2161,8 @@ public class EditorActivity extends Activity {
                     props.append(e.getKey()).append('=').append(e.getValue()).append('\n');
                 for (Node nd2 : nodes) if (nd2.type.equals("overlay") && nd2.list.length() > 0)
                     props.append("overlay@").append(nd2.id).append(".list=").append(nd2.list).append('\n');
+                for (Node nd2 : nodes) if (nd2.type.equals("lut") && nd2.file != null)
+                    props.append("lut@").append(nd2.id).append(".file=").append(nd2.file).append('\n');
                 FileOutputStream fo = new FileOutputStream(new File(Films.PIPE, "EDITTMP.properties"));
                 fo.write(props.toString().getBytes()); fo.close();
                 Films.reload("EDITTMP");
