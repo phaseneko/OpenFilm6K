@@ -87,6 +87,7 @@ public class HostService extends Service {
     @Override public IBinder onBind(Intent i) { return null; }
     @Override public void onCreate() {
         super.onCreate();
+        SpyWatcher.sync(getApplicationContext());   // spy mode survives activity death: prefs are the truth
         nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         NotificationChannel ch = new NotificationChannel("of6k", "OpenFilm6K", NotificationManager.IMPORTANCE_LOW);
         nm.createNotificationChannel(ch);
