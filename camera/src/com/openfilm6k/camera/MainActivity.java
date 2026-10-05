@@ -158,12 +158,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             while ((n = in.read(b)) > 0) bo.write(b, 0, n);
             in.close(); c.disconnect();
             java.util.ArrayList<String> got = new java.util.ArrayList<String>();
+            int cc = 0; boolean seenDiv = false;
             for (String s2 : new String(bo.toByteArray(), "UTF-8").split("\n")) {
                 s2 = s2.trim();
-                if (!s2.isEmpty() && !s2.startsWith("EDITTMP")) got.add(s2);
+                if (s2.isEmpty() || s2.startsWith("EDITTMP")) continue;
+                if (s2.startsWith("----")) { cc = got.size(); seenDiv = true; continue; }   // host: customs end here
+                got.add(s2);
             }
             if (!got.isEmpty() && !got.equals(new java.util.ArrayList<String>(names))) {
                 names.clear(); names.addAll(got);
+                customCount = seenDiv ? cc : 0;
                 Logger.log("films pulled from host: " + got.size());
                 renderOverlay();
             } else if (!got.isEmpty()) {
@@ -513,29 +517,39 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private List<String> names = new ArrayList<String>();
     private int sel = 0;
     private static final int NSPECIAL = 2;   // sel: 0=random, 1=favorite, >=2 => real film (sel-2)
+    private int customCount = 0;             // user films at the head of names; >0 => divider row after them
     private final java.util.Random rnd = new java.util.Random();
-    private int totalSel() { return names.size() + NSPECIAL; }
+    private int totalSel() { return names.size() + NSPECIAL + (customCount > 0 ? 1 : 0); }
+    private int divSel() { return customCount > 0 ? NSPECIAL + customCount : -1; }   // display pos of the divider
+    private int filmIdx(int s) { return s - NSPECIAL - (divSel() >= 0 && s > divSel() ? 1 : 0); }   // display pos -> names idx
+    private int posOf(int idx) { return NSPECIAL + idx + (divSel() >= 0 && idx >= customCount ? 1 : 0); }   // names idx -> display pos
     private String selName(int s) {
         if (s == 0) return "random";
         if (s == 1) return "favorite";
-        int r = s - NSPECIAL;
+        if (s == divSel()) return "----------------";
+        int r = filmIdx(s);
         return (r >= 0 && r < names.size()) ? names.get(r) : "?";
     }
-    private boolean selFav(int s) { int r = s - NSPECIAL; return r >= 0 && favs.contains(r); }
+    private boolean selFav(int s) { int r = filmIdx(s); return r >= 0 && r < names.size() && favs.contains(names.get(r)); }
     private int resolveSel(int s) {
         if (names.isEmpty()) return 0;
         if (s == 0) return rnd.nextInt(names.size());
         if (s == 1) {
             java.util.ArrayList<Integer> f = new java.util.ArrayList<Integer>();
-            for (int i = 0; i < names.size(); i++) if (favs.contains(i)) f.add(i);
+            for (int i = 0; i < names.size(); i++) if (favs.contains(names.get(i))) f.add(i);
             return f.isEmpty() ? rnd.nextInt(names.size()) : f.get(rnd.nextInt(f.size()));
         }
-        int r = s - NSPECIAL;
+        int r = filmIdx(s);
         return (r >= 0 && r < names.size()) ? r : 0;
     }
     private java.util.List<String> displayNames() {
         java.util.ArrayList<String> l = new java.util.ArrayList<String>();
-        l.add("random"); l.add("favorite"); l.addAll(names); return l;
+        l.add("random"); l.add("favorite");
+        for (int i = 0; i < names.size(); i++) {
+            if (i == customCount && customCount > 0) l.add("----------------");   // un-selectable Win98 separator
+            l.add(names.get(i));
+        }
+        return l;
     }
     private File LUTS, TEX, GRADED;
 
@@ -694,11 +708,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         stampMode = pf.getInt("stamp", 0);
         favs.clear();
         String fv = pf.getString("favs", "");
-        if (fv.length() > 0) { String[] parts = fv.split(","); for (int i = 0; i < parts.length; i++) { try { favs.add(Integer.parseInt(parts[i])); } catch (Throwable t) {} } }
+        if (fv.length() > 0) {
+            String[] parts = fv.split(",");
+            for (String p2 : parts) {
+                try { int ix = Integer.parseInt(p2); if (ix >= 0 && ix < names.size()) favs.add(names.get(ix)); }   // legacy index entry, best effort
+                catch (NumberFormatException nf) { if (!p2.isEmpty()) favs.add(p2); }                              // name entry
+            }
+        }
         qualityIdx = pf.getInt("quality", 0);
 
         discoverFilms();
-        if (sel < 0 || sel >= totalSel()) sel = names.isEmpty() ? 0 : NSPECIAL;
+        if (sel < 0 || sel >= totalSel() || sel == divSel()) sel = names.isEmpty() ? 0 : NSPECIAL;
         hud.setPadding(dp(8), dp(4), dp(8), dp(4));
         status.setPadding(dp(8), dp(4), dp(8), dp(4));
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) status.getLayoutParams();
@@ -1760,7 +1780,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private int hlIdx = 0;   // start on film row
     private int lastParam = 2;   // remembered param-row cursor
-    private final java.util.HashSet<Integer> favs = new java.util.HashSet<Integer>();
+    private final java.util.HashSet<String> favs = new java.util.HashSet<String>();   // by FILM NAME: survives list reordering
     private boolean c1Held = false;
     private int stampMode = 0;   // 0 off, 1 date(D), 2 exposure(E), 3 DE, 4 B(frame), 5 X(collage), 6 F(film name), 7 FE(film name + exposure)
     private boolean spotMode = false;
@@ -1983,11 +2003,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private boolean browserKey(int scan, int dir) {
         if (scan == K_LEFT) { browser = 0; renderOverlay(); return true; }               // jump to list start
-        if (scan == K_RIGHT) { browser = totalSel() - 1; renderOverlay(); return true; } // jump to list end
+        if (scan == K_RIGHT) { browser = totalSel() - 1; if (browser == divSel()) browser--; renderOverlay(); return true; } // jump to list end
         if (scan == K_C1) {
-            if (browser >= NSPECIAL) {                 // only real films can be favorited
-                int r = browser - NSPECIAL;
-                if (favs.contains(r)) favs.remove(r); else favs.add(r);
+            if (browser >= NSPECIAL && browser != divSel()) {   // only real films can be favorited
+                int r = filmIdx(browser);
+                String nm = names.get(r);
+                if (favs.contains(nm)) favs.remove(nm); else favs.add(nm);
                 savePrefs();
             }
             renderOverlay(); return true;
@@ -1995,10 +2016,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (scan == K_UP || scan == K_DOWN) { dir = (scan == K_DOWN) ? 1 : -1; }
         if (dir != 0) {
             browser = (browser + dir + totalSel()) % totalSel();
+            if (browser == divSel()) browser = (browser + dir + totalSel()) % totalSel();   // the divider is never selectable
             renderOverlay();
             return true;
         }
         if (scan == K_ENTER) {
+            if (browser == divSel()) return true;
             sel = browser;
             savePrefs();
             browser = -1;
@@ -2048,28 +2071,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private String favsStr() {
         StringBuilder sb = new StringBuilder();
-        java.util.ArrayList<Integer> l = new java.util.ArrayList<Integer>(favs);
-        java.util.Collections.sort(l);
-        for (int i = 0; i < l.size(); i++) { if (i > 0) sb.append(","); sb.append(l.get(i)); }
+        for (int i = 0; i < names.size(); i++) if (favs.contains(names.get(i))) { if (sb.length() > 0) sb.append(","); sb.append(names.get(i)); }
         return sb.toString();
     }
 
     private boolean[] favArr() {
         boolean[] b = new boolean[totalSel()];
-        for (int i = 0; i < names.size(); i++) b[i + NSPECIAL] = favs.contains(i);
+        for (int i = 0; i < names.size(); i++) b[posOf(i)] = favs.contains(names.get(i));
         return b;
     }
 
     private void jumpFav(int dir) {
         if (favs.isEmpty()) return;
-        java.util.ArrayList<Integer> l = new java.util.ArrayList<Integer>(favs);
-        java.util.Collections.sort(l);
-        int cur = sel - NSPECIAL;
+        java.util.ArrayList<String> l = new java.util.ArrayList<String>();
+        for (int i = 0; i < names.size(); i++) if (favs.contains(names.get(i))) l.add(names.get(i));   // list order
+        if (l.isEmpty()) return;
+        int cur = filmIdx(sel);
+        String curName = (cur >= 0 && cur < names.size()) ? names.get(cur) : null;
         int pos = -1;
-        for (int i = 0; i < l.size(); i++) if (l.get(i) == cur) pos = i;
-        if (pos < 0) { pos = 0; for (int i = 0; i < l.size(); i++) if (l.get(i) > cur) { pos = i; break; } }
+        for (int i = 0; i < l.size(); i++) if (l.get(i).equals(curName)) pos = i;
+        if (pos < 0) { pos = 0; for (int i = 0; i < l.size(); i++) if (names.indexOf(l.get(i)) > cur) { pos = i; break; } }
         else pos = (pos + dir + l.size()) % l.size();
-        sel = l.get(pos) + NSPECIAL;
+        sel = posOf(names.indexOf(l.get(pos)));
         savePrefs();
     }
 
