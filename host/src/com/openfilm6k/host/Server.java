@@ -18,9 +18,13 @@ public class Server {
     /** progress reporter for the film-library extraction */
     public interface InstallReporter { void onProgress(int done, int total); void onDone(int copied, String error); }
 
-    /** idempotent: extract the bundled films from APK assets to the SD card.
-     *  Only copies files that are missing — never overwrites user-created or user-edited films.
-     *  Safe to call repeatedly; synchronized so the service and the activity never race. */
+    /** extract the bundled films from APK assets to the SD card.
+     *  OVERWRITE mode: every file in the shipped manifest (official pipelines, LUTs, scene
+     *  previews) is written unconditionally, so corrupted or stale official data is repaired
+     *  on every start. The manifest only ever lists files we bundle — anything the user made
+     *  (custom films, imported LUTs, custom/scenes) is not in it and is never touched, and
+     *  nothing is ever deleted. Safe to call repeatedly; synchronized so the service and the
+     *  activity never race. */
     public static synchronized void installAssets(InstallReporter r) {
         try {
             java.io.File base = new java.io.File("/sdcard/OpenFilm6K");
@@ -33,8 +37,7 @@ public class Server {
                 line = line.trim();
                 if (line.length() == 0) continue;
                 String rel = line.startsWith("films/") ? line.substring(6) : line;   // pipelines/x / luts/y / root/preview_z.jpg (scene thumbs)
-                if (new java.io.File(base, rel).exists()) continue;                   // incremental: never overwrite
-                jobs.add(line);
+                jobs.add(line);                                                       // overwrite: official data is always restated from the APK
             }
             rd.close();
             int copied = 0;
@@ -149,6 +152,13 @@ public class Server {
     void start(android.content.Context c) {
         ctx = c.getApplicationContext();
         installAssets(null);   // retryable: runs again on every start, e.g. after permission grant
+        start();
+    }
+
+    /** bootstrap for the visible install dialog: set ctx + start http, but do NOT run a silent
+     *  copy first — the reporter-driven installAssets() that follows is the one the bar shows. */
+    void startForInstall(android.content.Context c) {
+        ctx = c.getApplicationContext();
         start();
     }
 
@@ -281,7 +291,15 @@ public class Server {
             lastCamSeen = System.currentTimeMillis();
             String sm = q.get("stampmode");   // the camera reports its current stamp mode with every pull
             if (sm != null) try { camStamp = Integer.parseInt(sm.trim()); } catch (Throwable ig) {}
-            resp = String.join("\n", Films.list());
+            java.util.List<String> user = new java.util.ArrayList<String>(), off = new java.util.ArrayList<String>();
+            for (String k : Films.listUserFirst()) {
+                if ("user".equals(Films.s(k, "origin", ""))) user.add(k); else off.add(k);
+            }
+            StringBuilder fb = new StringBuilder();
+            for (String k : user) fb.append(k).append('\n');
+            if (!user.isEmpty() && !off.isEmpty()) fb.append("----\n");   // separator row: the camera renders it un-selectable
+            for (String k : off) fb.append(k).append('\n');
+            resp = fb.toString();
         }
         else if (path.startsWith("/dbglist")) {
             String qd = q.get("dir") != null ? q.get("dir") : "/sdcard/OpenFilm6K";

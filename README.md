@@ -131,7 +131,7 @@ Each successful ingest updates the standing notification: graded thumbnail on th
 
 ### Films
 
-A set of film simulations is bundled (CV-250, CV-500, ET-100, ET-64, PR-100, CC-200, CS-800T, EV-500, FC-400, GD-200, LK-200, NC-200, PAN-100, PI-100, PT-400, PX-200, PX-II, SP-200, UM-400). You can create your own films in the editor, or import extra `.cube` LUTs via the settings dialog.
+A set of film simulations is bundled (CV-250, CV-500, ET-100, ET-64, PR-100, CC-200, CS-800T, EV-500, FC-400, GD-200, LK-200, NC-200, PAN-100, PI-100, PT-400, PX-II, SP-200, UM-400). You can create your own films in the editor, or import extra `.cube` LUTs via the settings dialog.
 
 ## Building from source / repo layout
 
