@@ -434,71 +434,196 @@ public class Server {
     }
 
     /** classic polaroid: white frame, wide bottom band carrying the film name */
-    private static android.graphics.Bitmap polaroid(android.graphics.Bitmap photo, String film) {
-        int bw = Math.max(8, photo.getWidth() / 25);          // side/top border
-        int bb = Math.max(bw * 3, photo.getWidth() / 8);      // bottom band
-        android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(
-                photo.getWidth() + 2 * bw, photo.getHeight() + bw + bb, android.graphics.Bitmap.Config.ARGB_8888);
-        android.graphics.Canvas cv = new android.graphics.Canvas(out);
-        cv.drawColor(0xFFF8F8F2);
-        cv.drawBitmap(photo, bw, bw, null);
-        android.graphics.Paint tp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        tp.setColor(0xFF2A2A2A);
-        tp.setTextSize(bb * 0.38f);
-        tp.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.ITALIC));
-        float tw = tp.measureText(film);
-        cv.drawText(film, (out.getWidth() - tw) / 2f, bw + photo.getHeight() + bb * 0.62f, tp);
-        return out;
-    }
 
     /** 2x2 collage of the same photo under 4 films (requested first, then 3 others); no text */
-    private static String collage(java.io.File graded, java.io.File src, String film) {
+
+    /** burn watermark(s) / polaroid / collage onto the graded output per the camera's params */
+    /** screen-blend the TEXT stamps onto a copy of the ORIGINAL (before grading); returns a temp file, or src when nothing to do */
+    /** spy mode: run the ingest pipeline on a local file — arrival-time stamps built host-side, output into the DCIM album */
+    static String spyIngest(java.io.File src, String film, int mode) {
+        try {
+            java.util.HashMap<String,String> q = new java.util.HashMap<>();
+            String name = src.getName();
+            String base = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
+            if (mode == 4) q.put("b", "1");                       // polaroid frame
+            else if (mode == 5) q.put("x", "1");                  // 4-film collage
+            else {
+                String bl = null, br = null;
+                if (mode == 1) bl = "@DATE";                      // exifDate() resolves, mtime fallback
+                else if (mode == 2) bl = readExposure(src);
+                else if (mode == 3) { bl = "@DATE"; br = readExposure(src); }
+                else if (mode == 6) bl = film;
+                else if (mode == 7) { bl = film; br = readExposure(src); }
+                if (bl != null) q.put("stamp", bl);
+                if (br != null) q.put("stamp2", br);
+            }
+            byte[] exifApp1 = Exif.app1Of(src);
+            java.io.File pipeIn = textStampOriginal(src, q);
+            galDir.mkdirs();
+            java.io.File out = new java.io.File(galDir, "graded_" + base + ".jpg");
+            String r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
+            if (pipeIn != src) pipeIn.delete();
+            if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
+                r = stamped(out, src, film, q);
+            if (exifApp1 != null && r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
+                Exif.carryBytes(out, exifApp1);
+            try {   // register into the gallery album + refresh the standing notification (same as camera ingest)
+                final String filmF = film;
+                final String expoF = readExposure(src);
+                final String timeF = readTime(src);
+                final android.graphics.Bitmap thumbF = decodeThumb(new java.io.File(r));
+                final String gpath = out.getAbsolutePath();
+                android.media.MediaScannerConnection.scanFile(ctx, new String[]{gpath},
+                    new String[]{"image/jpeg"},
+                    new android.media.MediaScannerConnection.OnScanCompletedListener() {
+                        public void onScanCompleted(String p, android.net.Uri u) {
+                            try { HostService.photoInfo(filmF, expoF, timeF, thumbF, u); }
+                            catch (Throwable t2) { MainActivity.say("notif: " + t2); }
+                        }
+                    });
+            } catch (Throwable ig) {}
+            boolean ok = r != null && !r.startsWith("ERR") && new java.io.File(r).exists();
+            return ok ? "OK " + out.getName() : "ERR " + r;
+        } catch (Throwable t) { return "ERR " + t; }
+    }
+
+    /** output-level extras: polaroid frame / 4-film collage dressing on the graded image */
+    private static String stamped(java.io.File graded, java.io.File src, String film, Map<String,String> q) {
+        boolean pol = q.get("b") != null, col = q.get("x") != null;
+        if (!pol && !col) return graded.getAbsolutePath();
+        try {
+            if (col) return collage(graded, film);
+            android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
+            if (bm == null) return graded.getAbsolutePath();
+            if (!bm.isMutable()) bm = bm.copy(android.graphics.Bitmap.Config.ARGB_8888, true);   // Canvas needs mutable
+            decoratePolaroid(bm, false);
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
+            bm.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
+            fo.close();
+            bm.recycle();
+            return graded.getAbsolutePath();
+        } catch (Throwable t) {
+            MainActivity.say("stamp ex " + t);
+            Engine.dbg("stamp ex " + t);
+            return graded.getAbsolutePath();
+        }
+    }
+
+    /** polaroid/collage dressing, drawn on the FULL-SIZE graded image (no canvas expansion — the white
+     *  frame bites into the photo edge): side=min/30, bottom bar=min/10, inner shadow+highlight per edge,
+     *  rounded-corner mask painted white; quadrants adds the 2x2 cells and a white cross divider. */
+    private static void decoratePolaroid(android.graphics.Bitmap raw, boolean quadrants) {
+        int w = raw.getWidth(), h = raw.getHeight();
+        int mn = Math.min(w, h);
+        int side = Math.round(mn * 0.030f), bottomBar = Math.round(mn * 0.100f);
+        int div = side;
+        android.graphics.Canvas cv = new android.graphics.Canvas(raw);
+        android.graphics.Paint wp = new android.graphics.Paint();
+        wp.setColor(0xFFFFFFFF);
+        int[][] cells;
+        if (quadrants) {
+            int xa = side, xb = w / 2 - div / 2, xc = w / 2 + div / 2, xd = w - side;
+            int ya = side, yb = h / 2 - div / 2, yc = h / 2 + div / 2, yd = h - bottomBar;
+            cells = new int[][]{ {xa, ya, xb, yb}, {xc, ya, xd, yb}, {xa, yc, xb, yd}, {xc, yc, xd, yd} };
+        } else {
+            cells = new int[][]{ {side, side, w - side, h - bottomBar} };
+        }
+        int sh = Math.max(2, mn / 300);
+        android.graphics.Paint sp = new android.graphics.Paint();
+        int dark = 0x59000000;
+        for (int[] c : cells) {
+            int cx0 = c[0], cy0 = c[1], cx1 = c[2], cy1 = c[3];
+            if (cx1 - cx0 < 4 || cy1 - cy0 < 4) continue;
+            sp.setShader(new android.graphics.LinearGradient(0, cy0, 0, cy0 + sh, dark, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
+            cv.drawRect(cx0, cy0, cx1, cy0 + sh, sp);
+            sp.setShader(new android.graphics.LinearGradient(0, cy1 - sh, 0, cy1, 0x00000000, dark, android.graphics.Shader.TileMode.CLAMP));
+            cv.drawRect(cx0, cy1 - sh, cx1, cy1, sp);
+            sp.setShader(new android.graphics.LinearGradient(cx0, 0, cx0 + sh, 0, dark, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
+            cv.drawRect(cx0, cy0, cx0 + sh, cy1, sp);
+            sp.setShader(new android.graphics.LinearGradient(cx1 - sh, 0, cx1, 0, 0x00000000, dark, android.graphics.Shader.TileMode.CLAMP));
+            cv.drawRect(cx1 - sh, cy0, cx1, cy1, sp);
+            int wl = Math.max(1, sh / 2);
+            sp.setShader(new android.graphics.LinearGradient(0, cy0, 0, cy0 + wl, 0x99FFFFFF, 0x00FFFFFF, android.graphics.Shader.TileMode.CLAMP));
+            cv.drawRect(cx0, cy0, cx1, cy0 + wl, sp);
+            sp.setShader(new android.graphics.LinearGradient(0, cy1 - wl, 0, cy1, 0x00FFFFFF, 0x99FFFFFF, android.graphics.Shader.TileMode.CLAMP));
+            cv.drawRect(cx0, cy1 - wl, cx1, cy1, sp);
+            sp.setShader(new android.graphics.LinearGradient(cx0, 0, cx0 + wl, 0, 0x99FFFFFF, 0x00FFFFFF, android.graphics.Shader.TileMode.CLAMP));
+            cv.drawRect(cx0, cy0, cx0 + wl, cy1, sp);
+            sp.setShader(new android.graphics.LinearGradient(cx1 - wl, 0, cx1, 0, 0x00FFFFFF, 0x99FFFFFF, android.graphics.Shader.TileMode.CLAMP));
+            cv.drawRect(cx1 - wl, cy0, cx1, cy1, sp);
+        }
+        android.graphics.RectF rf = new android.graphics.RectF();
+        for (int[] c : cells) {
+            int cx0 = c[0], cy0 = c[1], cx1 = c[2], cy1 = c[3];
+            if (cx1 - cx0 < 4 || cy1 - cy0 < 4) continue;
+            rf.set(cx0, cy0, cx1, cy1);
+            android.graphics.Path p = new android.graphics.Path();
+            p.addRect(cx0, cy0, cx1, cy1, android.graphics.Path.Direction.CW);
+            p.addRoundRect(rf, sh, sh, android.graphics.Path.Direction.CW);
+            p.setFillType(android.graphics.Path.FillType.EVEN_ODD);
+            cv.drawPath(p, wp);
+        }
+        if (quadrants) {
+            cv.drawRect(w / 2 - div / 2, 0, w / 2 + div / 2, h, wp);
+            cv.drawRect(0, h / 2 - div / 2, w, h / 2 + div / 2, wp);
+        }
+        cv.drawRect(0, 0, w, side, wp);
+        cv.drawRect(0, h - bottomBar, w, h, wp);
+        cv.drawRect(0, 0, side, h, wp);
+        cv.drawRect(w - side, 0, w, h, wp);
+    }
+
+    /** X mode: ONE photo graded with 4 RANDOM films (shuffled film list, tail-padded), stretched into
+     *  2x2 quadrants of the full canvas (odd remainder kept right/bottom), then dressed as a quadrant polaroid. */
+    private static String collage(java.io.File graded, String film) {
         java.util.List<String> all = Films.list();
         java.util.ArrayList<String> picks = new java.util.ArrayList<String>();
-        if (all.contains(film)) picks.add(film);
+        java.util.Collections.shuffle(all, new java.util.Random());
         for (String f : all) {
             if (picks.size() >= 4) break;
-            if (!f.equals(film) && !f.startsWith("EDITTMP")) picks.add(f);
+            if (!f.startsWith("EDITTMP")) picks.add(f);
         }
-        if (picks.isEmpty()) return graded.getAbsolutePath();
-        // scratch, NOT graded's folder: graded now lives in the gallery album, and a stray
-        // tmp_collage.jpg would flash there as its own "photo". Prefixed with the graded name
-        // so two concurrent ingests can't collide.
+        if (picks.size() < 2) return graded.getAbsolutePath();
+        while (picks.size() < 4) picks.add(picks.get(picks.size() - 1));
         java.io.File tmp = new java.io.File(workDir, "tmp_collage_" + graded.getName());
-        java.util.ArrayList<android.graphics.Bitmap> cells = new java.util.ArrayList<android.graphics.Bitmap>();
         try {
-            for (int i = 0; i < picks.size(); i++) {
-                java.io.File in = i == 0 ? graded : tmp;
-                if (i > 0) {
-                    String r = Engine.get().process(src.getAbsolutePath(), picks.get(i), tmp.getAbsolutePath());
-                    if (r == null || r.startsWith("ERR")) continue;
+            int w = 0, h = 0;
+            android.graphics.Bitmap[] cells = new android.graphics.Bitmap[4];
+            for (int i = 0; i < 4; i++) {
+                android.graphics.Bitmap b;
+                if (i == 0) {
+                    b = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());   // already graded with the selected film
+                } else {
+                    String r = Engine.get().process(graded.getAbsolutePath(), picks.get(i), tmp.getAbsolutePath());
+                    if (r == null || r.startsWith("ERR")) { b = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath()); }
+                    else b = android.graphics.BitmapFactory.decodeFile(tmp.getAbsolutePath());
                 }
-                android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeFile(in.getAbsolutePath());
-                if (b != null) cells.add(b);
+                if (b == null) continue;
+                if (w == 0) { w = b.getWidth(); h = b.getHeight(); }
+                else if (b.getWidth() != w || b.getHeight() != h) {
+                    b = android.graphics.Bitmap.createScaledBitmap(b, w, h, true);
+                }
+                cells[i] = b;
             }
-            if (cells.size() < 2) return graded.getAbsolutePath();
-            int cw = cells.get(0).getWidth(), ch = cells.get(0).getHeight();
-            int gap = Math.max(6, cw / 90);
-            int cols = cells.size() <= 2 ? cells.size() : 2;
-            int rows = (cells.size() + cols - 1) / cols;
-            android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(
-                    cols * cw + (cols + 1) * gap, rows * ch + (rows + 1) * gap, android.graphics.Bitmap.Config.ARGB_8888);
+            if (w == 0) return graded.getAbsolutePath();
+            android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
             android.graphics.Canvas cv = new android.graphics.Canvas(out);
-            cv.drawColor(0xFF101010);
-            for (int i = 0; i < cells.size(); i++) {
-                int cx = i % cols, cy = i / cols;
-                // cells can differ in size slightly: fit into the first cell's slot
-                android.graphics.Bitmap b = cells.get(i);
-                float s = Math.min(cw / (float) b.getWidth(), ch / (float) b.getHeight());
-                float dw = b.getWidth() * s, dh = b.getHeight() * s;
-                android.graphics.RectF dst = new android.graphics.RectF(
-                        gap + cx * (cw + gap) + (cw - dw) / 2f, gap + cy * (ch + gap) + (ch - dh) / 2f, 0, 0);
-                dst.right = dst.left + dw; dst.bottom = dst.top + dh;
-                cv.drawBitmap(b, null, dst, null);
+            int wq = w / 2, hq = h / 2;
+            int[] qx = { 0, wq, 0, wq };
+            int[] qy = { 0, 0, hq, hq };
+            int[] gw = { wq, w - wq, wq, w - wq };
+            int[] gh = { hq, hq, h - hq, h - hq };
+            for (int i = 0; i < 4; i++) {
+                if (cells[i] == null) continue;
+                cv.drawBitmap(cells[i], null,
+                    new android.graphics.RectF(qx[i], qy[i], qx[i] + gw[i], qy[i] + gh[i]), null);   // stretch-fill each quadrant
+                cells[i].recycle();
             }
+            decoratePolaroid(out, true);
             java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
             out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
             fo.close();
+            out.recycle();
             return graded.getAbsolutePath();
         } catch (Throwable t) {
             MainActivity.say("collage ex " + t);
@@ -507,9 +632,6 @@ public class Server {
             tmp.delete();
         }
     }
-
-    /** burn watermark(s) / polaroid / collage onto the graded output per the camera's params */
-    /** screen-blend the TEXT stamps onto a copy of the ORIGINAL (before grading); returns a temp file, or src when nothing to do */
     private static java.io.File textStampOriginal(java.io.File src, Map<String,String> q) {
         String s1 = q.get("stamp"), s2 = q.get("stamp2");
         if (s1 == null && s2 == null) return src;
@@ -539,23 +661,6 @@ public class Server {
     }
 
     /** output-level extras: polaroid frame / 4-film collage (the text stamps were already burned pre-grade) */
-    private static String stamped(java.io.File graded, java.io.File src, String film, Map<String,String> q) {
-        boolean pol = q.get("b") != null, col = q.get("x") != null;
-        if (!pol && !col) return graded.getAbsolutePath();
-        try {
-            if (col) return collage(graded, src, film);
-            android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
-            if (bm == null) return graded.getAbsolutePath();
-            android.graphics.Bitmap out = polaroid(bm, film);
-            java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
-            out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
-            fo.close();
-            return graded.getAbsolutePath();
-        } catch (Throwable t) {
-            MainActivity.say("stamp ex " + t);
-            return graded.getAbsolutePath();
-        }
-    }
 
     /** stamp glyph paints: orange-red italic DSEG14; the GLYPH itself is blurred, then a glow halo goes on top */
     private static android.graphics.Paint[] stampPaints(float ts) {

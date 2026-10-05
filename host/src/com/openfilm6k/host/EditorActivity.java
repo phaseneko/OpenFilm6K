@@ -70,6 +70,10 @@ public class EditorActivity extends Activity {
     Spinner filmSpin, sceneSpin, addSpin;
     Button delBtn;   // enabled only for user-created films
     LinearLayout nodesBox;
+    android.widget.ImageView spyChkView;   // title-bar spy button: checkbox half (state = prefs spy_on)
+    Spinner spyDirSpin;                    // spy dialog: watched-folder combobox
+    android.app.Dialog spyDlg;             // spy dialog handle (reopened after the folder picker returns)
+
     // renderBtn/annBtn removed with the render group: preview refreshes automatically, annotation kept separate
     // ---------- region annotation ----------
     boolean annMode = false;
@@ -427,6 +431,7 @@ public class EditorActivity extends Activity {
         L.init(this);   // resolve saved/system language before any UI is built
         MainActivity.firstRunFlow(this);   // EditorActivity IS the launcher: permission + first data install
         startForegroundService(new android.content.Intent(this, HostService.class));   // engine init entry (Editor may be the launch activity)
+        SpyWatcher.sync(getApplicationContext());   // resume spy watching if the flag survived
         ScrollView scroll = new ScrollView(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -650,6 +655,35 @@ public class EditorActivity extends Activity {
         appTitle.getPaint().setFakeBoldText(true);
         appTitle.setTextSize(14);
         titleBar.addView(appTitle, new LinearLayout.LayoutParams(0, -2, 1f));
+        // spy mode: [win98 checkbox | spy glyph] compound button; checkbox mirrors prefs spy_on, dialog owns toggling
+        LinearLayout spyBtn = new LinearLayout(this);
+        spyBtn.setOrientation(LinearLayout.HORIZONTAL);
+        spyBtn.setBackground(Ux.buttonDrawable());
+        spyBtn.setGravity(android.view.Gravity.CENTER);
+        spyBtn.setPadding(Ux.dp(8), 0, Ux.dp(8), 0);
+        spyBtn.setContentDescription(L.s("spyMode"));
+        spyChkView = new android.widget.ImageView(this);
+        spyChkView.setImageDrawable(Ux.checkbox98(this, getSharedPreferences("of6k", 0).getBoolean("spy_on", false)));
+        spyChkView.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {   // the checkbox half toggles in place; the rest opens the dialog
+            android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);
+            boolean nv = !pf.getBoolean("spy_on", false);
+            pf.edit().putBoolean("spy_on", nv).commit();
+            refreshSpyBtn();
+            SpyWatcher.sync(getApplicationContext());
+        }});
+        spyBtn.addView(spyChkView);
+        TextView spyIco = new TextView(this);
+        spyIco.setText("\uD83D\uDD75\uFE0F");   // 🕵️ detective emoji (replaced the hand-drawn pixel glyph per user)
+        spyIco.setTextSize(20);
+        spyIco.setGravity(android.view.Gravity.CENTER);
+        android.widget.LinearLayout.LayoutParams spyilp = new android.widget.LinearLayout.LayoutParams(-2, -2);
+        spyilp.leftMargin = Ux.dp(4);
+        spyBtn.addView(spyIco, spyilp);
+        spyBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showSpy(); }});
+        android.widget.LinearLayout.LayoutParams spylp = new android.widget.LinearLayout.LayoutParams(-2, Ux.dp(38));
+        spylp.gravity = android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT;
+        spylp.leftMargin = Ux.dp(6);
+        titleBar.addView(spyBtn, spylp);
         Button setBtn = new Button(this); setBtn.setText("⚙️"); setBtn.setPadding(0, 0, 0, 0); setBtn.setContentDescription(L.s("settings"));
         setBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showSettings(); }});
         android.widget.LinearLayout.LayoutParams slp = new android.widget.LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(38));
@@ -660,6 +694,7 @@ public class EditorActivity extends Activity {
         closeBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { finish(); }});
         android.widget.LinearLayout.LayoutParams clp = new android.widget.LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(38));
         clp.gravity = android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT;
+        clp.leftMargin = Ux.dp(6);   // same inter-button gap as spy|settings
         titleBar.addView(closeBtn, clp);
         root.addView(titleBar, 0, new LinearLayout.LayoutParams(-1, -2));
 
@@ -1901,6 +1936,12 @@ public class EditorActivity extends Activity {
         MainActivity.firstRunFlow(this);   // re-check after returning from the permission screen
     }
 
+    /** sync the title-bar spy checkbox with the persisted spy_on flag (dialog is the single writer) */
+    void refreshSpyBtn() {
+        if (spyChkView != null)
+            spyChkView.setImageDrawable(Ux.checkbox98(this, getSharedPreferences("of6k", 0).getBoolean("spy_on", false)));
+    }
+
     private void showSettings() {
         final android.app.Dialog dlg = new android.app.Dialog(this);
         settingsDlg = dlg;
@@ -2030,9 +2071,14 @@ public class EditorActivity extends Activity {
         tb.setBackground(Ux.navySunkenBar());
         tb.setGravity(android.view.Gravity.CENTER_VERTICAL);
         tb.setPadding(Ux.dp(6), Ux.dp(1), Ux.dp(1), Ux.dp(1));
+        TextView tico = new TextView(this); tico.setText("⚙️"); tico.setTextSize(18); tico.setTextColor(0xFF000000);   // same glyph as its title-bar button
+        tico.setGravity(android.view.Gravity.CENTER);
+        tb.addView(tico, new android.widget.LinearLayout.LayoutParams(-2, -2));
         TextView ttl = new TextView(this); ttl.setText(L.s("settings")); ttl.setTextColor(0xFFFFFFFF);
         ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(14);
-        tb.addView(ttl, new LinearLayout.LayoutParams(0, -2, 1f));
+        android.widget.LinearLayout.LayoutParams ttlp = new android.widget.LinearLayout.LayoutParams(0, -2, 1f);
+        ttlp.leftMargin = Ux.dp(6);
+        tb.addView(ttl, ttlp);
         Button x = new Button(this); x.setText("✕"); x.setPadding(0, 0, Ux.dp(5), Ux.dp(5));   // center on the inset bevel body
         Ux.styleButton(x);   // raised bevel chrome (title bar is mounted after themeTree)
         x.setPadding(0, 0, Ux.dp(5), Ux.dp(5));
@@ -2051,8 +2097,244 @@ public class EditorActivity extends Activity {
         dlg.show();
     }
 
+    // ---- spy mode dialog (监视模式): master switch + film/stamp pickers + watched dirs ----
+    private void showSpy() {
+        final android.app.Dialog dlg = new android.app.Dialog(this);
+        spyDlg = dlg;
+        dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        final android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setClipChildren(false);
+        int fp = Ux.dp(2);   // inside the raised bevel frame drawn by the window background
+        box.setPadding(fp, fp, fp, fp);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setClipChildren(false);
+        body.setBackgroundColor(Ux.FACE);
+        int bp = Ux.dp(10);
+        body.setPadding(bp, bp, bp, bp);
+        // group: master switch (single writer of spy_on; the title-bar checkbox mirrors it)
+        android.widget.FrameLayout eg = new android.widget.FrameLayout(this);
+        LinearLayout egi = new LinearLayout(this);
+        egi.setOrientation(LinearLayout.HORIZONTAL);
+        egi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        egi.setBackground(new Ux.Etched());
+        egi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        CheckBox en = new CheckBox(this);
+        en.setText(L.s("spyEnable"));
+        en.setButtonDrawable(Ux.checkbox98States(this));   // explicit: authentic 98.css pixel art
+        en.setChecked(pf.getBoolean("spy_on", false));
+        en.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
+                pf.edit().putBoolean("spy_on", v).commit();
+                refreshSpyBtn();
+                SpyWatcher.sync(getApplicationContext());
+            }
+        });
+        egi.addView(en, new LinearLayout.LayoutParams(-2, -2));
+        TextView egl = new TextView(this); egl.setText(L.s("spyMode")); Ux.styleHeader(egl);
+        eg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams egil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        egil.topMargin = Ux.dp(10);
+        eg.addView(egi, egil);
+        android.widget.FrameLayout.LayoutParams egll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        egll.leftMargin = Ux.dp(10);
+        egll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        eg.addView(egl, egll);
+        body.addView(eg, new LinearLayout.LayoutParams(-1, -2));
+        // group: film combobox — same choices as the main list, independent selection
+        android.widget.FrameLayout fg = new android.widget.FrameLayout(this);
+        LinearLayout fgi = new LinearLayout(this);
+        fgi.setOrientation(LinearLayout.HORIZONTAL);
+        fgi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        fgi.setBackground(new Ux.Etched());
+        fgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        Spinner fsp = new Spinner(this);
+        final java.util.List<String> films = filmChoices();
+        StdSpinnerAdapter fsA = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(films));
+        fsA.spin = fsp;
+        fsp.setAdapter(fsA);
+        String curFilm = pf.getString("spy_film", selFilm());
+        if (curFilm != null) for (int i = 0; i < films.size(); i++) if (films.get(i).equals(curFilm)) { fsp.setSelection(i); break; }
+        fsp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (pos < 0 || pos >= films.size()) return;
+                String name = films.get(pos);
+                if (DIV.equals(name)) return;   // divider sentinel row is not a film
+                if (!name.equals(pf.getString("spy_film", null)))
+                    pf.edit().putString("spy_film", name).commit();
+            }
+            public void onNothingSelected(AdapterView<?> p) {}
+        });
+        android.widget.FrameLayout fspW = Ux.wrapSpinner(this, fsp);
+        fgi.addView(fspW, new LinearLayout.LayoutParams(-1, Ux.dp(38)));
+        TextView fgl = new TextView(this); fgl.setText(L.s("spyFilm")); Ux.styleHeader(fgl);
+        fg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams fgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        fgil.topMargin = Ux.dp(10);
+        fg.addView(fgi, fgil);
+        android.widget.FrameLayout.LayoutParams fgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        fgll.leftMargin = Ux.dp(10);
+        fgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        fg.addView(fgl, fgll);
+        body.addView(fg, new LinearLayout.LayoutParams(-1, -2));
+        // group: stamp/border mode — the camera's full C2 set (settings dialog hides polaroid/collage)
+        android.widget.FrameLayout sg = new android.widget.FrameLayout(this);
+        LinearLayout sgi = new LinearLayout(this);
+        sgi.setOrientation(LinearLayout.HORIZONTAL);
+        sgi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        sgi.setBackground(new Ux.Etched());
+        sgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        final int[] spyCodes = {0, 1, 2, 3, 4, 5, 6, 7};
+        String[] spyNames = {L.s("stNone"), L.s("stD"), L.s("stE"), L.s("stDE"), L.s("stPolaroid"), L.s("stCollage"), L.s("stF"), L.s("stFE")};
+        Spinner ssp = new Spinner(this);
+        StdSpinnerAdapter ssA = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(java.util.Arrays.asList(spyNames)));
+        ssA.spin = ssp;
+        ssp.setAdapter(ssA);
+        int curStamp = pf.getInt("spy_stamp", 0);
+        for (int i = 0; i < spyCodes.length; i++) if (spyCodes[i] == curStamp) { ssp.setSelection(i); break; }
+        ssp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (spyCodes[pos] != pf.getInt("spy_stamp", 0))
+                    pf.edit().putInt("spy_stamp", spyCodes[pos]).commit();
+            }
+            public void onNothingSelected(AdapterView<?> p) {}
+        });
+        android.widget.FrameLayout sspW = Ux.wrapSpinner(this, ssp);
+        sgi.addView(sspW, new LinearLayout.LayoutParams(-1, Ux.dp(38)));
+        TextView sgl = new TextView(this); sgl.setText(L.s("spyStamp")); Ux.styleHeader(sgl);
+        sg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams sgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        sgil.topMargin = Ux.dp(10);
+        sg.addView(sgi, sgil);
+        android.widget.FrameLayout.LayoutParams sgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        sgll.leftMargin = Ux.dp(10);
+        sgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        sg.addView(sgl, sgll);
+        body.addView(sg, new LinearLayout.LayoutParams(-1, -2));
+        // group: watched dirs — the same [+|spinner|✕] row as the settings import groups; + opens the system folder picker
+        android.widget.FrameLayout dg = new android.widget.FrameLayout(this);
+        LinearLayout dgi = new LinearLayout(this);
+        dgi.setOrientation(LinearLayout.HORIZONTAL);
+        dgi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        dgi.setBackground(new Ux.Etched());
+        dgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        Button addDir = new Button(this); addDir.setText("+"); addDir.setMinWidth(0); addDir.setMinimumWidth(0); addDir.setPadding(0, 0, 0, 0);
+        addDir.setContentDescription(L.s("btnImport"));
+        addDir.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            android.content.Intent it = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE);
+            try { startActivityForResult(it, 1003); } catch (Throwable e) { MainActivity.say("picker " + e); }
+        }});
+        dgi.addView(addDir, new android.widget.LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(34)));
+        spyDirSpin = new Spinner(this);
+        final Runnable[] refill = new Runnable[1];
+        refill[0] = new Runnable() { public void run() {
+            java.util.ArrayList<String> dirs = spyDirs(pf);
+            if (dirs.isEmpty()) dirs.add(L.s("noneItem"));
+            StdSpinnerAdapter da = new StdSpinnerAdapter(EditorActivity.this, dirs);
+            da.spin = spyDirSpin;
+            spyDirSpin.setAdapter(da);
+        }};
+        refill[0].run();
+        android.widget.FrameLayout dspW = Ux.wrapSpinner(this, spyDirSpin);
+        dgi.addView(dspW, new android.widget.LinearLayout.LayoutParams(0, Ux.dp(38), 1f));
+        Button delDir = new Button(this); delDir.setText("✕"); delDir.setMinWidth(0); delDir.setMinimumWidth(0); delDir.setPadding(0, 0, 0, 0);
+        delDir.setContentDescription(L.s("btnDelete"));
+        delDir.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            Object it = spyDirSpin.getSelectedItem();
+            if (it == null || it.toString().equals(L.s("noneItem"))) { MainActivity.say(L.s("noDelTarget")); return; }
+            java.util.ArrayList<String> l2 = spyDirs(pf); l2.remove(it.toString());
+            pf.edit().putString("spy_dirs", android.text.TextUtils.join("\n", l2)).commit();
+            refill[0].run();
+        }});
+        android.widget.LinearLayout.LayoutParams ddlp = new android.widget.LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(34));
+        ddlp.leftMargin = Ux.dp(4);
+        dgi.addView(delDir, ddlp);
+        TextView dgl2 = new TextView(this); dgl2.setText(L.s("spyDirs")); Ux.styleHeader(dgl2);
+        dg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams dgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        dgil.topMargin = Ux.dp(10);
+        dg.addView(dgi, dgil);
+        android.widget.FrameLayout.LayoutParams dgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        dgll.leftMargin = Ux.dp(10);
+        dgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        dg.addView(dgl2, dgll);
+        body.addView(dg, new LinearLayout.LayoutParams(-1, -2));
+        Ux.themeTree(body);   // theme BEFORE mounting the title bar: themeTree would recolor the white title text
+        box.addView(body, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout tb = new LinearLayout(this);
+        tb.setOrientation(LinearLayout.HORIZONTAL);
+        tb.setBackground(Ux.navySunkenBar());
+        tb.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        tb.setPadding(Ux.dp(6), Ux.dp(1), Ux.dp(1), Ux.dp(1));
+        TextView tico = new TextView(this); tico.setText("\uD83D\uDD75\uFE0F"); tico.setTextSize(18); tico.setTextColor(0xFF000000);   // same glyph as the title-bar button
+        tico.setGravity(android.view.Gravity.CENTER);
+        tb.addView(tico, new android.widget.LinearLayout.LayoutParams(-2, -2));
+        TextView ttl = new TextView(this); ttl.setText(L.s("spyMode")); ttl.setTextColor(0xFFFFFFFF);
+        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(14);
+        android.widget.LinearLayout.LayoutParams ttlp = new android.widget.LinearLayout.LayoutParams(0, -2, 1f);
+        ttlp.leftMargin = Ux.dp(6);
+        tb.addView(ttl, ttlp);
+        Button x = new Button(this); x.setText("✕");
+        Ux.styleButton(x);
+        x.setPadding(0, 0, Ux.dp(5), Ux.dp(5));
+        x.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { dlg.dismiss(); }});
+        android.widget.LinearLayout.LayoutParams xlp = new android.widget.LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34));
+        xlp.gravity = android.view.Gravity.CENTER_VERTICAL;
+        tb.addView(x, xlp);
+        box.addView(tb, 0, new LinearLayout.LayoutParams(-1, -2));
+        dlg.setContentView(box);
+        android.view.Window w = dlg.getWindow();
+        if (w != null) {
+            w.getDecorView().setPadding(0, 0, 0, 0);
+            w.setBackgroundDrawable(Ux.frame98());
+            w.setLayout(Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24)), -2);
+        }
+        dlg.show();
+    }
+
+    /** ACTION_OPEN_DOCUMENT_TREE result → real filesystem path on the primary volume ("primary:DCIM/Camera" → /sdcard/DCIM/Camera) */
+    static String treePath(android.net.Uri uri) {
+        try {
+            String id = android.provider.DocumentsContract.getTreeDocumentId(uri);
+            int c = id.indexOf(':');
+            String vol = c > 0 ? id.substring(0, c) : "primary";
+            String sub = (c >= 0 && id.length() > c + 1) ? id.substring(c + 1) : "";
+            if (!"primary".equals(vol)) return null;   // only the primary volume is watchable
+            String base = android.os.Environment.getExternalStorageDirectory().getAbsolutePath();
+            return sub.length() == 0 ? base : new java.io.File(base, sub).getAbsolutePath();
+        } catch (Throwable t) { return null; }
+    }
+
+    static java.util.ArrayList<String> spyDirs(android.content.SharedPreferences pf) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<String>();
+        String s = pf.getString("spy_dirs", "");
+        if (s.length() > 0) for (String p : s.split("\n")) { p = p.trim(); if (p.length() > 0) out.add(p); }
+        return out;
+    }
+
     @Override protected void onActivityResult(int req, int res, android.content.Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == 1003) {   // spy: the system folder picker returned — store the real path, reopen, preselect
+            if (res != android.app.Activity.RESULT_OK || data == null || data.getData() == null) return;
+            String p = treePath(data.getData());
+            if (p == null || !new java.io.File(p).isDirectory()) return;
+            android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);
+            java.util.ArrayList<String> l2 = spyDirs(pf);
+            if (!l2.contains(p)) {
+                l2.add(p);
+                pf.edit().putString("spy_dirs", android.text.TextUtils.join("\n", l2)).commit();
+            }
+            if (spyDlg != null && spyDlg.isShowing()) {   // stay in the dialog, rebuild + preselect the new folder
+                spyDlg.dismiss();
+                showSpy();
+                if (spyDirSpin != null && spyDirSpin.getAdapter() != null)
+                    for (int i = 0; i < spyDirSpin.getAdapter().getCount(); i++)
+                        if (p.equals(spyDirSpin.getAdapter().getItem(i).toString())) { spyDirSpin.setSelection(i); break; }
+            }
+            return;
+        }
         if (res != android.app.Activity.RESULT_OK || data == null || data.getData() == null) return;
         String dir = req == 1001 ? CUSTOM_SCENES : CUSTOM_LUTS;
         String ext = req == 1001 ? ".jpg" : ".cube";

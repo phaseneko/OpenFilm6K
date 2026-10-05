@@ -165,6 +165,24 @@ public class Ux {
         return d;
     }
 
+    /** win98 checkbox: the authentic 13x13 pixel art from 98.css (white field + border-field sunken bevel + 7x7 checkmark), pre-rendered bitmaps scaled to dp(18) nearest-neighbour */
+    static android.graphics.drawable.Drawable checkbox98(android.content.Context c, boolean checked) {
+        return pixelRadio(c, checked ? R.drawable.checkbox98_on : R.drawable.checkbox98_off, dp(18));
+    }
+
+    /** checkbox98 as a checked/unchecked state list for CheckBox widgets (inset sideways like the native indicator) */
+    static android.graphics.drawable.Drawable checkbox98States(android.content.Context c) {
+        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
+        sld.addState(new int[]{android.R.attr.state_checked}, checkbox98(c, true));
+        sld.addState(new int[]{}, checkbox98(c, false));
+        return new android.graphics.drawable.InsetDrawable(sld, dp(2), 0, dp(2), 0);
+    }
+
+    /** spy glyph: original 16x16 pixel art in the win98 palette (fedora + glasses + high-collar coat), scaled to dp(22) nearest-neighbour */
+    static android.graphics.drawable.Drawable spy98(android.content.Context c) {
+        return pixelRadio(c, R.drawable.spy98, dp(22));
+    }
+
     /** win98 tool-dialog title bar: navy body, recessed (dark top/left, light bottom/right) */
     static android.graphics.drawable.Drawable navySunkenBar() {
         return new android.graphics.drawable.Drawable() {
@@ -239,6 +257,10 @@ public class Ux {
             ((android.widget.RadioButton) root).setTextColor(TXT);
             ((android.widget.RadioButton) root).setTextSize(BODY);
             ((android.widget.RadioButton) root).setAllCaps(false);
+        } else if (root instanceof CheckBox) {   // MUST precede Button: CheckBox extends Button
+            ((CheckBox) root).setTextColor(TXT);
+            ((CheckBox) root).setTextSize(BODY);
+            ((CheckBox) root).setButtonDrawable(checkbox98States(root.getContext()));   // authentic 98.css pixel art, replaces the Material indicator
         } else if (root instanceof Button) {
             styleButton((Button) root);
         } else if (root instanceof TextView && !(root instanceof Button)) {
@@ -247,10 +269,6 @@ public class Ux {
             SeekBar sb = (SeekBar) root;
             sb.setProgressDrawable(groove98());   // sunken bevel groove (full widget height — no vertical padding)
             sb.setPadding(dp(8), 0, dp(8), 0);   // ≥ thumb half-width so the knob stays inside at 0/max — late setThumb freezes thumb position here
-        } else if (root instanceof CheckBox) {
-            ((CheckBox) root).setTextColor(TXT);
-            ((CheckBox) root).setTextSize(BODY);
-            ((CheckBox) root).setButtonTintList(ColorStateList.valueOf(DK));
         } else if (root instanceof Spinner) {
             ((Spinner) root).setPadding(dp(6), dp(4), dp(42), dp(4));   // room for the combo arrow button
             ((Spinner) root).setPopupBackgroundDrawable(popup98());
