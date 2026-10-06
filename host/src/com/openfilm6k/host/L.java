@@ -152,6 +152,7 @@ public class L {
         {"stFE", "卷名+曝光", "菲林名稱+曝光", "Film + exposure", "フィルム+露出", "필름+노출", "Film + Belichtung", "Film + exposition", "Película + exposición", "Плёнка + экспозиция", "Filme + exposição"},
         {"btnClose", "关闭", "關閉", "Close", "閉じる", "닫기", "Schließen", "Fermer", "Cerrar", "Закрыть", "Fechar"},
         {"btnSave", "保存", "儲存", "Save", "保存", "저장", "Speichern", "Enregistrer", "Guardar", "Сохранить", "Salvar"},
+        {"btnOk", "确定", "確定", "OK", "OK", "확인", "OK", "OK", "Aceptar", "ОК", "OK"},
         {"btnImport", "导入", "匯入", "Import", "インポート", "가져오기", "Importieren", "Importer", "Importar", "Импорт", "Importar"},
         {"dataInstalling", "正在安装官方数据…", "正在安裝官方資料…", "Installing film library…", "公式データをインストール中…", "공식 데이터 설치 중…", "Installiere Filmdaten…", "Installation des films…", "Instalando el catálogo…", "Установка плёнок…", "Instalando os filmes…"},
         {"installDone", "已安装 ", "已安裝 ", "Installed ", "インストール完了 ", "설치 완료 ", "Installiert: ", "Installé : ", "Instalados ", "Установлено ", "Instalados "},
