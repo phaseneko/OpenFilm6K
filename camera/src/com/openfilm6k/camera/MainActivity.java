@@ -70,7 +70,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             635, 634, 528, 529, 525, 526,          // 波轮 CW/CCW 对调 (A7M2 方向相反)
             new int[]{522, 523}, 1);               // lcdGhost = 3:2 top-aligned
     static final java.util.HashMap<String, KeyMap> KEYMAPS = new java.util.HashMap<String, KeyMap>();
-    static { KEYMAPS.put("ILCE-6000", KM_A6000); KEYMAPS.put("ILCE-7M2", KM_A7M2); }   // whitelist
+    static {   // whitelist by EXIF Model
+        KEYMAPS.put("ILCE-6000", KM_A6000);
+        // every Android/PMCA α7-series body shares one key layout
+        for (String m : new String[]{"ILCE-7", "ILCE-7R", "ILCE-7S", "ILCE-7M2", "ILCE-7RM2", "ILCE-7SM2"})
+            KEYMAPS.put(m, KM_A7M2);
+    }
     static KeyMap km = KM_A6000;                                     // active map (A6000 until applyKeymap)
 
     // resolved scancodes (A6000 defaults; overwritten by applyKeymap())
