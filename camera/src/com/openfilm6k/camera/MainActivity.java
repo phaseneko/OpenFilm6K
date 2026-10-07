@@ -224,6 +224,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         volatile boolean filmFav = false;
         volatile boolean c1 = false;
         volatile String stampMark = "";
+        volatile int pairDisp = -1;        // -1 hidden; 0 -> "[ 1 ]", 1 -> "[ 2 ]" (H/2 pair capture)
+        volatile boolean pairBlink = true;
+        volatile boolean halfMask = false;  // H (half-frame): black out the outer quarters, keep the central half
+        volatile android.graphics.Bitmap ghostBmp;  // 1st-exposure still, drawn translucent over the live viewfinder
+        volatile boolean ghostOn = false;
+        volatile boolean ghostWait = false;         // dim the view while the 1st exposure's ghost is being prepared
+        volatile float ghostAlpha = 1.0f;   // global multiplier on top of the per-pixel luminance alpha
+        volatile float ghostScale = 0.75f;  // the live preview occupies ~75% of the screen width (side bars)
+        volatile int ghostFinder = 0;       // 0 = LCD (9:8), 1 = EVF (3:2)
+        android.graphics.Paint ghostPaint;
         volatile String afMode = "";
         volatile String afName = "";
         volatile String afDisp = "";
@@ -356,6 +366,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 cv.drawText(s, (w - tw) / 2f, h / 2f + (h / 19f) * 0.35f, tp);
             }
         }
+        /** draw the ghost to match the live preview's framing on the physical screen.
+         *  The rear panel is 16:9 (ro.panel.aspect=169) but the frame buffer is 640x480 (4:3), so on the
+         *  panel everything is stretched horizontally x4/3. A true 3:2 viewfinder rect must therefore be
+         *  pre-squeezed to 9:8 in the frame buffer: fill the height, width = (3/2)/h / (4/3) = 9h/8. */
+        void drawFit(android.graphics.Canvas cv, android.graphics.Bitmap bm, android.graphics.Paint pt) {
+            int w = getWidth(), h = getHeight();
+            float dw, dh;
+            if (ghostFinder == 1) {            // EVF (3:2, no panel stretch): the ghost is 3:2 in the frame buffer
+                dw = w; dh = w / 1.5f;
+            } else {                           // LCD: the 16:9 panel stretches the 4:3 frame buffer x4/3, so a 3:2 viewfinder rect is 9:8 in fb
+                dh = h; dw = (1.5f * dh) / (4f / 3f);
+            }
+            float dx = (w - dw) / 2f, dy = (h - dh) / 2f;
+            cv.drawBitmap(bm, null, new android.graphics.RectF(dx, dy, dx + dw, dy + dh), pt);
+        }
+
         public void onDraw(android.graphics.Canvas cv) {
             if (verUntil == 0L) verUntil = System.currentTimeMillis() + 1000;   // 1s window starts at first real draw
             if (!netReady) { drawBoot(cv); return; }
@@ -368,12 +394,67 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             }
             if (hideAf) return;   // countdown on screen: no focus area / grid
             int w = getWidth(), h = getHeight();
+            if (ghostWait) {                       // double-exposure: 1st shot taken, the ghost is being prepared
+                cv.drawColor(0xFF000000);          // opaque black, no HUD — just a centred "processing"
+                android.graphics.Paint tp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                if (tf != null) tp.setTypeface(tf);
+                tp.setTextSize(h / 19f);           // identical font + size to the rest of the HUD
+                tp.setColor(0xFFFFFFFF);
+                String s = "processing";
+                cv.drawText(s, (w - tp.measureText(s)) / 2f, h / 2f + (h / 19f) * 0.35f, tp);
+                return;
+            }
+            if (ghostOn && ghostBmp != null) {     // double-exposure: translucent ghost of the 1st exposure over the live viewfinder
+                if (ghostPaint == null) ghostPaint = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+                ghostPaint.setAlpha((int) (Math.max(0f, Math.min(1f, ghostAlpha)) * 255f));
+                drawFit(cv, ghostBmp, ghostPaint);
+            }
             if (System.currentTimeMillis() < verUntil) {
                 android.graphics.Paint vp = new android.graphics.Paint(); vp.setAntiAlias(true);
                 if (tf != null) vp.setTypeface(tf);
                 vp.setTextSize(h / 19f); vp.setColor(0xFFFF9500);
                 cv.drawText("#" + BUILD, w * 0.03f, (h / 19f) * 1.25f, vp);
                 postInvalidateDelayed(verUntil - System.currentTimeMillis() + 80);
+            }
+            if (halfMask) {                         // H (half-frame): black out the outer quarters first (indicator/HUD stay on top)
+                android.graphics.Paint hp = new android.graphics.Paint();
+                hp.setColor(0xFF000000);
+                float q = w * 0.25f;
+                cv.drawRect(0, 0, q, h, hp);
+                cv.drawRect(w - q, 0, w, h, hp);
+            }
+            if (pairDisp >= 0 && pairBlink) {       // H/2: blinking "[ 1 ]" / "[ 2 ]" frame counter (brackets rotated 90 deg)
+                android.graphics.Paint pp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                if (tf != null) pp.setTypeface(tf);
+                float psz = h / 19f;                        // same size as the other HUD text
+                pp.setTextSize(psz);
+                pp.setColor(0xFF00E676);                    // green
+                pp.setShadowLayer(3, 1, 2, 0xFF000000);
+                String digit = String.valueOf(pairDisp + 1);
+                float bw = Math.max(2f, psz * 0.14f);       // bracket stroke
+                float arm = psz * 0.22f;                    // bracket arm length
+                float bh = psz * 1.30f;                     // bracket length
+                float iw = psz * 0.95f + pp.measureText("0");   // FIXED interior spacing (same for 1 and 2)
+                android.graphics.Rect tb = new android.graphics.Rect();
+                pp.getTextBounds(digit, 0, digit.length(), tb);    // tight ink bounds (DSEG "1" is right-aligned in its cell)
+                float rotW = bh, rotH = 2 * bw + iw;        // badge box after the 90deg rotation
+                float cx = w * 0.045f + rotW * 0.5f;        // badge centre x
+                float cy = psz * 0.35f + rotH * 0.5f;       // badge centre y
+                cv.save();
+                cv.rotate(90f, cx, cy);                     // rotate the pair 90deg; the interior spacing iw is preserved
+                float ux0 = cx - (2 * bw + iw) * 0.5f, uy0 = cy - bh * 0.5f;   // unrotated layout centred on (cx,cy)
+                cv.drawRect(ux0, uy0, ux0 + bw, uy0 + bh, pp);                 // bracket 1: '['
+                cv.drawRect(ux0, uy0, ux0 + bw + arm, uy0 + bw, pp);
+                cv.drawRect(ux0, uy0 + bh - bw, ux0 + bw + arm, uy0 + bh, pp);
+                cv.save();
+                cv.rotate(180f, cx, cy);                    // bracket 2: '[' rotated 180deg about the badge centre
+                cv.drawRect(ux0, uy0, ux0 + bw, uy0 + bh, pp);
+                cv.drawRect(ux0, uy0, ux0 + bw + arm, uy0 + bw, pp);
+                cv.drawRect(ux0, uy0 + bh - bw, ux0 + bw + arm, uy0 + bh, pp);
+                cv.restore();
+                cv.restore();
+                cv.drawText(digit, cx - (tb.left + tb.right) * 0.5f,   // digit stays upright, centred on the badge
+                        cy - (tb.top + tb.bottom) * 0.5f, pp);
             }
             android.graphics.Paint p = new android.graphics.Paint();
             p.setAntiAlias(true);
@@ -575,11 +656,32 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // capture + grading
     private static class Job {
         final File src; final int filmIdx;
-        Job(File s, int f) { src = s; filmIdx = f; }
+        final File src2; final int filmIdx2; final boolean pair;   // H/2: two-frame batch
+        Job(File s, int f) { this(s, f, null, -1, false); }
+        Job(File s, int f, File s2, int f2, boolean p) { src = s; filmIdx = f; src2 = s2; filmIdx2 = f2; pair = p; }
     }
     private final LinkedList<Job> queue = new LinkedList<Job>();
     private int done = 0;
     private volatile boolean grading = false;
+
+    // ---- H (half-frame) / 2 (double-exposure): paired two-shot capture ----
+    private static final int PAIR_OFF = -1, PAIR_FRAME1 = 0, PAIR_FRAME2 = 1;
+    private volatile int pairSlot = PAIR_OFF;        // INDICATOR: 0->[1], 1->[2] (advances on shutter press)
+    private volatile int pairStaged = 0;             // file-staging counter (0: expect frame1, 1: expect frame2)
+    private File pair0File;                          // frame 1 staged for the batch
+    private int pair0Film = -1;                      // film locked when frame 1 was pressed
+    private final LinkedList<Integer> shotFilms = new LinkedList<Integer>();   // per-shot film FIFO
+    private volatile boolean pairBlinkOn = true;
+
+    // ---- double-exposure (mode '2'): the first exposure's still is shown as a translucent ghost over the
+    //      live viewfinder while the second exposure is composed. The A6000 HAL never hands live preview
+    //      frames to the app, so a true SCREEN blend over the viewfinder is impossible; this is an
+    //      approximation (the exact SCREEN composite of the two stills is produced by the host). ----
+    private volatile boolean ghostOn = false;
+    private volatile boolean ghostWait = false;   // after the 1st shot: dim the view until the ghost is ready
+    private volatile android.graphics.Bitmap ghostBmp;
+    private volatile float ghostAlpha = 1.0f;   // global multiplier on top of the per-pixel luminance alpha
+    private int ghostFinder = 0;                 // 0 = LCD (9:8), 1 = EVF (3:2): which screen the ghost is sized for
 
     // ---- lens-cap auto sleep: preview stays near-black -> cap on -> sleep after 10s ----
     private boolean capDim = false;                // screen dimmed by lens-cap sleep
@@ -706,6 +808,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         android.content.SharedPreferences pf = getPreferences(MODE_PRIVATE);
         sel = pf.getInt("film2", -1);
         stampMode = pf.getInt("stamp", 0);
+        ghostFinder = pf.getInt("gfinder", 0);
         favs.clear();
         String fv = pf.getString("favs", "");
         if (fv.length() > 0) {
@@ -716,6 +819,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             }
         }
         qualityIdx = pf.getInt("quality", 0);
+
+        onStampModeChanged();   // arm the H/2 pair capture if that mode was restored
 
         discoverFilms();
         if (sel < 0 || sel >= totalSel() || sel == divSel()) sel = names.isEmpty() ? 0 : NSPECIAL;
@@ -935,20 +1040,141 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onPause() {
         super.onPause();
+        clearGhost();
         rig.release();
     }
 
     // ---------------------------------------------------------------- shoot + grade
 
-    private volatile int pendingFilm = -1;   // film locked at shutter press
-
     private void shoot() {
         if (!rig.ready()) return;
         captureStart = System.currentTimeMillis();
-        pendingFilm = resolveSel(sel);         // random/favorite resolved at shutter press
+        // film locked at shutter press; a FIFO keeps per-shot films even if the user
+        // changes the film before the watcher picks the file up (needed for H/2 pairs)
+        synchronized (shotFilms) { shotFilms.add(resolveSel(sel)); }
+        if (isPairMode()) {
+            boolean firstOfPair = (pairSlot == PAIR_FRAME1);
+            if (stampMode == 9) {
+                if (firstOfPair) { setGhostWait(true); Logger.log("double: ghost wait"); }   // dim until the ghost is ready
+                else { clearGhost(); Logger.log("double: ghost off (2nd shot taken)"); }
+            }
+            pairSlot = firstOfPair ? PAIR_FRAME2 : PAIR_FRAME1;
+            refreshPair();
+        }   // [1]<->[2] immediately on shutter
         rig.shoot();
         setStatus("capturing…");
     }
+
+    private int takeShotFilm() {
+        synchronized (shotFilms) {
+            return shotFilms.isEmpty() ? resolveSel(sel) : shotFilms.removeFirst();
+        }
+    }
+
+    private boolean isPairMode() { return stampMode == 8 || stampMode == 9; }
+    private String pairModeName() { return stampMode == 8 ? "half" : "double"; }
+
+    // ---- double-exposure ghost (see the field comment) ----
+
+    /** decode the first exposure's still (scaled to cover the view) and show it as a translucent ghost */
+    private void loadGhost(final java.io.File f) {
+        try {
+            int vw = (fbox != null && fbox.getWidth() > 0) ? fbox.getWidth() : 640;
+            int vh = (fbox != null && fbox.getHeight() > 0) ? fbox.getHeight() : 480;
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+            int s = 1;
+            while (o.outWidth / (s * 2) >= vw && o.outHeight / (s * 2) >= vh) s *= 2;
+            android.graphics.BitmapFactory.Options o2 = new android.graphics.BitmapFactory.Options();
+            o2.inSampleSize = s;
+            o2.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
+            final android.graphics.Bitmap src = android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath(), o2);
+            if (src == null) { Logger.log("double: ghost decode null"); clearGhost(); return; }
+            // alpha = luminance, so the window's source-over over the live viewfinder becomes screen(dst, L):
+            //   out = rgb*(L/255) + dst*(1-L/255); scaling rgb by 255/L keeps the premultiplied source = the
+            //   ghost's real RGB (exact for gray pixels), i.e. a colour-preserving screen.
+            int gw = src.getWidth(), gh = src.getHeight();
+            int[] px = new int[gw * gh];
+            src.getPixels(px, 0, gw, 0, 0, gw, gh);
+            src.recycle();
+            for (int i = 0; i < px.length; i++) {
+                int c = px[i];
+                int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+                int lum = (r * 77 + g * 151 + b * 28) >> 8;
+                if (lum < 1) { px[i] = 0; continue; }                 // black -> fully transparent
+                int rr = Math.min(255, (r * 255 + lum / 2) / lum);
+                int gg = Math.min(255, (g * 255 + lum / 2) / lum);
+                int bb = Math.min(255, (b * 255 + lum / 2) / lum);
+                px[i] = (lum << 24) | (rr << 16) | (gg << 8) | bb;    // alpha = luminance
+            }
+            final android.graphics.Bitmap bm = android.graphics.Bitmap.createBitmap(gw, gh, android.graphics.Bitmap.Config.ARGB_8888);   // decoded bitmaps are immutable
+            bm.setHasAlpha(true);
+            bm.setPixels(px, 0, gw, 0, 0, gw, gh);
+            ghostBmp = bm; ghostOn = true; ghostWait = false;
+            handler.removeCallbacks(ghostWaitTimeout);
+            handler.post(new Runnable() { public void run() {
+                if (fbox != null) { fbox.ghostBmp = bm; fbox.ghostOn = true; fbox.ghostWait = false; fbox.ghostAlpha = ghostAlpha; fbox.postInvalidate(); }
+            }});
+            Logger.log("double: ghost loaded " + gw + "x" + gh + " (ss=" + s + ") from " + f.getName());
+        } catch (Throwable t) { Logger.log("double: loadGhost " + t); clearGhost(); }
+    }
+
+    private void clearGhost() {
+        ghostOn = false; ghostWait = false;
+        handler.removeCallbacks(ghostWaitTimeout);
+        if (fbox != null) { fbox.ghostOn = false; fbox.ghostBmp = null; fbox.ghostWait = false; fbox.postInvalidate(); }
+    }
+
+    /** after the 1st exposure: dim the viewfinder until the ghost is decoded and shown */
+    private void setGhostWait(boolean wait) {
+        ghostWait = wait;
+        if (wait) ghostOn = false;
+        if (fbox != null) {
+            fbox.ghostWait = wait;
+            if (wait) { fbox.ghostOn = false; fbox.ghostBmp = null; }
+            fbox.postInvalidate();
+        }
+        handler.removeCallbacks(ghostWaitTimeout);
+        if (wait) handler.postDelayed(ghostWaitTimeout, 12000);   // never stay dimmed forever
+    }
+
+    private final Runnable ghostWaitTimeout = new Runnable() { public void run() {
+        if (ghostWait) { ghostWait = false; if (fbox != null) { fbox.ghostWait = false; fbox.postInvalidate(); } Logger.log("double: ghost wait timeout"); }
+    }};
+
+    /** UI-thread refresh of the blinking pair indicator (watcher runs off-thread) */
+    private void refreshPair() {
+        handler.post(new Runnable() { public void run() {
+            if (fbox != null) { fbox.pairDisp = isPairMode() ? pairSlot : -1; fbox.postInvalidate(); }
+        }});
+    }
+
+    /** C2 changed the stamp mode: (re)arm or disarm the H/2 pair capture */
+    private void onStampModeChanged() {
+        pair0File = null; pair0Film = -1; pairStaged = 0;
+        synchronized (shotFilms) { shotFilms.clear(); }
+        if (isPairMode()) {
+            pairSlot = PAIR_FRAME1;
+            pairBlinkOn = true;
+            handler.removeCallbacks(pairBlinkTick);
+            handler.post(pairBlinkTick);
+        } else {
+            pairSlot = PAIR_OFF;
+            handler.removeCallbacks(pairBlinkTick);
+            pairBlinkOn = true;
+        }
+        refreshPair();
+        clearGhost();
+    }
+
+    /** blink phase: flips the [ 1 ]/[ 2 ] indicator while a pair mode is active */
+    private final Runnable pairBlinkTick = new Runnable() { public void run() {
+        if (!isPairMode()) { pairBlinkOn = true; refreshPair(); return; }
+        pairBlinkOn = !pairBlinkOn;
+        if (fbox != null) { fbox.pairBlink = pairBlinkOn; fbox.postInvalidate(); }
+        handler.postDelayed(this, 380);
+    }};
 
     /** S2 release: cancel immediately (PMCADemo pattern), restart preview after a beat */
     private void shutterUp() {
@@ -1018,8 +1244,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         String p = f.getAbsolutePath();
                         if (size > 0 && p.equals(pendPath) && size == pendSize) {
                             sentPaths.add(p);
-                            Logger.log("watcher: enqueue " + f.getName() + " " + size + "B");
-                            enqueue(new Job(f, pendingFilm >= 0 ? pendingFilm : resolveSel(sel)));
+                            int film = takeShotFilm();
+                            if (isPairMode()) {
+                                if (pairStaged == 0) {                      // stage frame 1, wait for frame 2
+                                    pair0File = f; pair0Film = film;
+                                    pairStaged = 1;
+                                    Logger.log("watcher: pair frame1 " + f.getName() + " film#" + film);
+                                    if (stampMode == 9 && pairSlot == PAIR_FRAME2) loadGhost(f);   // double: show 1st exposure as a ghost
+                                } else {                                    // frame 2 -> atomic batch
+                                    File f0 = pair0File; int film0 = pair0Film;
+                                    pair0File = null; pair0Film = -1;
+                                    pairStaged = 0;
+                                    Logger.log("watcher: pair frame2 " + f.getName() + " -> batch");
+                                    enqueue(new Job(f0, film0, f, film, true));
+                                }
+                            } else {
+                                Logger.log("watcher: enqueue " + f.getName() + " " + size + "B");
+                                enqueue(new Job(f, film));
+                            }
                             pendPath = null; pendSize = -1;
                             watchUntil = System.currentTimeMillis() + 8000;   // keep alive for the burst
                         } else {
@@ -1165,13 +1407,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private Thread gradeThread;
 
     private boolean gradeViaPhone(Job j, String fname, long t0) {
-        String frame = "";
-        String sn = j.src.getName();
-        for (int i = 0; i < sn.length(); i++) { char ch = sn.charAt(i); if (ch >= '0' && ch <= '9') frame += ch; }
-        while (frame.length() < 4) frame = "0" + frame;
-        if (frame.length() > 4) frame = frame.substring(frame.length() - 4);
-        int fi = (j.filmIdx < 9 ? 10 : 100) + j.filmIdx;
-        String gname = "G" + fi + frame + ".JPG";
+        String gname = gnameFor(j.src, j.filmIdx);
         String pack = packOf(j.filmIdx);
         java.net.HttpURLConnection conn = null;
         final java.util.concurrent.atomic.AtomicLong sent = new java.util.concurrent.atomic.AtomicLong();
@@ -1246,6 +1482,83 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
+    /** graded filename stem for a source shot: G<filmTag><frame4>.JPG */
+    private String gnameFor(File src, int filmIdx) {
+        String frame = "";
+        String sn = src.getName();
+        for (int i = 0; i < sn.length(); i++) { char ch = sn.charAt(i); if (ch >= '0' && ch <= '9') frame += ch; }
+        while (frame.length() < 4) frame = "0" + frame;
+        if (frame.length() > 4) frame = frame.substring(frame.length() - 4);
+        int fi = (filmIdx < 9 ? 10 : 100) + filmIdx;
+        return "G" + fi + frame + ".JPG";
+    }
+
+    /** H/2 batch upload: both frames + their films + mode in one atomic POST to /ingest2 */
+    private boolean gradePairViaPhone(Job j) {
+        java.net.HttpURLConnection conn = null;
+        final java.util.concurrent.atomic.AtomicLong sent = new java.util.concurrent.atomic.AtomicLong();
+        try {
+            final long f0len = j.src.length(), f1len = j.src2.length();
+            final long total = f0len + f1len;
+            final File src0 = j.src, src1 = j.src2;
+            String name = gnameFor(src0, j.filmIdx);
+            String pack0 = packOf(j.filmIdx), pack1 = packOf(j.filmIdx2);
+            if (fbox != null) fbox.beginUpload();
+            conn = (java.net.HttpURLConnection) new java.net.URL(
+                "http://" + phoneIp() + ":8800/ingest2?mode=" + pairModeName()
+                    + "&film0=" + java.net.URLEncoder.encode(pack0, "UTF-8")
+                    + "&film1=" + java.net.URLEncoder.encode(pack1, "UTF-8")
+                    + "&name=" + name + "&len0=" + f0len + "&len1=" + f1len).openConnection();
+            conn.setDoOutput(true); conn.setRequestMethod("POST");
+            conn.setConnectTimeout(10000); conn.setReadTimeout(120000);   // two grades + compose
+            conn.setFixedLengthStreamingMode((int) total);
+            final java.net.HttpURLConnection fc = conn;
+            Thread up = new Thread(new Runnable() { public void run() {
+                try {
+                    java.io.OutputStream os = fc.getOutputStream();
+                    long s = 0;
+                    for (File src : new File[]{src0, src1}) {
+                        java.io.FileInputStream fi = new java.io.FileInputStream(src);
+                        byte[] buf = new byte[16384]; int r;
+                        while ((r = fi.read(buf)) >= 0) {
+                            os.write(buf, 0, r); s += r; sent.set(s);
+                            if (fbox != null) fbox.setProgress(total > 0 ? (float) s / (float) total : 0f);
+                        }
+                        fi.close();
+                    }
+                    os.flush(); os.close();
+                } catch (Throwable t) { Logger.log("pair upload-thread EX " + t); }
+            }}, "up2");
+            up.setDaemon(true); up.start();
+            long last = -1, lastChange = System.currentTimeMillis(), start = lastChange;
+            while (up.isAlive()) {
+                up.join(400);
+                long now = System.currentTimeMillis();
+                if (sent.get() != last) { last = sent.get(); lastChange = now; }
+                if (now - lastChange > 15000 || now - start > 240000) {
+                    Logger.log("pair upload cancelled sent=" + sent.get() + "/" + total);
+                    setStatus("upload interrupted, cancelled");
+                    try { conn.disconnect(); } catch (Throwable ig) {}
+                    try { up.interrupt(); } catch (Throwable ig) {}
+                    if (fbox != null) fbox.endUpload();
+                    return false;
+                }
+            }
+            int code = fc.getResponseCode();
+            Logger.log("phone pair r=" + code + " " + pack0 + "+" + pack1 + " " + name + " " + sent.get() + "B");
+            if (code == 200) { done++; if (fbox != null) fbox.showDone(); return true; }
+            if (fbox != null) fbox.endUpload();
+            return false;
+        } catch (Throwable t) {
+            setStatus("pair upload failed " + t.getMessage());
+            Logger.log("phone pair EX " + t);
+            if (fbox != null) fbox.endUpload();
+            return false;
+        } finally {
+            grading = false;
+        }
+    }
+
     private void grade(final Job j) {
         grading = true;
         Logger.log("grade: begin " + j.src.getName() + " film#" + j.filmIdx);
@@ -1253,10 +1566,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 ? names.get(j.filmIdx) : ("#" + j.filmIdx);
         setStatus("processing " + fname);
         long t0 = System.currentTimeMillis();
-        boolean ok = gradeViaPhone(j, fname, t0);
+        boolean ok = j.pair ? gradePairViaPhone(j) : gradeViaPhone(j, fname, t0);
         if (ok) bounceCount = 0;
         else {
             failedPaths.add(j.src.getAbsolutePath());
+            if (j.src2 != null) failedPaths.add(j.src2.getAbsolutePath());
+            if (j.pair) handler.post(new Runnable() { public void run() {   // re-arm the pair for retry
+                pairStaged = 0; pair0File = null; pair0Film = -1; refreshPair();
+            }});
             Logger.log("grade: mark failed for retry " + j.src.getName());
             forceWifiReconnect();                      // any upload failure -> bounce wifi and reconnect
         }
@@ -1363,7 +1680,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (hlIdx != 0 && !adjOk(hlIdx)) { hlIdx = adjOk(lastParam) ? lastParam : (adjOk(2) ? 2 : 1); }
         if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.spotOn = spotMode; fbox.afMode = rig.focusMode(); fbox.afName = rig.focusModeName(); fbox.afDisp = rig.focusModeDisplay(); }
         if (fbox != null) { fbox.filmFav = selFav(sel); fbox.c1 = c1Held; }
-        if (fbox != null) fbox.stampMark = (stampMode == 1 ? "D" : stampMode == 2 ? "E" : stampMode == 3 ? "DE" : stampMode == 4 ? "B" : stampMode == 5 ? "X" : stampMode == 6 ? "F" : stampMode == 7 ? "FE" : "");
+        if (fbox != null) fbox.stampMark = (stampMode == 1 ? "D" : stampMode == 2 ? "E" : stampMode == 3 ? "DE" : stampMode == 4 ? "B" : stampMode == 5 ? "X" : stampMode == 6 ? "F" : stampMode == 7 ? "FE" : stampMode == 8 ? "H" : stampMode == 9 ? "2" : "");
+        if (fbox != null) { fbox.pairDisp = isPairMode() ? pairSlot : -1; fbox.pairBlink = pairBlinkOn; fbox.halfMask = (stampMode == 8); fbox.ghostFinder = ghostFinder; }
         String fn2 = selName(sel);
         int di = fn2.toUpperCase().indexOf(".FLM");
         if (di > 0) fn2 = fn2.substring(0, di);
@@ -1663,7 +1981,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (e.getAction() == KeyEvent.ACTION_UP && scan == K_C2) {
             c2Held = false;
             handler.removeCallbacks(c2LongAction);
-            if (!c2Fired) { stampMode = (stampMode + 1) % 8; savePrefs(); renderHud(); }   // short press: original behavior
+            if (!c2Fired) { stampMode = (stampMode + 1) % 10; onStampModeChanged(); savePrefs(); renderHud(); }   // short press cycles stamp modes incl. H/2
         }
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_AEL) {
                 aelHeld = false;
@@ -1734,6 +2052,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             return true;
         }
         if (scan == K_ENTER) {
+            if (spotMode) {                            // center key in focus-adjust: switch the ghost ratio (LCD / EVF)
+                ghostFinder = (ghostFinder + 1) % 2;
+                if (fbox != null) { fbox.ghostFinder = ghostFinder; fbox.postInvalidate(); }
+                savePrefs();
+                setStatus("VIEW " + (ghostFinder == 0 ? "LCD" : "EVF"));
+                Logger.log("ghost finder " + ghostFinder);
+                return true;
+            }
             sceneIdx = (sceneIdx + 1) % 4;
             rig.setSceneMode(SCENE_MODES[sceneIdx]);
             renderOverlay(); renderHud();
@@ -1814,35 +2140,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private final Runnable c2LongAction = new Runnable() { public void run() {
         if (!c2Held) return;
         c2Fired = true;
-        takeShot();
+        ghostFinder = (ghostFinder + 1) % 2;                 // long-press C2: switch the ghost ratio (LCD / EVF)
+        if (fbox != null) { fbox.ghostFinder = ghostFinder; fbox.postInvalidate(); }
+        savePrefs();
+        setStatus("VIEW " + (ghostFinder == 0 ? "LCD" : "EVF"));
+        Logger.log("ghost finder " + ghostFinder + " (C2 long)");
     } };
-
-    /** render the window's view tree to a PNG on the card (SurfaceView preview layer excluded) */
-    private void takeShot() {
-        try {
-            android.view.View rv = surface.getRootView();
-            rv.setDrawingCacheEnabled(true);
-            rv.buildDrawingCache();
-            android.graphics.Bitmap src = rv.getDrawingCache();
-            android.graphics.Bitmap copy = android.graphics.Bitmap.createBitmap(src);
-            rv.setDrawingCacheEnabled(false);
-            java.io.File root = android.os.Environment.getExternalStorageDirectory();
-            java.io.File dir = null;   // FuFsys: only pre-existing dirs accept new files — first writable wins
-            for (String sub : new String[]{"OpenFilm6K", "DCIM/OpenFilm6K", "DCIM"})
-                { java.io.File d = new java.io.File(root, sub); if (d.isDirectory() || d.mkdirs()) { dir = d; break; } }
-            if (dir == null) dir = new java.io.File(root, "DCIM");
-            java.io.File out = new java.io.File(dir, "shot.png");   // FuFsys refuses NEW files from the app; overwrite the pre-created placeholder
-            java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
-            copy.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fo);
-            fo.close();
-            copy.recycle();
-            Logger.log("shot -> " + out);
-            setStatus("shot " + out.getName());
-        } catch (Throwable t) {
-            Logger.log("shot: " + t);
-            setStatus("shot failed");
-        }
-    }
 
     private int spotX = 0, spotY = 0;
 
@@ -2102,6 +2405,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 .putInt("quality", qualityIdx)
                 .putString("favs", favsStr())
                 .putInt("stamp", stampMode)
+                .putInt("gfinder", ghostFinder)
                 .commit();
     }
 

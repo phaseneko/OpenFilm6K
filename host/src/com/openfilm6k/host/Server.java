@@ -229,7 +229,12 @@ public class Server {
 
         String resp;
         try {
-        if (path.startsWith("/ingest")) {
+        if (path.startsWith("/ingest2")) {   // MUST precede "/ingest": "/ingest2" startsWith "/ingest"
+            // H (half-frame) / 2 (double-exposure): two shots (each may use a different film)
+            // uploaded atomically. body = JPEG0 then JPEG1.
+            resp = ingestPair(raw, q);
+        }
+        else if (path.startsWith("/ingest")) {
             // camera upload: POST /ingest?film=&name=&orig=&len=[&stamp=..&stamp2=..&b=1&x=1], body = JPEG bytes.
             // Save the original to the hidden scratch dir, render it into the gallery album.
             String film = q.get("film"), name = q.get("name"), orig = q.get("orig");
@@ -439,6 +444,318 @@ public class Server {
 
     /** burn watermark(s) / polaroid / collage onto the graded output per the camera's params */
     /** screen-blend the TEXT stamps onto a copy of the ORIGINAL (before grading); returns a temp file, or src when nothing to do */
+    // ---- H (half-frame) / 2 (double-exposure): paired two-shot ingest ----
+
+    /** read exactly {@code len} bytes of the request body into {@code out}; false on a short read */
+    private static boolean readBody(java.io.InputStream in, java.io.File out, long len) {
+        try {
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
+            long left = len;
+            byte[] buf = new byte[16384];
+            while (left > 0) {
+                int r = in.read(buf, 0, (int) Math.min(buf.length, left));
+                if (r < 0) break;
+                fo.write(buf, 0, r);
+                left -= r;
+            }
+            fo.close();
+            return left <= 0;
+        } catch (Throwable t) { return false; }
+    }
+
+    private static long parseLen(String s) {
+        try { return s == null ? -1 : Long.parseLong(s.trim()); } catch (Throwable t) { return -1; }
+    }
+
+    /** H (half-frame) / 2 (double-exposure): the camera shoots two frames back to back (each may
+     *  use a different film) and uploads them atomically as one request. Query:
+     *  {@code mode=half|double&film0=&film1=&name=&len0=&len1=}; body = JPEG0 then JPEG1.
+     *  Each frame is graded with its own film, then handed to composePair(), which writes the
+     *  single final image. Output: one {@code graded_<name>.jpg} in the album. */
+    private String ingestPair(java.io.InputStream raw, Map<String,String> q) {
+        String mode = q.get("mode"), film0 = q.get("film0"), film1 = q.get("film1"), name = q.get("name");
+        long len0 = parseLen(q.get("len0")), len1 = parseLen(q.get("len1"));
+        if (mode == null || film0 == null || film1 == null || name == null || len0 <= 0 || len1 <= 0)
+            return "ERR params";
+        workDir.mkdirs();
+        java.io.File src0 = new java.io.File(workDir, name);
+        java.io.File src1 = new java.io.File(workDir, "b_" + name);
+        if (!readBody(raw, src0, len0) || !readBody(raw, src1, len1)) {
+            src0.delete(); src1.delete();
+            return "ERR short read";
+        }
+        byte[] exifApp1 = Exif.app1Of(src0);
+        galDir.mkdirs();
+        java.io.File out = new java.io.File(galDir, "graded_" + name);
+        String r;
+        if ("double".equals(mode) && film0.equals(film1)) {
+            // A: same film -> accumulate the two exposures in LIGHT, then develop ONCE through the engine
+            java.io.File merged = new java.io.File(workDir, "m_" + name);
+            String rm = mergeLight(src0, src1, merged);
+            if (rm != null && !rm.startsWith("ERR") && merged.exists())
+                r = Engine.get().process(merged.getAbsolutePath(), film0, out.getAbsolutePath());
+            else r = "ERR merge " + rm;
+            merged.delete();
+        } else {
+            // B (different films), or H (half): grade each, then compose
+            java.io.File g0 = new java.io.File(workDir, "p0_" + name);
+            java.io.File g1 = new java.io.File(workDir, "p1_" + name);
+            String r0 = Engine.get().process(src0.getAbsolutePath(), film0, g0.getAbsolutePath());
+            String r1 = Engine.get().process(src1.getAbsolutePath(), film1, g1.getAbsolutePath());
+            if (r0 != null && !r0.startsWith("ERR") && g0.exists()
+                    && r1 != null && !r1.startsWith("ERR") && g1.exists())
+                r = composePair(mode, g0, g1, out);
+            else r = "ERR render " + r0 + " / " + r1;
+            g0.delete(); g1.delete();
+        }
+        if (exifApp1 != null && r != null && !r.startsWith("ERR") && out.exists())
+            Exif.carryBytes(out, exifApp1);
+        boolean ok = r != null && !r.startsWith("ERR") && out.exists();
+        try {   // refresh the standing notification (label shows both films)
+            final String filmF = film0 + " + " + film1;
+            final String expoF = readExposure(src0);
+            final String timeF = readTime(src0);
+            final android.graphics.Bitmap thumbF = decodeThumb(out);
+            final String gpath = out.getAbsolutePath();
+            android.media.MediaScannerConnection.scanFile(ctx, new String[]{gpath}, new String[]{"image/jpeg"},
+                new android.media.MediaScannerConnection.OnScanCompletedListener() {
+                    public void onScanCompleted(String p, android.net.Uri u) {
+                        try { HostService.photoInfo(filmF, expoF, timeF, thumbF, u); }
+                        catch (Throwable t2) { MainActivity.say("notif: " + t2); }
+                    }
+                });
+        } catch (Throwable t3) { MainActivity.say("notif prep: " + t3); }
+        src0.delete(); src1.delete();
+        return ok ? "OK " + out.getName() : "ERR " + r;
+    }
+
+    /** H = half-frame, 2 = double-exposure. Dispatches the per-mode composition. */
+    static String composePair(String mode, java.io.File g0, java.io.File g1, java.io.File out) {
+        if ("half".equals(mode)) return composeHalf(g0, g1, out);
+        return composeDouble(g0, g1, out);
+    }
+
+    /** 8-bit linear-light AVERAGE LUT: each channel -> linear light, average the two exposures, back to
+     *  sRGB. Averaging (not summing) is exposure-neutral (each frame at half) and keeps the 8-bit
+     *  intermediate from clipping — used both for the different-film composite and, same-film, for the
+     *  pre-grade merge. 65536 entries = one array lookup per channel. */
+    private static byte[] AVG_FT;
+    private static synchronized byte[] avgTable() {
+        if (AVG_FT == null) {
+            float[] lin = new float[256];
+            for (int i = 0; i < 256; i++) lin[i] = srgb2lin(i / 255f);
+            byte[] t = new byte[65536];
+            for (int a = 0; a < 256; a++)
+                for (int b = 0; b < 256; b++) {
+                    float s = (lin[a] + lin[b]) * 0.5f;              // linear average of the two exposures
+                    t[(a << 8) | b] = (byte) Math.round(lin2srgb(s) * 255f);
+                }
+            AVG_FT = t;
+        }
+        return AVG_FT;
+    }
+    private static float srgb2lin(float c) { return c <= 0.04045f ? c / 12.92f : (float) Math.pow((c + 0.055f) / 1.055f, 2.4); }
+    private static float lin2srgb(float c) { c = c < 0 ? 0 : c > 1 ? 1 : c; return c <= 0.0031308f ? c * 12.92f : (float) (1.055 * Math.pow(c, 1.0 / 2.4) - 0.055); }
+
+    /** banded, full-res 2-image blend: out(channel) = ft[(a<<8)|b]; writes a JPEG. Uses
+     *  BitmapRegionDecoder so only one full-size (the output) bitmap is ever resident. */
+    static String blendTwo(java.io.File fa, java.io.File fb, java.io.File out, byte[] ft) {
+        android.graphics.Bitmap ob = null;
+        android.graphics.BitmapRegionDecoder r0 = null, r1 = null;
+        try {
+            r0 = android.graphics.BitmapRegionDecoder.newInstance(fa.getAbsolutePath(), false);
+            r1 = android.graphics.BitmapRegionDecoder.newInstance(fb.getAbsolutePath(), false);
+            int W = r0.getWidth(), H = r0.getHeight();
+            int w1 = r1.getWidth(), h1 = r1.getHeight();
+            if (W <= 0 || H <= 0 || w1 <= 0 || h1 <= 0) return "ERR bounds";
+            ob = android.graphics.Bitmap.createBitmap(W, H, android.graphics.Bitmap.Config.ARGB_8888);
+            int band = Math.max(1, Math.min(H, 2000000 / Math.max(1, W)));   // bound the transient band buffers
+            int[] pa = new int[W * band], pb = new int[W * band];
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
+            for (int y = 0; y < H; y += band) {
+                int bh = Math.min(band, H - y);
+                android.graphics.Bitmap a = r0.decodeRegion(new android.graphics.Rect(0, y, W, y + bh), o);
+                android.graphics.Bitmap b;
+                if (w1 == W && h1 == H) {
+                    b = r1.decodeRegion(new android.graphics.Rect(0, y, W, y + bh), o);
+                } else {   // defensive: differing geometry -> scale frame1's slice to match
+                    int sy = (int) ((long) y * h1 / H), sy2 = (int) ((long) (y + bh) * h1 / H);
+                    if (sy2 <= sy) sy2 = sy + 1;
+                    android.graphics.Bitmap rb = r1.decodeRegion(new android.graphics.Rect(0, sy, w1, sy2), o);
+                    b = android.graphics.Bitmap.createBitmap(W, bh, android.graphics.Bitmap.Config.ARGB_8888);
+                    android.graphics.Canvas bc = new android.graphics.Canvas(b);
+                    android.graphics.Paint bp = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+                    bc.drawBitmap(rb, new android.graphics.Rect(0, 0, rb.getWidth(), rb.getHeight()),
+                            new android.graphics.Rect(0, 0, W, bh), bp);
+                    rb.recycle();
+                }
+                if (a == null || b == null) { if (a != null) a.recycle(); if (b != null) b.recycle(); return "ERR decode"; }
+                a.getPixels(pa, 0, W, 0, 0, W, bh);
+                b.getPixels(pb, 0, W, 0, 0, W, bh);
+                int n = W * bh;
+                for (int i = 0; i < n; i++) {
+                    int av = pa[i], bv = pb[i];
+                    int rr = ft[(((av >> 16) & 0xFF) << 8) | ((bv >> 16) & 0xFF)] & 0xFF;
+                    int rg = ft[(((av >> 8) & 0xFF) << 8) | ((bv >> 8) & 0xFF)] & 0xFF;
+                    int rb2 = ft[((av & 0xFF) << 8) | (bv & 0xFF)] & 0xFF;
+                    pa[i] = 0xFF000000 | (rr << 16) | (rg << 8) | rb2;
+                }
+                ob.setPixels(pa, 0, W, 0, y, W, bh);
+                a.recycle(); b.recycle();
+            }
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
+            ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
+            fo.close();
+            return out.getAbsolutePath();
+        } catch (Throwable t) { return "ERR blend " + t; }
+        finally {
+            if (ob != null) ob.recycle();
+            if (r0 != null) r0.recycle();
+            if (r1 != null) r1.recycle();
+        }
+    }
+
+    /** 2 = double exposure with DIFFERENT films (the two graded frames can't be developed together):
+     *  average them in linear light — each exposure at half, exposure-neutral, no highlight clipping. */
+    static String composeDouble(java.io.File g0, java.io.File g1, java.io.File out) {
+        return blendTwo(g0, g1, out, avgTable());
+    }
+
+    /** same-film double exposure: accumulate the two ORIGINAL exposures in light (linear average),
+     *  then develop ONCE through the film engine — the physically correct film behaviour. */
+    static String mergeLight(java.io.File src0, java.io.File src1, java.io.File out) {
+        return blendTwo(src0, src1, out, avgTable());
+    }
+
+    /** H (half-frame): each source's CENTRAL HALF (3:4, full height) is placed left/right on a
+     *  3:2 pure-black canvas, with outer margin AND the gap between them = half the polaroid
+     *  narrow border (side/2). Each half gets the polaroid soft inner edge + small rounded corners.
+     *  Only the needed central strip is decoded (BitmapRegionDecoder) to keep Java-heap low, so real
+     *  24MP frames stay FULL resolution without enabling largeHeap. Two 3:4 halves side by side = 3:2. */
+    static String composeHalf(java.io.File g0, java.io.File g1, java.io.File out) {
+        android.graphics.Bitmap ob = null;
+        try {
+            android.graphics.BitmapFactory.Options b = new android.graphics.BitmapFactory.Options();
+            b.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(g0.getAbsolutePath(), b);
+            if (b.outWidth <= 0 || b.outHeight <= 0) return "ERR bounds";
+            int sc = 1;   // only downsample absurdly large inputs: the output bitmap is ~1.5·H·H·4 bytes
+            while (1.5f * (b.outHeight / sc) * (b.outHeight / sc) * 4f > 120e6f) sc *= 2;
+            int effH = b.outHeight / sc;
+            int H = effH, W = Math.round(effH * 1.5f);                       // output 3:2
+            int mn = Math.min(W, H);
+            int side = Math.round(mn * 0.030f);                              // polaroid narrow border
+            int m = 0;                                                        // NO margin: the photos reach the canvas edges
+            int gap = Math.round(5.625f * Math.max(1, side / 4));            // spacing kept (decoupled from the now-zero margin)
+            int hh = H - 2 * m;
+            int hw = Math.round((W - 2 * m - gap) / 2f);
+            int xR = m + hw + gap;
+            int amp = Math.max(1, Math.round(Math.max(2, mn / 300) * 0.5625f)); // inner-edge overflow amplitude (x3/4)
+            ob = android.graphics.Bitmap.createBitmap(W, H, android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas cv = new android.graphics.Canvas(ob);
+            cv.drawColor(0xFF000000);                                        // pure black ground
+            android.graphics.Paint bp = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+            drawHalfSrc(cv, g0, sc, m - amp, m - amp, hw + 2 * amp, hh + 2 * amp, bp);   // outer overflow is clipped by the canvas -> hard edges
+            drawHalfSrc(cv, g1, sc, xR - amp, m - amp, hw + 2 * amp, hh + 2 * amp, bp);
+            dressHalf(cv, m, m, hw, hh, mn, amp, true);                      // left photo: rough only on its gap-facing (right) edge
+            dressHalf(cv, xR, m, hw, hh, mn, amp, false);                    // right photo: rough only on its gap-facing (left) edge
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
+            ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
+            fo.close();
+            return out.getAbsolutePath();
+        } catch (Throwable t) { return "ERR half " + t; }
+        finally { if (ob != null) ob.recycle(); }
+    }
+
+    /** decode ONLY the central half strip of the source and draw it scaled into the dest rect */
+    private static void drawHalfSrc(android.graphics.Canvas cv, java.io.File f, int sc,
+                                    int x, int y, int w, int h, android.graphics.Paint bp) throws Exception {
+        android.graphics.BitmapRegionDecoder rd = android.graphics.BitmapRegionDecoder.newInstance(f.getAbsolutePath(), false);
+        try {
+            int iw = rd.getWidth(), ih = rd.getHeight();
+            int cw = Math.max(1, iw / 2), cx = iw / 2 - cw / 2;              // central half, full height
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inSampleSize = sc;
+            o.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
+            android.graphics.Bitmap half = rd.decodeRegion(new android.graphics.Rect(cx, 0, cx + cw, ih), o);
+            if (half == null) return;
+            cv.drawBitmap(half, new android.graphics.Rect(0, 0, half.getWidth(), half.getHeight()),
+                    new android.graphics.RectF(x, y, x + w, y + h), bp);
+            half.recycle();
+        } finally { rd.recycle(); }
+    }
+
+    /** rough foam edge ONLY on the side facing the central gap (roughRight = the photo's RIGHT edge is
+     *  rough). The other three sides are plain canvas edges (their overflow is clipped away), and there
+     *  is no margin/corner rounding any more. */
+    private static void dressHalf(android.graphics.Canvas cv, int x, int y, int w, int h, int mn, int amp, boolean roughRight) {
+        int sh = Math.max(2, mn / 300);
+        int fade = Math.max(1, Math.round(sh * 0.375f));                     // soft-edge fade length (x3/2)
+        int x0 = x, y0 = y, x1 = x + w, y1 = y + h;
+        java.util.Random rnd = new java.util.Random(0x0F6A1E5AL);
+        float[] wr = wavh(h, amp, rnd.nextLong());
+        android.graphics.Paint sp = new android.graphics.Paint();
+        int black = 0xFF000000, klar = 0x00000000;
+        if (roughRight) {                                                    // blend the RIGHT edge to black
+            for (int i = 0; i < h; i += 2) {
+                float b = x1 + wr[i];
+                sp.setShader(new android.graphics.LinearGradient(b, 0, b - fade, 0, black, klar, android.graphics.Shader.TileMode.CLAMP));
+                cv.drawRect(b - fade, y0 + i, x1 + amp, y0 + Math.min(h, i + 2), sp);
+            }
+        } else {                                                             // blend the LEFT edge to black
+            for (int i = 0; i < h; i += 2) {
+                float b = x0 + wr[i];
+                sp.setShader(new android.graphics.LinearGradient(b, 0, b + fade, 0, black, klar, android.graphics.Shader.TileMode.CLAMP));
+                cv.drawRect(x0 - amp, y0 + i, b + fade, y0 + Math.min(h, i + 2), sp);
+            }
+        }
+    }
+
+    /** edge profile = low-frequency undulation band + high-frequency roughness band. Each band is a
+     *  value-noise fBm (Gaussian lattice, smoothstep), RMS-normalised, then mixed by LOWW/HIGHW so the
+     *  two scales are independently controllable. Final peak normalised to `amp`. */
+    private static float[] wavh(int n, float amp, long seed) {
+        java.util.Random r = new java.util.Random(seed);
+        float[] lo = octaveSum(n, r, 4.5f, 2, 0.6f);     // low band: 4.5, 9 cycles  (big undulation)
+        float[] hi = octaveSum(n, r, 36f, 5, 0.75f);     // high band: 36..576 cycles (roughness)
+        normRms(lo); normRms(hi);
+        float LOWW = 0.5f, HIGHW = 1.0f;                 // relative energy: low undulation vs high roughness
+        float[] out = new float[n];
+        float mx = 1e-6f;
+        for (int i = 0; i < n; i++) { out[i] = LOWW * lo[i] + HIGHW * hi[i]; mx = Math.max(mx, Math.abs(out[i])); }
+        float s = amp / mx;
+        for (int i = 0; i < n; i++) out[i] *= s;
+        return out;
+    }
+
+    /** sum of `octs` fBm octaves (freq x2, amp x`pers` per octave) starting at `freq` cycles */
+    private static float[] octaveSum(int n, java.util.Random r, float freq, int octs, float pers) {
+        float[] o = new float[n];
+        float a = 1f;
+        for (int k = 0; k < octs; k++) {
+            int m = Math.max(2, Math.round(freq));
+            float[] lat = new float[m + 1];
+            for (int i = 0; i <= m; i++) lat[i] = (float) r.nextGaussian();
+            for (int i = 0; i < n; i++) {
+                float t = (i / (float) Math.max(1, n - 1)) * m;
+                int i0 = (int) t; if (i0 >= m) i0 = m - 1;
+                float f = t - i0;
+                float u = f * f * (3 - 2 * f);
+                o[i] += a * (lat[i0] * (1 - u) + lat[i0 + 1] * u);
+            }
+            freq *= 2f; a *= pers;
+        }
+        return o;
+    }
+
+    private static void normRms(float[] v) {
+        float s = 0;
+        for (float x : v) s += x * x;
+        float rms = (float) Math.sqrt(s / v.length) + 1e-6f;
+        for (int i = 0; i < v.length; i++) v[i] /= rms;
+    }
+
     /** spy mode: run the ingest pipeline on a local file — arrival-time stamps built host-side, output into the DCIM album */
     static String spyIngest(java.io.File src, String film, int mode) {
         try {
