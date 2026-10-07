@@ -169,6 +169,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 names.clear(); names.addAll(got);
                 customCount = seenDiv ? cc : 0;
                 Logger.log("films pulled from host: " + got.size());
+                applyWantFilm();                       // reselect the persisted film by name now that the list is here
                 renderOverlay();
             } else if (!got.isEmpty()) {
                 Logger.log("films pulled, unchanged (" + got.size() + ")");
@@ -395,13 +396,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (hideAf) return;   // countdown on screen: no focus area / grid
             int w = getWidth(), h = getHeight();
             if (ghostWait) {                       // double-exposure: 1st shot taken, the ghost is being prepared
-                cv.drawColor(0xFF000000);          // opaque black, no HUD — just a centred "processing"
-                android.graphics.Paint tp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                if (tf != null) tp.setTypeface(tf);
-                tp.setTextSize(h / 19f);           // identical font + size to the rest of the HUD
-                tp.setColor(0xFFFFFFFF);
-                String s = "processing";
-                cv.drawText(s, (w - tp.measureText(s)) / 2f, h / 2f + (h / 19f) * 0.35f, tp);
+                cv.drawColor(0xFF000000);          // opaque black, no HUD — just a blinking centred "processing"
+                if ((System.currentTimeMillis() / 450) % 2 == 0) {
+                    android.graphics.Paint tp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                    if (tf != null) tp.setTypeface(tf);
+                    tp.setTextSize(h / 19f);           // identical font + size to the rest of the HUD
+                    tp.setColor(0xFFFFFFFF);
+                    String s = "processing";
+                    cv.drawText(s, (w - tp.measureText(s)) / 2f, h / 2f + (h / 19f) * 0.35f, tp);
+                }
+                postInvalidateDelayed(450);        // keep it blinking until the ghost is ready
                 return;
             }
             if (ghostOn && ghostBmp != null) {     // double-exposure: translucent ghost of the 1st exposure over the live viewfinder
@@ -682,6 +686,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private volatile android.graphics.Bitmap ghostBmp;
     private volatile float ghostAlpha = 1.0f;   // global multiplier on top of the per-pixel luminance alpha
     private int ghostFinder = 0;                 // 0 = LCD (9:8), 1 = EVF (3:2): which screen the ghost is sized for
+    private String wantFilm = "";                // persisted selected film (by NAME; index is unstable)
 
     // ---- lens-cap auto sleep: preview stays near-black -> cap on -> sleep after 10s ----
     private boolean capDim = false;                // screen dimmed by lens-cap sleep
@@ -809,6 +814,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         sel = pf.getInt("film2", -1);
         stampMode = pf.getInt("stamp", 0);
         ghostFinder = pf.getInt("gfinder", 0);
+        wantFilm = pf.getString("selfilm", "");
         favs.clear();
         String fv = pf.getString("favs", "");
         if (fv.length() > 0) {
@@ -824,6 +830,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
         discoverFilms();
         if (sel < 0 || sel >= totalSel() || sel == divSel()) sel = names.isEmpty() ? 0 : NSPECIAL;
+        applyWantFilm();
         hud.setPadding(dp(8), dp(4), dp(8), dp(4));
         status.setPadding(dp(8), dp(4), dp(8), dp(4));
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) status.getLayoutParams();
@@ -1040,6 +1047,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onPause() {
         super.onPause();
+        savePrefs();
         clearGhost();
         rig.release();
     }
@@ -2374,7 +2382,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private String favsStr() {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < names.size(); i++) if (favs.contains(names.get(i))) { if (sb.length() > 0) sb.append(","); sb.append(names.get(i)); }
+        java.util.HashSet<String> done = new java.util.HashSet<String>();
+        for (int i = 0; i < names.size(); i++) { String n = names.get(i); if (favs.contains(n) && done.add(n)) { if (sb.length() > 0) sb.append(","); sb.append(n); } }
+        for (String n : favs) if (done.add(n)) { if (sb.length() > 0) sb.append(","); sb.append(n); }   // keep favs whose film isn't in the current list (e.g. list not pulled yet)
         return sb.toString();
     }
 
@@ -2400,13 +2410,27 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private void savePrefs() {
-        getPreferences(MODE_PRIVATE).edit()
+        android.content.SharedPreferences.Editor ed = getPreferences(MODE_PRIVATE).edit()
                 .putInt("film2", sel)
                 .putInt("quality", qualityIdx)
                 .putString("favs", favsStr())
                 .putInt("stamp", stampMode)
-                .putInt("gfinder", ghostFinder)
-                .commit();
+                .putInt("gfinder", ghostFinder);
+        String nm = selName();                            // persist the selected film by NAME too (the index is unstable across list changes)
+        if (nm.length() > 0) { wantFilm = nm; ed.putString("selfilm", nm); }
+        ed.commit();
+    }
+
+    private String selName() {
+        int fi = filmIdx(sel);
+        return (fi >= 0 && fi < names.size()) ? names.get(fi) : "";
+    }
+
+    /** re-select the persisted film by name once the (host) list is available; no-op if absent */
+    private void applyWantFilm() {
+        if (wantFilm == null || wantFilm.isEmpty()) return;
+        int idx = names.indexOf(wantFilm);
+        if (idx >= 0) sel = posOf(idx);
     }
 
     @Override
