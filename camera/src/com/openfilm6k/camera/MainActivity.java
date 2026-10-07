@@ -34,13 +34,113 @@ import java.util.List;
  */
 public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
-    // ScalarInput scan codes (A6000, verified by Recipe Lab)
-    private static final int K_UP = 103, K_DOWN = 108, K_LEFT = 105, K_RIGHT = 106;
-    private static final int K_ENTER = 232, K_MENU = 514, K_AEL = 532, K_C1 = 622, K_FN = 520;
-    private static final int K_S1 = 516, K_S2 = 518, K_DELETE = 595, K_PLAY = 207;
-    private static final int K_C2 = 595;   // confirmed from LOG (C2 button)
-    private static final int K_WHEEL_CW = 528, K_WHEEL_CCW = 529;   // real kernel codes (0x210/0x211); 522/523 never fired
-    private static final int K_DIAL_CW = 525, K_DIAL_CCW = 526;
+    // ---- key scancode bindings, per camera model -----------------------------
+    // Whitelist keyed by the EXIF Model of a captured photo (Build.DEVICE is shared by many Sony
+    // models); anything unlisted falls back to the A6000 map.
+    static final class KeyMap {
+        final int up, down, left, right, enter, menu, ael, c1, c2, c3, c4, fn, s1, s2, del, play;
+        final int wheelCw, wheelCcw;   // 波轮 (control wheel)      -> change the highlighted value
+        final int dialCw, dialCcw;     // 后转盘 (rear dial)        -> EV
+        final int frontCw, frontCcw;   // 前转盘 (front dial)       -> select film (0 = model has none)
+        final int[] wheelExtra;
+        final int lcdGhost;   // LCD ghost framing: 0 = 9:8 centred (A6000), 1 = 3:2 top-aligned (A7M2)
+        KeyMap(int up, int down, int left, int right, int enter, int menu, int ael, int c1, int c2, int c3, int c4, int fn,
+               int s1, int s2, int del, int play,
+               int wheelCw, int wheelCcw, int dialCw, int dialCcw, int frontCw, int frontCcw, int[] wheelExtra, int lcdGhost) {
+            this.up = up; this.down = down; this.left = left; this.right = right; this.enter = enter;
+            this.menu = menu; this.ael = ael; this.c1 = c1; this.c2 = c2; this.c3 = c3; this.c4 = c4; this.fn = fn;
+            this.s1 = s1; this.s2 = s2; this.del = del; this.play = play;
+            this.wheelCw = wheelCw; this.wheelCcw = wheelCcw; this.dialCw = dialCw; this.dialCcw = dialCcw;
+            this.frontCw = frontCw; this.frontCcw = frontCcw;
+            this.wheelExtra = wheelExtra;
+            this.lcdGhost = lcdGhost;
+        }
+    }
+    // A6000: 波轮=528/529, 后转盘(唯一转盘)=525/526, 无前转盘/C3/C4, C2=595, AEL=532
+    static final KeyMap KM_A6000 = new KeyMap(
+            103, 108, 105, 106, 232, 514, 532, 622, 595, 0, 0, 520,  // up down left right enter menu ael c1 c2 c3 c4 fn
+            516, 518, 595, 207,                                      // s1 s2 del play
+            528, 529, 525, 526, 0, 0,                                // wheel(波轮) dial(后转盘) front(前转盘)
+            new int[]{522, 523}, 0);                                 // lcdGhost = 9:8 centred
+    // A7 II (ILCE-7M2): 波轮(控制轮)=634/635, 后转盘=528/529, 前转盘=525/526,
+    //                   C1=622 C2=623 C3=588 C4=595, AEL/AF/MF=638
+    static final KeyMap KM_A7M2 = new KeyMap(
+            103, 108, 105, 106, 232, 514, 638, 622, 623, 588, 595, 520,
+            516, 518, 595, 207,
+            635, 634, 528, 529, 525, 526,          // 波轮 CW/CCW 对调 (A7M2 方向相反)
+            new int[]{522, 523}, 1);               // lcdGhost = 3:2 top-aligned
+    static final java.util.HashMap<String, KeyMap> KEYMAPS = new java.util.HashMap<String, KeyMap>();
+    static { KEYMAPS.put("ILCE-6000", KM_A6000); KEYMAPS.put("ILCE-7M2", KM_A7M2); }   // whitelist
+    static KeyMap km = KM_A6000;                                     // active map (A6000 until applyKeymap)
+
+    // resolved scancodes (A6000 defaults; overwritten by applyKeymap())
+    private static int K_UP = 103, K_DOWN = 108, K_LEFT = 105, K_RIGHT = 106;
+    private static int K_ENTER = 232, K_MENU = 514, K_AEL = 532, K_C1 = 622, K_FN = 520;
+    private static int K_S1 = 516, K_S2 = 518, K_DELETE = 595, K_PLAY = 207;
+    private static int K_C2 = 595, K_C3 = 0, K_C4 = 0;
+    private static int K_WHEEL_CW = 528, K_WHEEL_CCW = 529;   // 波轮 -> highlighted value
+    private static int K_DIAL_CW = 525, K_DIAL_CCW = 526;     // 后转盘 -> EV
+    private static int K_FRONT_CW = 0, K_FRONT_CCW = 0;       // 前转盘 -> film select (0 = none)
+    private static int[] K_WHEEL_EXTRA = {522, 523};
+    private static boolean inArr(int[] a, int v) { for (int x : a) if (x == v) return true; return false; }
+    private static String kmModel = "(no photo)";   // resolved EXIF model
+    private volatile boolean infoMode = false;     // debug info screen shown
+    private volatile boolean downHeld = false;
+    private final Runnable downLongAction = new Runnable() { public void run() { if (downHeld) showInfo(); } };
+
+    /** long-press DOWN (5s): black debug screen with build/model/keymap info; any key returns */
+    private void showInfo() {
+        StringBuilder b = new StringBuilder();
+        b.append("OpenFilm6K camera  #").append(BUILD).append('\n');
+        b.append("device:  ").append(android.os.Build.DEVICE).append('\n');
+        b.append("model:   ").append(android.os.Build.MODEL).append(" / ").append(android.os.Build.MANUFACTURER).append('\n');
+        b.append("board:   ").append(android.os.Build.BOARD).append('\n');
+        b.append("product: ").append(android.os.Build.PRODUCT).append('\n');
+        b.append("android: ").append(android.os.Build.VERSION.RELEASE).append("  sdk ").append(android.os.Build.VERSION.SDK_INT).append('\n');
+        b.append("finger:  ").append(android.os.Build.FINGERPRINT).append('\n');
+        if (fbox != null) b.append("display: ").append(fbox.getWidth()).append("x").append(fbox.getHeight()).append('\n');
+        b.append("keymap:  ").append(kmModel).append('\n');
+        b.append("keys: up").append(K_UP).append(" dn").append(K_DOWN).append(" lf").append(K_LEFT).append(" rt").append(K_RIGHT).append('\n');
+        b.append("      en").append(K_ENTER).append(" mn").append(K_MENU).append(" ael").append(K_AEL).append(" c1").append(K_C1).append(" c2").append(K_C2).append(" c3").append(K_C3).append(" c4").append(K_C4).append(" fn").append(K_FN).append('\n');
+        b.append("      s1").append(K_S1).append(" s2").append(K_S2).append(" del").append(K_DELETE).append(" play").append(K_PLAY).append('\n');
+        b.append("      whl ").append(K_WHEEL_CW).append('/').append(K_WHEEL_CCW).append(" rear ").append(K_DIAL_CW).append('/').append(K_DIAL_CCW).append(" front ").append(K_FRONT_CW).append('/').append(K_FRONT_CCW).append('\n');
+        b.append("ghost:   ").append(ghostFinder == 0 ? "LCD 9:8" : "EVF 3:2").append('\n');
+        b.append("stamp:   ").append(stampMode).append('\n');
+        b.append("film:    ").append(selName().isEmpty() ? "-" : selName()).append("  [").append(sel).append("]").append('\n');
+        b.append("(any key to return)");
+        infoMode = true;
+        if (fbox != null) { fbox.infoText = b.toString(); fbox.info = true; fbox.postInvalidate(); }
+        Logger.log("info screen shown");
+    }
+
+    /** read the EXIF Model of the newest DCIM photo — the camera writes its real model there */
+    private String resolveModel() {
+        try {
+            java.io.File f = newestPhoto();
+            if (f != null) {
+                android.media.ExifInterface ex = new android.media.ExifInterface(f.getAbsolutePath());
+                String m = ex.getAttribute(android.media.ExifInterface.TAG_MODEL);
+                if (m != null && m.trim().length() > 0) return m.trim();
+            }
+        } catch (Throwable t) { Logger.log("keymap model EX: " + t); }
+        return "";
+    }
+
+    /** pick the key map from the EXIF model of a shot; unlisted / no photo -> A6000 fallback */
+    private void applyKeymap() {
+        String model = resolveModel();
+        KeyMap m = model.isEmpty() ? null : KEYMAPS.get(model);
+        if (m == null) { m = KM_A6000; kmModel = model.isEmpty() ? "(no photo) -> A6000" : model + " -> A6000 fallback"; }
+        else kmModel = model;
+        km = m;
+        K_UP = m.up; K_DOWN = m.down; K_LEFT = m.left; K_RIGHT = m.right; K_ENTER = m.enter;
+        K_MENU = m.menu; K_AEL = m.ael; K_C1 = m.c1; K_C2 = m.c2; K_C3 = m.c3; K_C4 = m.c4; K_FN = m.fn;
+        K_S1 = m.s1; K_S2 = m.s2; K_DELETE = m.del; K_PLAY = m.play;
+        K_WHEEL_CW = m.wheelCw; K_WHEEL_CCW = m.wheelCcw; K_DIAL_CW = m.dialCw; K_DIAL_CCW = m.dialCcw;
+        K_FRONT_CW = m.frontCw; K_FRONT_CCW = m.frontCcw;
+        K_WHEEL_EXTRA = m.wheelExtra;
+        Logger.log("keymap: model=" + (model.isEmpty() ? "(none)" : model) + " -> " + kmModel);
+    }
 
     private static final int SHUTTER_RESTART_MS = 1000;
     private static final int[] SCALES = {2, 4, 1, 0};   // 6MP, 2MP, 24MP, phone
@@ -231,6 +331,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         volatile android.graphics.Bitmap ghostBmp;  // 1st-exposure still, drawn translucent over the live viewfinder
         volatile boolean ghostOn = false;
         volatile boolean ghostWait = false;         // dim the view while the 1st exposure's ghost is being prepared
+        volatile boolean info = false;              // debug info screen (long-press DOWN)
+        volatile String infoText = "";
         volatile float ghostAlpha = 1.0f;   // global multiplier on top of the per-pixel luminance alpha
         volatile float ghostScale = 0.75f;  // the live preview occupies ~75% of the screen width (side bars)
         volatile int ghostFinder = 0;       // 0 = LCD (9:8), 1 = EVF (3:2)
@@ -373,14 +475,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
          *  pre-squeezed to 9:8 in the frame buffer: fill the height, width = (3/2)/h / (4/3) = 9h/8. */
         void drawFit(android.graphics.Canvas cv, android.graphics.Bitmap bm, android.graphics.Paint pt) {
             int w = getWidth(), h = getHeight();
-            float dw, dh;
-            if (ghostFinder == 1) {            // EVF (3:2, no panel stretch): the ghost is 3:2 in the frame buffer
-                dw = w; dh = w / 1.5f;
-            } else {                           // LCD: the 16:9 panel stretches the 4:3 frame buffer x4/3, so a 3:2 viewfinder rect is 9:8 in fb
-                dh = h; dw = (1.5f * dh) / (4f / 3f);
+            float dw, dh, dx, dy;
+            if (ghostFinder == 1) {            // EVF (3:2, no panel stretch): 3:2 in the frame buffer, centred
+                dw = w; dh = w / 1.5f; dx = 0; dy = (h - dh) / 2f;
+            } else if (km.lcdGhost == 1) {     // A7M2 LCD: same 3:2 as the EVF, but top-aligned
+                dw = w; dh = w / 1.5f; dx = 0; dy = 0;
+            } else {                           // A6000 LCD: 16:9 panel stretches the 4:3 frame buffer x4/3 -> 3:2 is 9:8, centred
+                dh = h; dw = (1.5f * dh) / (4f / 3f); dx = (w - dw) / 2f; dy = 0;
             }
-            float dx = (w - dw) / 2f, dy = (h - dh) / 2f;
             cv.drawBitmap(bm, null, new android.graphics.RectF(dx, dy, dx + dw, dy + dh), pt);
+            android.graphics.Paint bd = new android.graphics.Paint();   // mode-tinted frame: blue = LCD, purple = EVF
+            bd.setStyle(android.graphics.Paint.Style.STROKE);
+            bd.setStrokeWidth(2f);
+            bd.setColor(ghostFinder == 1 ? 0xFFB000FF : 0xFF00A8FF);
+            cv.drawRect(dx, dy, dx + dw, dy + dh, bd);
         }
 
         public void onDraw(android.graphics.Canvas cv) {
@@ -395,6 +503,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             }
             if (hideAf) return;   // countdown on screen: no focus area / grid
             int w = getWidth(), h = getHeight();
+            if (info) {           // debug info screen: opaque black with a block of text, any key returns
+                cv.drawColor(0xFF000000);
+                android.graphics.Paint ip = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                ip.setColor(0xFFE6E6E6);
+                float sz = h / 30f;
+                ip.setTextSize(sz);
+                float ly = sz * 1.7f;
+                for (String ln : infoText.split("\n")) { cv.drawText(ln, sz * 0.7f, ly, ip); ly += sz * 1.32f; }
+                return;
+            }
             if (ghostWait) {                       // double-exposure: 1st shot taken, the ghost is being prepared
                 cv.drawColor(0xFF000000);          // opaque black, no HUD — just a blinking centred "processing"
                 if ((System.currentTimeMillis() / 450) % 2 == 0) {
@@ -714,6 +832,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     public void onCreate(Bundle b) {
         super.onCreate(b);
+        applyKeymap();   // resolve the per-model key bindings (A6000 fallback) before any key event
         // runtime permissions (targetSdk 24+): camera + storage must be granted dynamically
         if (android.os.Build.VERSION.SDK_INT >= 23) {
             String[] need = {
@@ -1257,6 +1376,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         if (size > 0 && p.equals(pendPath) && size == pendSize) {
                             sentPaths.add(p);
                             int film = takeShotFilm();
+                            applyKeymap();                             // a fresh card: resolve the keymap from the first shot's EXIF now
                             if (isPairMode()) {
                                 if (pairStaged == 0) {                      // stage frame 1, wait for frame 2
                                     pair0File = f; pair0Film = film;
@@ -1984,8 +2104,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
         if (!netReady) return true;   // boot screen: nothing operable until WiFi is up
         int scan = e.getScanCode();
+        if (infoMode) {   // debug info screen: a fresh key press returns (ignore the held DOWN's own auto-repeat)
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0 && !(scan == K_DOWN && downHeld)) {
+                Logger.log("info closed by act=" + e.getAction() + " scan=" + scan + " rep=" + e.getRepeatCount());
+                infoMode = false; if (fbox != null) { fbox.info = false; fbox.postInvalidate(); }
+            }
+            return true;
+        }
         if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
             Logger.log("key " + scan);
+        }
+        if (scan == K_DOWN && e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {   // hold DOWN 5s -> debug info screen
+            downHeld = true; handler.removeCallbacks(downLongAction); handler.postDelayed(downLongAction, 5000);
         }
         if (e.getAction() == KeyEvent.ACTION_UP || e.getAction() == KeyEvent.ACTION_MULTIPLE) {
                 if (e.getAction() == KeyEvent.ACTION_UP && scan == K_S2 && browser < 0 && settings < 0) shutterUp();
@@ -1993,8 +2123,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     rig.cancelFocus(); afCancel = true;
                     if (fbox != null) fbox.set(0);
                 }
+                if (e.getAction() == KeyEvent.ACTION_UP && scan == K_DOWN) { downHeld = false; handler.removeCallbacks(downLongAction); }
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_C1) { c1Held = false; renderHud(); }
-        if (e.getAction() == KeyEvent.ACTION_UP && scan == K_C2) {
+        if (e.getAction() == KeyEvent.ACTION_UP && (scan == K_C2 || (K_C4 != 0 && scan == K_C4))) {
             c2Held = false;
             handler.removeCallbacks(c2LongAction);
             if (!c2Fired) { stampMode = (stampMode + 1) % 10; onStampModeChanged(); savePrefs(); renderHud(); }   // short press cycles stamp modes incl. H/2
@@ -2034,18 +2165,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (viewing >= 0) return viewerKey(scan, dir);
         if (browser >= 0) return browserKey(scan, dir);
         if (settings >= 0) return settingsKey(scan, dir);
-        if (scan == K_WHEEL_CW || scan == K_WHEEL_CCW || scan == 522 || scan == 523 || scan == 528 || scan == 529) {
-            int wd = (scan == K_WHEEL_CCW || scan == 529) ? -1 : 1;
-            ev = Math.max(evMin, Math.min(evMax, ev + wd));
-            rig.setEv(ev); renderHud(); return true;         // wheel always = EV, no highlight change
+        if (scan == K_WHEEL_CW || scan == K_WHEEL_CCW || inArr(K_WHEEL_EXTRA, scan)) {   // 波轮: change the highlighted value
+            int wd = (scan == K_WHEEL_CCW) ? -1 : 1;
+            return dialItem(wd);
         }
-        if (scan == K_DIAL_CW || scan == K_DIAL_CCW) {
+        if (scan == K_DIAL_CW || scan == K_DIAL_CCW) {   // 后转盘: EV; with C1 held -> cycle favorites
             int dd = (scan == K_DIAL_CW) ? 1 : -1;
-            if (spotMode && !c1Held) {                        // focus state: dial alone cycles AF area mode,
-                String m = (dd > 0) ? rig.cycleFocusModeBack() : rig.cycleFocusMode();   // C1+dial still changes film
-                setStatus("AF " + m); renderHud(); return true;
-            }
-            return dialItem(dd);
+            if (c1Held) { jumpFav(dd); renderHud(); return true; }
+            ev = Math.max(evMin, Math.min(evMax, ev + dd));
+            rig.setEv(ev); renderHud(); return true;
+        }
+        if (K_FRONT_CW != 0 && (scan == K_FRONT_CW || scan == K_FRONT_CCW)) {   // 前转盘 (front dial): select film (C1 held = favorites only)
+            int fd = (scan == K_FRONT_CW) ? 1 : -1;
+            if (c1Held) { jumpFav(fd); }
+            else { sel = (sel + fd + totalSel()) % totalSel(); if (sel == divSel()) sel = (sel + fd + totalSel()) % totalSel(); savePrefs(); }
+            renderHud(); return true;
         }
 
 
@@ -2061,19 +2195,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             hlIdx = 0;
             renderHud(); return true;
         }
-        if (scan == K_C2) {   // long-press = screenshot; short-press handled on UP
+        if (scan == K_C2 || (K_C4 != 0 && scan == K_C4)) {   // long-press = toggle ghost ratio; short-press = stamp cycle (on UP)
             c2Held = true; c2Fired = false;
             handler.removeCallbacks(c2LongAction);
             handler.postDelayed(c2LongAction, 600);
             return true;
         }
+        if (K_C3 != 0 && scan == K_C3) {   // quick AF-area-mode switch, without entering focus-adjust
+            setStatus("AF " + rig.cycleFocusMode()); renderHud(); return true;
+        }
         if (scan == K_ENTER) {
-            if (spotMode) {                            // center key in focus-adjust: switch the ghost ratio (LCD / EVF)
-                ghostFinder = (ghostFinder + 1) % 2;
-                if (fbox != null) { fbox.ghostFinder = ghostFinder; fbox.postInvalidate(); }
-                savePrefs();
-                setStatus("VIEW " + (ghostFinder == 0 ? "LCD" : "EVF"));
-                Logger.log("ghost finder " + ghostFinder);
+            if (spotMode) {                            // focus-adjust: recenter the focus point
+                spotX = 0; spotY = 0; rig.setSpot(spotX, spotY);
+                if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.postInvalidate(); }
                 return true;
             }
             sceneIdx = (sceneIdx + 1) % 4;
@@ -2082,13 +2216,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             setStatus("mode " + SCENE_NAMES[sceneIdx]);
             return true;
         }
-        if (spotMode && (scan == K_UP || scan == K_DOWN || scan == K_LEFT || scan == K_RIGHT || scan == K_ENTER)) {
+        if (spotMode && (scan == K_UP || scan == K_DOWN || scan == K_LEFT || scan == K_RIGHT)) {
             int d = 120;
             if (scan == K_UP) spotY -= d;
             else if (scan == K_DOWN) spotY += d;
             else if (scan == K_LEFT) spotX -= d;
             else if (scan == K_RIGHT) spotX += d;
-            else if (scan == K_ENTER) { spotX = 0; spotY = 0; }
             rig.setSpot(spotX, spotY);
             if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.postInvalidate(); }
             return true;
@@ -2097,7 +2230,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (scan == K_DOWN) { hlIdx = adjOk(lastParam) ? lastParam : 2; renderHud(); return true; }
         if (scan == K_LEFT || scan == K_RIGHT) {
             int d = (scan == K_RIGHT) ? 1 : -1;
-            if (hlIdx == 0) { sel = (sel + d + totalSel()) % totalSel(); savePrefs(); }
+            if (hlIdx == 0) {
+                if (c1Held) { jumpFav(d); }                     // C1 held: cycle favorites only
+                else { sel = (sel + d + totalSel()) % totalSel(); savePrefs(); }
+            }
             else {
                 int h = hlIdx;
                 for (int i = 0; i < 5; i++) { h += d; if (h < 1) h = 5; if (h > 5) h = 1; if (adjOk(h)) break; }
@@ -2325,9 +2461,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         return true;
     }
 
+    /** visible line count of the film list (mirrors FBox.drawMenu) — the LEFT/RIGHT page step */
+    private int menuPage() {
+        if (fbox == null || fbox.getHeight() <= 0) return 10;
+        float ch = fbox.getHeight() / 22f;
+        return Math.max(3, (int) ((fbox.getHeight() * 0.62f) / (ch * 1.35f)));
+    }
+
     private boolean browserKey(int scan, int dir) {
-        if (scan == K_LEFT) { browser = 0; renderOverlay(); return true; }               // jump to list start
-        if (scan == K_RIGHT) { browser = totalSel() - 1; if (browser == divSel()) browser--; renderOverlay(); return true; } // jump to list end
+        if (scan == K_LEFT || scan == K_RIGHT) {                     // page up / page down through the list
+            int pg = menuPage() * (scan == K_RIGHT ? 1 : -1);
+            browser = Math.max(0, Math.min(totalSel() - 1, browser + pg));
+            if (browser == divSel()) browser += (pg > 0 ? 1 : -1);
+            if (browser < 0) browser = 0;
+            if (browser > totalSel() - 1) browser = totalSel() - 1;
+            renderOverlay(); return true;
+        }
         if (scan == K_C1) {
             if (browser >= NSPECIAL && browser != divSel()) {   // only real films can be favorited
                 int r = filmIdx(browser);

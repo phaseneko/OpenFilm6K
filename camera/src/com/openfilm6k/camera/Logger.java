@@ -54,6 +54,7 @@ public final class Logger {
 
     public static void log(String msg) {
         if (!started) start();
+        try { android.util.Log.i("OF6K", msg); } catch (Throwable t) {}   // mirror to logcat (readable via `adb logcat -s OF6K`)
         try {
             msg = new java.text.SimpleDateFormat("HH:mm:ss.SSS ").format(new java.util.Date()) + msg;
             Q.offer(msg);
