@@ -687,6 +687,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private volatile float ghostAlpha = 1.0f;   // global multiplier on top of the per-pixel luminance alpha
     private int ghostFinder = 0;                 // 0 = LCD (9:8), 1 = EVF (3:2): which screen the ghost is sized for
     private String wantFilm = "";                // persisted selected film (by NAME; index is unstable)
+    private volatile boolean afCancel = false;   // S1 released mid-focus -> suppress the cancel callback's "focus ✗"
+    private volatile boolean shooting = false;   // S2 held (capture in progress): don't cancel focus on S1 up
 
     // ---- lens-cap auto sleep: preview stays near-black -> cap on -> sleep after 10s ----
     private boolean capDim = false;                // screen dimmed by lens-cap sleep
@@ -1057,6 +1059,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private void shoot() {
         if (!rig.ready()) return;
         captureStart = System.currentTimeMillis();
+        shooting = true;
         // film locked at shutter press; a FIFO keeps per-shot films even if the user
         // changes the film before the watcher picks the file up (needed for H/2 pairs)
         synchronized (shotFilms) { shotFilms.add(resolveSel(sel)); }
@@ -1186,6 +1189,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /** S2 release: cancel immediately (PMCADemo pattern), restart preview after a beat */
     private void shutterUp() {
+        shooting = false;
         if (names.isEmpty()) {   // no film list from the host: no graded result is possible — refuse to shoot
             Logger.log("shutter blocked: empty film list");
             setStatus("NO FILM LIST");
@@ -1985,6 +1989,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
         if (e.getAction() == KeyEvent.ACTION_UP || e.getAction() == KeyEvent.ACTION_MULTIPLE) {
                 if (e.getAction() == KeyEvent.ACTION_UP && scan == K_S2 && browser < 0 && settings < 0) shutterUp();
+                if (e.getAction() == KeyEvent.ACTION_UP && scan == K_S1 && !shooting) {   // S1 released mid-focus: cancel it (firmware behaviour)
+                    rig.cancelFocus(); afCancel = true;
+                    if (fbox != null) fbox.set(0);
+                }
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_C1) { c1Held = false; renderHud(); }
         if (e.getAction() == KeyEvent.ACTION_UP && scan == K_C2) {
             c2Held = false;
@@ -2041,7 +2049,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
 
 
-        if (scan == K_S1) { if (fbox != null) fbox.set(1); rig.focus(); return true; }
+        if (scan == K_S1) { afCancel = false; if (fbox != null) fbox.set(1); rig.focus(); return true; }
         if (scan == K_S2) { shoot(); return true; }
         if (scan == K_FN) { browser = sel; renderOverlay(); return true; }
         if (scan == K_C1) {                                        // in focus-adjust: exit it and jump to film row
@@ -2213,6 +2221,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     static MainActivity self;
     static void focusFeedback(final boolean ok) {
         if (self == null) return;
+        if (self.afCancel) {   // callback from a cancelled focus: don't show "focus ✗"
+            self.afCancel = false;
+            self.handler.post(new Runnable() { public void run() { if (self.fbox != null) self.fbox.set(0); } });
+            return;
+        }
         self.handler.post(new Runnable() {
             public void run() {
                 self.setStatus(ok ? "focus ✓" : "focus ✗");

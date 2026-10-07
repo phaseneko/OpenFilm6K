@@ -332,4 +332,10 @@ final class CameraRig {
             Logger.log("autoFocus: " + t);
         }
     }
+
+    /** S1 released mid-focus: stop the in-progress auto-focus (matches the firmware behaviour) */
+    void cancelFocus() {
+        if (camera == null) return;
+        try { camera.cancelAutoFocus(); Logger.log("cancelFocus"); } catch (Throwable t) { Logger.log("cancelFocus: " + t); }
+    }
 }
