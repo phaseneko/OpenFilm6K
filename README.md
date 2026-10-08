@@ -74,7 +74,7 @@ The camera app needs **no film assets on the camera** — it pulls the film list
 
 ## Using the camera app
 
-The camera app is controlled entirely with the A6000's physical keys (no touchscreen).
+The camera app is controlled entirely with the camera's physical keys (no touchscreen).
 
 ### Boot & connection
 
@@ -82,21 +82,24 @@ First connect the camera to the Wi-Fi hotspot of the phone that runs the host ap
 
 ### Keys
 
-| Key | Action |
-|---|---|
-| Shutter half | auto focus (center / spot as configured) |
-| Shutter full | take a photo → grade on the phone → upload |
-| UP / DOWN / LEFT / RIGHT | move the highlight between the adjustable parameters (Mode / Shutter / Aperture / ISO / EV / Film) |
-| Control dial | adjust the highlighted parameter |
-| Wheel | exposure compensation (EV) — fixed function |
-| AEL short press | enter/exit focus-area adjust mode (move the spot with the control dial) |
-| **AEL long press** | lock the screen: 3-second countdown, then the display blanks (brightness to minimum). Release during the countdown cancels. Any key wakes it. |
-| **C2 short press** | cycle the watermark mode. The status bar shows the current mode as a symbol: *(blank)* none · **D** date (bottom-left) · **E** exposure (bottom-right) · **DE** date + exposure · **B** polaroid frame · **X** four-film collage · **F** film name · **FE** film name + exposure. Exposure = shutter / aperture / ISO, e.g. `1/60 F2.8 ISO400` |
-| FN | open the film browser (inside it, C1 toggles the favorite mark) |
-| ENTER (center) | change the camera mode (P → A → S → M); inside the film browser it loads the highlighted film |
-| C1 (hold) + control dial | on the main screen: quickly cycle between favorited films |
-| MENU | quit the app |
-| PLAY | avoid pressing — it leaves the app and opens the system image viewer |
+Every action is available on every supported body — only the key that carries it
+differs. Landscapes are portrait here: **buttons across the top, bodies down the
+left.**
+
+| | Shutter ½ | Shutter full | ↑ ↓ ← → | Center | Fn | AEL | C1 | C2 | C3 | C4 | MENU | Front dial | Rear dial | Control wheel |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **α6000** | auto-focus (center / spot) | shoot → grade → upload | move the highlight (Mode / Shutter / Aperture / ISO / EV / Film) | cycle camera mode (P→A→S→M); in the film browser, load the film | open the film browser | short: enter/exit focus-area adjust · long: screen-lock (3 s countdown, any key wakes) | hold + a dial: cycle favourite films; in the film browser: toggle favourite | short: cycle watermark · long: switch LCD/EVF view | — | — | quit the app | — | exposure compensation (EV) | adjust the highlighted parameter |
+| **α7 series** | auto-focus | shoot → grade → upload | move the highlight | cycle camera mode; in the film browser, load the film | open the film browser | short: focus-area adjust · long: screen-lock | hold + a dial: cycle favourite films; in the film browser: toggle favourite | short: cycle watermark · long: switch LCD/EVF view | quick AF-area-mode switch | same as C2 | quit the app | select film | exposure compensation (EV) | adjust the highlighted parameter |
+| **NEX series** | auto-focus | shoot → grade → upload | move the highlight | confirm / cycle camera mode; in the film browser, load the film | short: open the film browser · long: cycle favourite films · in the film browser: toggle favourite | “Soft key A”: short: focus-area adjust · long: screen-lock | — (merged into Fn) | “Soft key B”: short: cycle watermark · long: switch LCD/EVF view | — | — | — | — | exposure compensation (EV) | adjust the highlighted parameter |
+
+Watermark modes (C2 / Soft key B short press) — the status bar shows a symbol:
+*(blank)* none · **D** date · **E** exposure · **DE** date + exposure · **B**
+polaroid frame · **X** four-film collage · **F** film name · **FE** film name +
+exposure. Exposure = shutter / aperture / ISO, e.g. `1/60 F2.8 ISO400`.
+
+- The NEX series has no MENU key — the app cannot be quit from its keypad — and
+  its C1 action is merged into Fn.
+- `PLAY` and `MOVIE` are consumed by the camera firmware before the app sees them.
 
 ### Film browser (FN)
 
