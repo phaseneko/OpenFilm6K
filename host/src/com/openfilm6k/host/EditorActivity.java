@@ -897,7 +897,8 @@ public class EditorActivity extends Activity {
         // author-line bottom == icon-label bottom: label sits (desktop - shortcut)/2 above the bottom edge
         infop.bottomMargin = Ux.dp(46);   // calibrated on-screen: author line baseline == icon label baseline
         desktop.addView(info, infop);
-        container.addView(desktop, new LinearLayout.LayoutParams(-1, Ux.dp(38) * 5));
+        desktop.setMinimumHeight(Ux.dp(38) * 5);   // designed desktop floor; wrap-height lets the author line fully fit (fixed 190dp clipped it on both devices)
+        container.addView(desktop, new LinearLayout.LayoutParams(-1, -2));
         setContentView(scroll);
         annLoad();
     }
