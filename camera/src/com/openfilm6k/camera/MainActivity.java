@@ -43,10 +43,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         final int dialCw, dialCcw;     // 后转盘 (rear dial)        -> EV
         final int frontCw, frontCcw;   // 前转盘 (front dial)       -> select film (0 = model has none)
         final int[] wheelExtra;
-        final int lcdGhost;   // LCD ghost framing: 0 = 9:8 centred (A6000), 1 = 3:2 top-aligned (A7M2)
+        final int lcdGhost;   // LCD framing: 0 = 9:8 centred (A6000), 1 = 3:2 top-aligned (A7M2), 2 = 9:8 LEFT-aligned (NEX, preview left-anchored w/ right black bar)
+        final boolean fnC1;   // NEX: Fn merges C1 — short = open film menu, long = hold C1 (favorites mode), in-menu short = toggle fav
         KeyMap(int up, int down, int left, int right, int enter, int menu, int ael, int c1, int c2, int c3, int c4, int fn,
                int s1, int s2, int del, int play,
-               int wheelCw, int wheelCcw, int dialCw, int dialCcw, int frontCw, int frontCcw, int[] wheelExtra, int lcdGhost) {
+               int wheelCw, int wheelCcw, int dialCw, int dialCcw, int frontCw, int frontCcw, int[] wheelExtra, int lcdGhost,
+               boolean fnC1) {
             this.up = up; this.down = down; this.left = left; this.right = right; this.enter = enter;
             this.menu = menu; this.ael = ael; this.c1 = c1; this.c2 = c2; this.c3 = c3; this.c4 = c4; this.fn = fn;
             this.s1 = s1; this.s2 = s2; this.del = del; this.play = play;
@@ -54,6 +56,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             this.frontCw = frontCw; this.frontCcw = frontCcw;
             this.wheelExtra = wheelExtra;
             this.lcdGhost = lcdGhost;
+            this.fnC1 = fnC1;
         }
     }
     // A6000: 波轮=528/529, 后转盘(唯一转盘)=525/526, 无前转盘/C3/C4, C2=595, AEL=532
@@ -61,20 +64,30 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             103, 108, 105, 106, 232, 514, 532, 622, 595, 0, 0, 520,  // up down left right enter menu ael c1 c2 c3 c4 fn
             516, 518, 595, 207,                                      // s1 s2 del play
             528, 529, 525, 526, 0, 0,                                // wheel(波轮) dial(后转盘) front(前转盘)
-            new int[]{522, 523}, 0);                                 // lcdGhost = 9:8 centred
+            new int[]{522, 523}, 0, false);                          // lcdGhost = 9:8 centred
     // A7 II (ILCE-7M2): 波轮(控制轮)=634/635, 后转盘=528/529, 前转盘=525/526,
     //                   C1=622 C2=623 C3=588 C4=595, AEL/AF/MF=638
     static final KeyMap KM_A7M2 = new KeyMap(
             103, 108, 105, 106, 232, 514, 638, 622, 623, 588, 595, 520,
             516, 518, 595, 207,
             635, 634, 528, 529, 525, 526,          // 波轮 CW/CCW 对调 (A7M2 方向相反)
-            new int[]{522, 523}, 1);               // lcdGhost = 3:2 top-aligned
+            new int[]{522, 523}, 1, false);        // lcdGhost = 3:2 top-aligned
+    // NEX-5R (NEX series layout): 波轮(4向)=103/108/105/106, 中央=232, Fn=520,
+    //   软键 A=229 (当 AEL 用), 软键 B=513 (当 C2 用),
+    //   滚轮=522/523 (改高亮值, 即通用 波轮 角色), 转盘=525/526 (改 EV, 方向与 A6000 相反),
+    //   无 menu/C1/C3/C4/前转盘/del/play (不设退出键); Fn 合并 C1 行为
+    static final KeyMap KM_NEX5R = new KeyMap(
+            103, 108, 105, 106, 232, 0, 229, 0, 513, 0, 0, 520,   // up down left right enter menu ael c1 c2 c3 c4 fn
+            516, 518, 0, 0,                                       // s1 s2 del play
+            522, 523, 526, 525, 0, 0,                             // wheel(滚轮->高亮值) dial(转盘->EV, 方向反) front(无)
+            new int[]{}, 2, true);                                // NEX 左对齐 LCD; NEX fnC1
     static final java.util.HashMap<String, KeyMap> KEYMAPS = new java.util.HashMap<String, KeyMap>();
     static {   // whitelist by EXIF Model
         KEYMAPS.put("ILCE-6000", KM_A6000);
         // every Android/PMCA α7-series body shares one key layout
         for (String m : new String[]{"ILCE-7", "ILCE-7R", "ILCE-7S", "ILCE-7M2", "ILCE-7RM2", "ILCE-7SM2"})
             KEYMAPS.put(m, KM_A7M2);
+        KEYMAPS.put("NEX-5R", KM_NEX5R);
     }
     static KeyMap km = KM_A6000;                                     // active map (A6000 until applyKeymap)
 
@@ -104,7 +117,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         b.append("android: ").append(android.os.Build.VERSION.RELEASE).append("  sdk ").append(android.os.Build.VERSION.SDK_INT).append('\n');
         b.append("finger:  ").append(android.os.Build.FINGERPRINT).append('\n');
         if (fbox != null) b.append("display: ").append(fbox.getWidth()).append("x").append(fbox.getHeight()).append('\n');
-        b.append("keymap:  ").append(kmModel).append('\n');
+        b.append("keymap:  ").append(kmModel).append(km.fnC1 ? "  [fnC1]" : "").append('\n');
         b.append("keys: up").append(K_UP).append(" dn").append(K_DOWN).append(" lf").append(K_LEFT).append(" rt").append(K_RIGHT).append('\n');
         b.append("      en").append(K_ENTER).append(" mn").append(K_MENU).append(" ael").append(K_AEL).append(" c1").append(K_C1).append(" c2").append(K_C2).append(" c3").append(K_C3).append(" c4").append(K_C4).append(" fn").append(K_FN).append('\n');
         b.append("      s1").append(K_S1).append(" s2").append(K_S2).append(" del").append(K_DELETE).append(" play").append(K_PLAY).append('\n');
@@ -434,7 +447,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
         void drawMenu(android.graphics.Canvas cv) {
             if (menuLines == null) return;
-            int w = getWidth(), h = getHeight();
+            int w = uiW(), h = getHeight();
+            int msave = cv.save();
+            if (uiX() != 0) cv.translate(uiX(), 0f);
             android.graphics.Paint mp = new android.graphics.Paint();
             mp.setAntiAlias(true); mp.setShadowLayer(3, 1, 2, 0xFF000000);
             if (tf != null) mp.setTypeface(tf);
@@ -456,10 +471,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 float tw = measureMixed(mp, t);
                 drawMixed(cv, mp, t, (w - tw) / 2f, y0 + (i - start) * lh);
             }
+            cv.restoreToCount(msave);
         }
 
         void drawBoot(android.graphics.Canvas cv) {
-            int w = getWidth(), h = getHeight();
+            int w = uiW(), h = getHeight();
             cv.drawColor(0xFF000000);
             android.graphics.Paint vp = new android.graphics.Paint(); vp.setAntiAlias(true);
             if (tf != null) vp.setTypeface(tf);
@@ -474,6 +490,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 cv.drawText(s, (w - tw) / 2f, h / 2f + (h / 19f) * 0.35f, tp);
             }
         }
+        /** ---- global UI framing: model + LCD/EVF display mode --------------------------------
+         *  The WHOLE overlay (HUD, grid, focus box, menu, ghost) is laid out inside
+         *  [uiX(), uiX()+uiW()] x [0, h]. Long-press C2 (A6000/A7) / B (NEX) toggles the mode.
+         *    ghostFinder 0 = LCD, 1 = EVF.
+         *  - A6000 / A7 : both modes use the full width; only the ghost ratio differs.
+         *  - NEX        : LCD = left-anchored 9:8 (firmware preview left-aligned, right black bar),
+         *                 EVF = full width -> the whole UI's horizontal alignment switches with the mode. */
+        int uiW() {
+            int sw = getWidth();
+            if (km.lcdGhost == 2 && ghostFinder == 0) {   // NEX LCD
+                int pw = Math.round(getHeight() * 9f / 8f);
+                return Math.min(sw, pw);
+            }
+            return sw;                                    // A6000/A7 (both modes); NEX EVF
+        }
+        int uiX() { return 0; }   // left-anchored for now (hook: a future mode may centre the frame)
         /** draw the ghost to match the live preview's framing on the physical screen.
          *  The rear panel is 16:9 (ro.panel.aspect=169) but the frame buffer is 640x480 (4:3), so on the
          *  panel everything is stretched horizontally x4/3. A true 3:2 viewfinder rect must therefore be
@@ -485,6 +517,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 dw = w; dh = w / 1.5f; dx = 0; dy = (h - dh) / 2f;
             } else if (km.lcdGhost == 1) {     // A7M2 LCD: same 3:2 as the EVF, but top-aligned
                 dw = w; dh = w / 1.5f; dx = 0; dy = 0;
+            } else if (km.lcdGhost == 2) {     // NEX LCD: 9:8 in the frame buffer, LEFT-aligned (firmware leaves a right black bar)
+                dh = h; dw = 9f * dh / 8f; dx = 0; dy = 0;
             } else {                           // A6000 LCD: 16:9 panel stretches the 4:3 frame buffer x4/3 -> 3:2 is 9:8, centred
                 dh = h; dw = (1.5f * dh) / (4f / 3f); dx = (w - dw) / 2f; dy = 0;
             }
@@ -507,7 +541,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 return;
             }
             if (hideAf) return;   // countdown on screen: no focus area / grid
-            int w = getWidth(), h = getHeight();
+            int w = uiW(), h = getHeight();   // NEX: confine the whole overlay to the left-anchored preview width
             if (info) {           // debug info screen: opaque black with a block of text, any key returns
                 cv.drawColor(0xFF000000);
                 android.graphics.Paint ip = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
@@ -536,6 +570,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 ghostPaint.setAlpha((int) (Math.max(0f, Math.min(1f, ghostAlpha)) * 255f));
                 drawFit(cv, ghostBmp, ghostPaint);
             }
+            // ---- the overlay UI below is laid out inside the current model+mode frame (see uiW()/uiX()) ----
+            int uiSave = cv.save();
+            int ux = uiX();
+            if (ux != 0) cv.translate(ux, 0f);
             if (System.currentTimeMillis() < verUntil) {
                 android.graphics.Paint vp = new android.graphics.Paint(); vp.setAntiAlias(true);
                 if (tf != null) vp.setTypeface(tf);
@@ -714,6 +752,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 android.graphics.Paint sp = new android.graphics.Paint(tp);
                 drawSegTextCenter(cv, sp, rowParts, w / 2f, y2, chh, rowGap, hl);
             }
+            cv.restoreToCount(uiSave);
         }
     }
     private TextView hud, status, overlay;
@@ -1220,7 +1259,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             o.inJustDecodeBounds = true;
             android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath(), o);
             int s = 1;
-            while (o.outWidth / (s * 2) >= vw && o.outHeight / (s * 2) >= vh) s *= 2;
+            while (o.outWidth / s > vw * 1.5f || o.outHeight / s > vh * 1.5f) s *= 2;   // decode near the view size (fast, no OOM)
             android.graphics.BitmapFactory.Options o2 = new android.graphics.BitmapFactory.Options();
             o2.inSampleSize = s;
             o2.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
@@ -1247,7 +1286,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             bm.setHasAlpha(true);
             bm.setPixels(px, 0, gw, 0, 0, gw, gh);
             ghostBmp = bm; ghostOn = true; ghostWait = false;
-            handler.removeCallbacks(ghostWaitTimeout);
             handler.post(new Runnable() { public void run() {
                 if (fbox != null) { fbox.ghostBmp = bm; fbox.ghostOn = true; fbox.ghostWait = false; fbox.ghostAlpha = ghostAlpha; fbox.postInvalidate(); }
             }});
@@ -1257,11 +1295,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private void clearGhost() {
         ghostOn = false; ghostWait = false;
-        handler.removeCallbacks(ghostWaitTimeout);
         if (fbox != null) { fbox.ghostOn = false; fbox.ghostBmp = null; fbox.ghostWait = false; fbox.postInvalidate(); }
     }
 
-    /** after the 1st exposure: dim the viewfinder until the ghost is decoded and shown */
+    /** after the 1st exposure: dim the viewfinder until the ghost is decoded and shown.
+     *  No fixed timeout — the wait ends only when the ghost is ready (loadGhost) or loading fails (clearGhost). */
     private void setGhostWait(boolean wait) {
         ghostWait = wait;
         if (wait) ghostOn = false;
@@ -1270,13 +1308,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (wait) { fbox.ghostOn = false; fbox.ghostBmp = null; }
             fbox.postInvalidate();
         }
-        handler.removeCallbacks(ghostWaitTimeout);
-        if (wait) handler.postDelayed(ghostWaitTimeout, 12000);   // never stay dimmed forever
     }
-
-    private final Runnable ghostWaitTimeout = new Runnable() { public void run() {
-        if (ghostWait) { ghostWait = false; if (fbox != null) { fbox.ghostWait = false; fbox.postInvalidate(); } Logger.log("double: ghost wait timeout"); }
-    }};
 
     /** UI-thread refresh of the blinking pair indicator (watcher runs off-thread) */
     private void refreshPair() {
@@ -1406,7 +1438,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         }
                     }
                 } catch (Throwable t) { Logger.log("watcher EX " + t); }
-                finally { watching = false; }
+                finally {
+                    watching = false;
+                    if (ghostWait) {   // double: the 1st frame never became a ghost -> don't stay dimmed forever
+                        Logger.log("watcher: ghost never loaded -> clear wait");
+                        clearGhost();
+                    }
+                }
             }
         }, "media").start();
     }
@@ -2130,6 +2168,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 }
                 if (e.getAction() == KeyEvent.ACTION_UP && scan == K_DOWN) { downHeld = false; handler.removeCallbacks(downLongAction); }
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_C1) { c1Held = false; renderHud(); }
+            if (e.getAction() == KeyEvent.ACTION_UP && scan == K_FN && km.fnC1) {   // NEX Fn: short = open menu, long = release C1-hold
+                fnHeld = false;
+                handler.removeCallbacks(fnLongAction);
+                if (fnFired) { c1Held = false; renderHud(); }
+                else if (browser < 0 && settings < 0) { browser = sel; renderOverlay(); }
+            }
         if (e.getAction() == KeyEvent.ACTION_UP && (scan == K_C2 || (K_C4 != 0 && scan == K_C4))) {
             c2Held = false;
             handler.removeCallbacks(c2LongAction);
@@ -2183,14 +2227,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (K_FRONT_CW != 0 && (scan == K_FRONT_CW || scan == K_FRONT_CCW)) {   // 前转盘 (front dial): select film (C1 held = favorites only)
             int fd = (scan == K_FRONT_CW) ? 1 : -1;
             if (c1Held) { jumpFav(fd); }
-            else { sel = (sel + fd + totalSel()) % totalSel(); if (sel == divSel()) sel = (sel + fd + totalSel()) % totalSel(); savePrefs(); }
+            else { stepSel(fd); }
             renderHud(); return true;
         }
 
 
         if (scan == K_S1) { afCancel = false; if (fbox != null) fbox.set(1); rig.focus(); return true; }
         if (scan == K_S2) { shoot(); return true; }
-        if (scan == K_FN) { browser = sel; renderOverlay(); return true; }
+        if (scan == K_FN) {
+            if (km.fnC1) {   // NEX: short press = open film menu (on UP), long press = hold C1 (favorites mode)
+                fnHeld = true; fnFired = false;
+                handler.removeCallbacks(fnLongAction);
+                handler.postDelayed(fnLongAction, 600);
+                return true;
+            }
+            browser = sel; renderOverlay(); return true;
+        }
         if (scan == K_C1) {                                        // in focus-adjust: exit it and jump to film row
             c1Held = true;
             if (spotMode) {
@@ -2237,7 +2289,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             int d = (scan == K_RIGHT) ? 1 : -1;
             if (hlIdx == 0) {
                 if (c1Held) { jumpFav(d); }                     // C1 held: cycle favorites only
-                else { sel = (sel + d + totalSel()) % totalSel(); savePrefs(); }
+                else { stepSel(d); }
             }
             else {
                 int h = hlIdx;
@@ -2293,15 +2345,26 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             handler.postDelayed(this, 200);
         }
     } };
+    private boolean fnHeld = false, fnFired = false;
+    private final Runnable fnLongAction = new Runnable() { public void run() {   // NEX:长按 Fn = 按住 C1 (进入切换收藏卷选择模式)
+        if (!fnHeld) return;
+        fnFired = true;
+        c1Held = true;
+        hlIdx = 0;
+        if (spotMode) { spotMode = false; if (fbox != null) fbox.spotOn = false; }
+        renderHud();
+        Logger.log("NEX fn long: c1Held");
+    } };
+
     private boolean c2Held = false, c2Fired = false;
     private final Runnable c2LongAction = new Runnable() { public void run() {
         if (!c2Held) return;
         c2Fired = true;
-        ghostFinder = (ghostFinder + 1) % 2;                 // long-press C2: switch the ghost ratio (LCD / EVF)
+        ghostFinder = (ghostFinder + 1) % 2;                 // long-press C2/B: switch the global UI display mode (LCD / EVF)
         if (fbox != null) { fbox.ghostFinder = ghostFinder; fbox.postInvalidate(); }
         savePrefs();
         setStatus("VIEW " + (ghostFinder == 0 ? "LCD" : "EVF"));
-        Logger.log("ghost finder " + ghostFinder + " (C2 long)");
+        Logger.log("ui mode " + ghostFinder + " (" + (ghostFinder == 0 ? "LCD" : "EVF") + ", C2/B long)");
     } };
 
     private int spotX = 0, spotY = 0;
@@ -2319,10 +2382,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
 
+    /** step the selected film by d (+/-1), skipping the custom/official divider row (never selectable) */
+    private void stepSel(int d) {
+        sel = (sel + d + totalSel()) % totalSel();
+        if (sel == divSel()) sel = (sel + d + totalSel()) % totalSel();
+        savePrefs();
+    }
+
     private boolean dialItem(int dir) {
         if (!adjOk(hlIdx)) return true;
         switch (hlIdx) {
-            case 0: if (c1Held) { jumpFav(dir); } else { sel = (sel + dir + totalSel()) % totalSel(); savePrefs(); } break;
+            case 0: if (c1Held) { jumpFav(dir); } else { stepSel(dir); } break;
             case 1: sceneIdx = (sceneIdx + dir + 4) % 4; rig.setSceneMode(SCENE_MODES[sceneIdx]); break;
             case 2: rig.adjustShutter(dir); break;
             case 3: rig.adjustAperture(dir); break;
@@ -2348,8 +2418,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 rig.setEv(ev);
                 break;
             case 5:                                    // film select
-                sel = (sel + dir + totalSel()) % totalSel();
-                savePrefs();
+                stepSel(dir);
                 break;
         }
         renderOverlay();
@@ -2506,6 +2575,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             renderOverlay();
             setStatus("loaded " + selName(sel));
             return true;
+        }
+        if (scan == K_FN && km.fnC1) {   // NEX:短按 Fn 在菜单里切换收藏（不退出菜单）
+            if (browser >= NSPECIAL && browser != divSel()) {   // only real films can be favorited
+                int r = filmIdx(browser);
+                String nm = names.get(r);
+                if (favs.contains(nm)) favs.remove(nm); else favs.add(nm);
+                savePrefs();
+            }
+            renderOverlay(); return true;
         }
         if (scan == K_FN || scan == K_MENU) { browser = -1; renderOverlay(); return true; }
         if (scan == K_S2) { browser = -1; renderOverlay(); shoot(); return true; }
