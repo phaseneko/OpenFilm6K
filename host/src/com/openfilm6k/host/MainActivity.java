@@ -13,7 +13,7 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         inst = this;
         status = new TextView(this);
-        status.setTextSize(14);
+        status.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
         status.setText("OpenFilm6K starting…\n");
         android.widget.LinearLayout wrap = new android.widget.LinearLayout(this);
         wrap.setOrientation(android.widget.LinearLayout.VERTICAL);
@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
         TextView t = new TextView(a);
         t.setText(title); t.setTextColor(0xFFFFFFFF);
         t.setTypeface(android.graphics.Typeface.create("sans-serif-bold", 0));
-        t.setTextSize(14); t.setPadding(Ux.dp(8), Ux.dp(4), Ux.dp(8), Ux.dp(4));
+        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14)); t.setPadding(Ux.dp(8), Ux.dp(4), Ux.dp(8), Ux.dp(4));
         bar.addView(t);
         android.widget.LinearLayout bodyWrap = new android.widget.LinearLayout(a);
         bodyWrap.setOrientation(android.widget.LinearLayout.VERTICAL);
@@ -85,7 +85,7 @@ public class MainActivity extends Activity {
             android.widget.LinearLayout b = new android.widget.LinearLayout(a);
             b.setOrientation(android.widget.LinearLayout.VERTICAL);
             TextView msg = new TextView(a);
-            msg.setText(L.s("permMsg")); msg.setTextSize(14); msg.setTextColor(Ux.TXT);
+            msg.setText(L.s("permMsg")); msg.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14)); msg.setTextColor(Ux.TXT);
             android.widget.Button ok = new android.widget.Button(a);
             Ux.styleButton(ok); ok.setText(L.s("btnOk"));
             ok.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) {
@@ -119,7 +119,7 @@ public class MainActivity extends Activity {
         android.widget.LinearLayout b = new android.widget.LinearLayout(a);
         b.setOrientation(android.widget.LinearLayout.VERTICAL);
         TextView msg = new TextView(a);
-        msg.setText(L.s("dataInstalling")); msg.setTextSize(14); msg.setTextColor(Ux.TXT);
+        msg.setText(L.s("dataInstalling")); msg.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14)); msg.setTextColor(Ux.TXT);
         final android.widget.ProgressBar pb = new android.widget.ProgressBar(a, null, android.R.attr.progressBarStyleHorizontal);
         pb.setIndeterminate(false); pb.setMax(1);
         pb.setProgressDrawable(Ux.thinTrack98());   // win98 sunken groove — the framework default has rounded caps
@@ -142,7 +142,7 @@ public class MainActivity extends Activity {
                         android.widget.LinearLayout rb = new android.widget.LinearLayout(a);
                         rb.setOrientation(android.widget.LinearLayout.VERTICAL);
                         TextView rm = new TextView(a);
-                        rm.setTextSize(copied >= 0 ? 14 : 11);
+                        rm.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(copied >= 0 ? 14 : 11));
                         rm.setTextColor(Ux.TXT);
                         if (copied >= 0) rm.setText(L.s("installDone") + copied + L.s("filesUnit"));
                         else rm.setText(error == null ? "?" : error);

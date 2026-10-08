@@ -97,7 +97,26 @@ public class Ux {
         return seg14iTf;
     }
 
-    static int dp(float v) { return Math.round(v * android.content.res.Resources.getSystem().getDisplayMetrics().density); }
+    /** app-pinned layout density. Baseline = the dev device at minimum system display size:
+     *  1436px short edge at density 2.25 -> 638.22dp of content width on every device,
+     *  regardless of the system display-size setting or panel resolution. */
+    static final float BASE_SHORT_DP = 638.2222f;
+    static final float FONT_RATIO = 0.85f;   // baseline includes the dev device font scale (2.25 * 0.85 = 1.9125 sp factor)
+    private static Float sdCache;
+    /** pinned layout density: dp() and text sizes derive from this, never from the system density */
+    static float sd() {
+        if (sdCache == null) {
+            android.util.DisplayMetrics dm = android.content.res.Resources.getSystem().getDisplayMetrics();
+            sdCache = Math.min(dm.widthPixels, dm.heightPixels) / BASE_SHORT_DP;
+        }
+        return sdCache;
+    }
+    /** pinned sp->px factor (baseline scaledDensity); system font scale cannot inflate the UI */
+    static float tscale() { return sd() * FONT_RATIO; }
+    /** pinned text size in px: setTextSize(TypedValue.COMPLEX_UNIT_PX, ts(units)) */
+    static float ts(float spUnits) { return spUnits * tscale(); }
+
+    static int dp(float v) { return Math.round(v * sd()); }
 
     /** classic 98 bevel: raised = white top/left + dark bottom/right; sunken = inverted */
     static class Bevel extends Drawable {
@@ -240,7 +259,7 @@ public class Ux {
         b.setBackground(buttonDrawable());
         b.setTextColor(ColorStateList.valueOf(TXT));
         b.setAllCaps(false);
-        b.setTextSize(BODY);
+        b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, ts(BODY));
         b.setGravity(android.view.Gravity.CENTER);   // wrapped labels center vertically (default sits low)
         b.setMaxLines(1);   // win98 buttons never wrap; autosize below shrinks text to fit instead (NOT setSingleLine: it enables horizontal scrolling and disables autosize)
         if (android.os.Build.VERSION.SDK_INT >= 26)
@@ -255,11 +274,11 @@ public class Ux {
         if (root instanceof android.widget.RadioButton) {   // radio: flat control — NO button bevel background
             ((android.widget.RadioButton) root).setBackground(null);
             ((android.widget.RadioButton) root).setTextColor(TXT);
-            ((android.widget.RadioButton) root).setTextSize(BODY);
+            ((android.widget.RadioButton) root).setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, ts(BODY));
             ((android.widget.RadioButton) root).setAllCaps(false);
         } else if (root instanceof CheckBox) {   // MUST precede Button: CheckBox extends Button
             ((CheckBox) root).setTextColor(TXT);
-            ((CheckBox) root).setTextSize(BODY);
+            ((CheckBox) root).setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, ts(BODY));
             ((CheckBox) root).setButtonDrawable(checkbox98States(root.getContext()));   // authentic 98.css pixel art, replaces the Material indicator
         } else if (root instanceof Button) {
             styleButton((Button) root);
@@ -406,7 +425,7 @@ public class Ux {
     /** uniform field label: fixed width, right-aligned, black */
     static void styleLabel(TextView tv) {
         tv.setTextColor(TXT);
-        tv.setTextSize(BODY);
+        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, ts(BODY));
         tv.setGravity(android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL);
         tv.setPadding(0, 0, dp(8), 0);
     }
@@ -414,7 +433,7 @@ public class Ux {
     /** section header (group box label): bold black on chrome */
     static void styleHeader(TextView tv) {
         tv.setTextColor(TXT);
-        tv.setTextSize(BODY);
+        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, ts(BODY));
         tv.getPaint().setFakeBoldText(true);
         tv.setAllCaps(false);
         tv.setBackgroundColor(FACE);

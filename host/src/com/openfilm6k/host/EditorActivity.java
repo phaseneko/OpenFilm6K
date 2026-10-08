@@ -586,7 +586,7 @@ public class EditorActivity extends Activity {
         TextView sl = new TextView(this); sl.setText(L.s("scoreLabel")); sl.setPadding(8, 22, 4, 0);
         dnPrevRow.addView(sl, new LinearLayout.LayoutParams(-2, -2));
         dnSlider = new SeekBar(this); dnSlider.setMax(1000); dnSlider.setThumb(Ux.thumb98());
-        dnVal = new TextView(this); dnVal.setText("auto"); dnVal.setTypeface(Ux.seg(this)); dnVal.setLetterSpacing(0.25f); dnVal.getPaint().setFakeBoldText(true); dnVal.setTextSize(14); dnVal.setPadding(10, 22, 10, 0);
+        dnVal = new TextView(this); dnVal.setText("auto"); dnVal.setTypeface(Ux.seg(this)); dnVal.setLetterSpacing(0.25f); dnVal.getPaint().setFakeBoldText(true); dnVal.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14)); dnVal.setPadding(10, 22, 10, 0);
         dnAuto = new CheckBox(this); dnAuto.setText("Auto");
         dnAuto.setChecked(true);
         dnSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -653,7 +653,7 @@ public class EditorActivity extends Activity {
         appTitle.setTypeface(Ux.seg14(this));   // 14-seg: real uppercase letterforms (7-seg letters look lowercase)
         appTitle.setLetterSpacing(0.25f);
         appTitle.getPaint().setFakeBoldText(true);
-        appTitle.setTextSize(14);
+        appTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
         titleBar.addView(appTitle, new LinearLayout.LayoutParams(0, -2, 1f));
         // spy mode: [win98 checkbox | spy glyph] compound button; checkbox mirrors prefs spy_on, dialog owns toggling
         LinearLayout spyBtn = new LinearLayout(this);
@@ -674,7 +674,7 @@ public class EditorActivity extends Activity {
         spyBtn.addView(spyChkView);
         TextView spyIco = new TextView(this);
         spyIco.setText("\uD83D\uDD75\uFE0F");   // 🕵️ detective emoji (replaced the hand-drawn pixel glyph per user)
-        spyIco.setTextSize(20);
+        spyIco.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(20));
         spyIco.setGravity(android.view.Gravity.CENTER);
         android.widget.LinearLayout.LayoutParams spyilp = new android.widget.LinearLayout.LayoutParams(-2, -2);
         spyilp.leftMargin = Ux.dp(4);
@@ -724,7 +724,7 @@ public class EditorActivity extends Activity {
             fl2.setClipChildren(false);   // the label rises half a glyph above the frame — keep it unclipped
             fl2.addView(gBoxes.get(gi), new android.widget.FrameLayout.LayoutParams(-1, -2));
             android.widget.FrameLayout.LayoutParams llp = new android.widget.FrameLayout.LayoutParams(-2, -2);
-            llp.leftMargin = Ux.dp(10); llp.topMargin = -Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);   // rise half a glyph above the frame
+            llp.leftMargin = Ux.dp(10); llp.topMargin = -Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());   // rise half a glyph above the frame
             fl2.addView(lab, llp);
             int idx = root.indexOfChild(groups[gi]);
             root.removeView(groups[gi]);
@@ -750,7 +750,7 @@ public class EditorActivity extends Activity {
             flN.addView(gN, new android.widget.FrameLayout.LayoutParams(-1, -2));
             android.widget.FrameLayout.LayoutParams nl2 = new android.widget.FrameLayout.LayoutParams(-2, -2);
             nl2.leftMargin = Ux.dp(10);
-            nl2.topMargin = -Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+            nl2.topMargin = -Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
             flN.addView(nh, nl2);
             root.addView(flN, root.indexOfChild(nodesBox), new LinearLayout.LayoutParams(-1, -2));
             ((LinearLayout.LayoutParams) flN.getLayoutParams()).topMargin = Ux.dp(8);
@@ -801,7 +801,7 @@ public class EditorActivity extends Activity {
         scroll.setBackgroundColor(Ux.FACE);
         Ux.themeTree(scroll);
         appTitle.setTextColor(0xFFFFFFFF);   // re-apply after theming (themeTree forces TXT on every TextView)
-        appTitle.setTextSize(Ux.BODY + 2);
+        appTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY + 2));
         appTitle.getPaint().setFakeBoldText(true);
         // window bottom edge (shadow side only, 2dp per line) + full-bleed teal "desktop"
         LinearLayout edge = new LinearLayout(this);
@@ -828,7 +828,7 @@ public class EditorActivity extends Activity {
         dlabel.setTextColor(0xFFFFFFFF);
         dlabel.getPaint().setFakeBoldText(true);
         dlabel.setShadowLayer(4, 2, 2, 0xE6000000);   // same drop shadow as the info lines
-        dlabel.setTextSize(12 * 4 / 3);   // 2/3 again (of 24sp)
+        dlabel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(12 * 4 / 3));   // 2/3 again (of 24sp)
         dlabel.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
         android.widget.LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
         dlp.topMargin = Ux.dp(4);
@@ -849,7 +849,7 @@ public class EditorActivity extends Activity {
             android.widget.TextView tv = new android.widget.TextView(this);
             tv.setText(texts[i2]);
             tv.setTextColor(cols[i2]);
-            tv.setTextSize(i2 == 0 ? 15 : 13);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(i2 == 0 ? 15 : 13));
             if (i2 == 1) tv.setLineSpacing(Ux.dp(2), 1f);
             if (i2 == 0) tv.getPaint().setFakeBoldText(true);
             tv.setShadowLayer(4, 2, 2, 0xE6000000);
@@ -863,7 +863,7 @@ public class EditorActivity extends Activity {
         authorLine.setGravity(android.view.Gravity.CENTER_VERTICAL);
         android.widget.TextView au = new android.widget.TextView(this);
         au.setText(L.s("authorLabel") + "NekoV");
-        au.setTextColor(0xFFE8E8E8); au.setTextSize(13);
+        au.setTextColor(0xFFE8E8E8); au.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(13));
         au.setShadowLayer(4, 2, 2, 0xE6000000);
         authorLine.addView(au, new LinearLayout.LayoutParams(-2, -2));
         android.text.SpannableString em = new android.text.SpannableString("phaseneko@gmail.com");
@@ -871,7 +871,7 @@ public class EditorActivity extends Activity {
         android.widget.TextView t4 = new android.widget.TextView(this);
         t4.setText(em); t4.setTextColor(0xFF7FA8FF);
         t4.getPaint().setUnderlineText(true);
-        t4.setTextSize(13);
+        t4.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(13));
         t4.setShadowLayer(4, 2, 2, 0xE6000000);
         android.widget.LinearLayout.LayoutParams t4p = new android.widget.LinearLayout.LayoutParams(-2, -2);
         t4p.leftMargin = Ux.dp(16);
@@ -881,7 +881,7 @@ public class EditorActivity extends Activity {
         android.widget.TextView t5 = new android.widget.TextView(this);
         t5.setText(gh); t5.setTextColor(0xFF7FA8FF);
         t5.getPaint().setUnderlineText(true);
-        t5.setTextSize(13);
+        t5.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(13));
         t5.setShadowLayer(4, 2, 2, 0xE6000000);
         android.widget.LinearLayout.LayoutParams t5p = new android.widget.LinearLayout.LayoutParams(-2, -2);
         t5p.leftMargin = Ux.dp(16);
@@ -912,7 +912,7 @@ public class EditorActivity extends Activity {
         String label(String s) { return s; }   // display-only transform (items stay the data keys)
         StdSpinnerAdapter(android.content.Context c, java.util.List<String> items) { super(c, android.R.layout.simple_spinner_item, items); }
         StdSpinnerAdapter(android.content.Context c, String[] items) { super(c, android.R.layout.simple_spinner_item, items); }
-        private TextView fix(TextView v) { v.setTextSize(Ux.BODY); v.setTextColor(Ux.TXT); return v; }
+        private TextView fix(TextView v) { v.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY)); v.setTextColor(Ux.TXT); return v; }
         @Override public boolean isEnabled(int pos) { return !div.contains(pos); }
         @Override public View getView(int pos, View cv, android.view.ViewGroup pg) {
             if (div.contains(pos)) { TextView t = new TextView(pg.getContext()); t.setVisibility(View.INVISIBLE); return t; }
@@ -1306,7 +1306,7 @@ public class EditorActivity extends Activity {
             aval.setTypeface(Ux.seg(this));
             aval.setLetterSpacing(0.25f);
             aval.getPaint().setFakeBoldText(true);
-            aval.setTextSize(14);
+            aval.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
             aval.setGravity(android.view.Gravity.CENTER);
             alphaVals.add(aval);
             final boolean[] astep = {false};
@@ -1410,7 +1410,7 @@ public class EditorActivity extends Activity {
                     val.setTypeface(Ux.seg(this));
                     val.setLetterSpacing(0.25f);
                     val.getPaint().setFakeBoldText(true);
-                    val.setTextSize(13);
+                    val.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(13));
                     val.setPadding(8, 20, 12, 0);
                     final boolean[] stepping = {false};
                     sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -1701,7 +1701,7 @@ public class EditorActivity extends Activity {
         g.addView(inner, ilp);
         android.widget.FrameLayout.LayoutParams llp = new android.widget.FrameLayout.LayoutParams(-2, -2);
         llp.leftMargin = Ux.dp(10);
-        llp.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        llp.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         g.addView(lab, llp);
         return g;   // no wrapping layout: a clipping parent would cut the label riding the frame
     }
@@ -1729,7 +1729,7 @@ public class EditorActivity extends Activity {
         row.addView(iv, new LinearLayout.LayoutParams(Ux.dp(32), Ux.dp(32)));
         TextView msg = new TextView(this);
         msg.setText(L.s("confirmDel") + n + L.s("delCfgTail"));
-        msg.setTextSize(Ux.BODY); msg.setTextColor(Ux.TXT);
+        msg.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY)); msg.setTextColor(Ux.TXT);
         msg.setPadding(Ux.dp(12), 0, 0, 0);
         row.addView(msg, new LinearLayout.LayoutParams(0, -2, 1f));
         body.addView(row, new LinearLayout.LayoutParams(-1, -2));
@@ -1757,7 +1757,7 @@ public class EditorActivity extends Activity {
         tb.setGravity(android.view.Gravity.CENTER_VERTICAL);
         tb.setPadding(Ux.dp(6), Ux.dp(1), Ux.dp(1), Ux.dp(1));
         TextView ttl = new TextView(this); ttl.setText(L.s("delFilm")); ttl.setTextColor(0xFFFFFFFF);
-        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(14);
+        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
         tb.addView(ttl, new LinearLayout.LayoutParams(0, -2, 1f));
         Button x = new Button(this); x.setText("✕"); x.setPadding(0, 0, Ux.dp(5), Ux.dp(5));
         Ux.styleButton(x);
@@ -1803,7 +1803,7 @@ public class EditorActivity extends Activity {
         et.setSingleLine(true);
         et.setBackground(Ux.sunkenField());
         et.setPadding(Ux.dp(8), Ux.dp(8), Ux.dp(8), Ux.dp(8));
-        et.setTextSize(Ux.BODY);
+        et.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
         g1i.addView(et, new LinearLayout.LayoutParams(-1, -2));
         final Button[] okRef = new Button[1];   // create button, toggled by name emptiness
         et.addTextChangedListener(new android.text.TextWatcher() {
@@ -1824,7 +1824,7 @@ public class EditorActivity extends Activity {
         g1.addView(g1i, g1il);
         android.widget.FrameLayout.LayoutParams g1ll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         g1ll.leftMargin = Ux.dp(10);
-        g1ll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        g1ll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         g1.addView(g1l, g1ll);
         body.addView(g1, new LinearLayout.LayoutParams(-1, -2));
         // group: blank / copy radio pair
@@ -1838,13 +1838,13 @@ public class EditorActivity extends Activity {
         rg.setOrientation(LinearLayout.VERTICAL);
         android.widget.RadioButton rbBlank = new android.widget.RadioButton(this);
         rbBlank.setText(L.s("blankFilm"));
-        rbBlank.setTextSize(Ux.BODY); rbBlank.setTextColor(Ux.TXT);
+        rbBlank.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY)); rbBlank.setTextColor(Ux.TXT);
         rbBlank.setButtonDrawable(Ux.radio98(EditorActivity.this));
         rbBlank.setPadding(Ux.dp(8), Ux.dp(6), Ux.dp(8), Ux.dp(6));
         android.widget.RadioButton rbCopy = new android.widget.RadioButton(this);
         String curName = selFilm() != null ? selFilm() : "";
         rbCopy.setText(L.s("copyCurFilm") + (curName.isEmpty() ? "" : " (" + curName + ")"));
-        rbCopy.setTextSize(Ux.BODY); rbCopy.setTextColor(Ux.TXT);
+        rbCopy.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY)); rbCopy.setTextColor(Ux.TXT);
         rbCopy.setButtonDrawable(Ux.radio98(EditorActivity.this));
         rbCopy.setPadding(Ux.dp(8), Ux.dp(6), Ux.dp(8), Ux.dp(6));
         rg.addView(rbBlank); rg.addView(rbCopy);
@@ -1860,7 +1860,7 @@ public class EditorActivity extends Activity {
         g2.addView(g2i, g2il);
         android.widget.FrameLayout.LayoutParams g2ll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         g2ll.leftMargin = Ux.dp(10);
-        g2ll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        g2ll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         g2.addView(g2l, g2ll);
         android.widget.LinearLayout.LayoutParams g2p = new LinearLayout.LayoutParams(-1, -2);
         g2p.topMargin = Ux.dp(14);
@@ -1906,7 +1906,7 @@ public class EditorActivity extends Activity {
         tb.setGravity(android.view.Gravity.CENTER_VERTICAL);
         tb.setPadding(Ux.dp(6), Ux.dp(1), Ux.dp(1), Ux.dp(1));
         TextView ttl = new TextView(this); ttl.setText(L.s("newFilm")); ttl.setTextColor(0xFFFFFFFF);
-        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(14);
+        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
         tb.addView(ttl, new LinearLayout.LayoutParams(0, -2, 1f));
         Button x = new Button(this); x.setText("✕"); x.setPadding(0, 0, Ux.dp(5), Ux.dp(5));
         Ux.styleButton(x);
@@ -2001,7 +2001,7 @@ public class EditorActivity extends Activity {
         lg.addView(lgi, il2);
         android.widget.FrameLayout.LayoutParams ll3 = new android.widget.FrameLayout.LayoutParams(-2, -2);
         ll3.leftMargin = Ux.dp(10);
-        ll3.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        ll3.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         lg.addView(lgl, ll3);
         body.addView(lg, new LinearLayout.LayoutParams(-1, -2));
         // data group: incremental reinstall of the bundled film library (never clears anything)
@@ -2026,7 +2026,7 @@ public class EditorActivity extends Activity {
         Ux.styleHeader(rgl);
         android.widget.FrameLayout.LayoutParams rll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         rll.leftMargin = Ux.dp(10);
-        rll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        rll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         rg.addView(rgl, rll);
         rg.setClipChildren(false);
         body.addView(rg, new LinearLayout.LayoutParams(-1, -2));
@@ -2063,7 +2063,7 @@ public class EditorActivity extends Activity {
         pg.addView(pgi, pil);
         android.widget.FrameLayout.LayoutParams pll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         pll.leftMargin = Ux.dp(10);
-        pll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        pll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         pg.addView(pgl, pll);
         android.widget.LinearLayout.LayoutParams pgp = new LinearLayout.LayoutParams(-1, -2);
         pgp.topMargin = Ux.dp(14);
@@ -2082,11 +2082,11 @@ public class EditorActivity extends Activity {
         tb.setBackground(Ux.navySunkenBar());
         tb.setGravity(android.view.Gravity.CENTER_VERTICAL);
         tb.setPadding(Ux.dp(6), Ux.dp(1), Ux.dp(1), Ux.dp(1));
-        TextView tico = new TextView(this); tico.setText("⚙️"); tico.setTextSize(18); tico.setTextColor(0xFF000000);   // same glyph as its title-bar button
+        TextView tico = new TextView(this); tico.setText("⚙️"); tico.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(18)); tico.setTextColor(0xFF000000);   // same glyph as its title-bar button
         tico.setGravity(android.view.Gravity.CENTER);
         tb.addView(tico, new android.widget.LinearLayout.LayoutParams(-2, -2));
         TextView ttl = new TextView(this); ttl.setText(L.s("settings")); ttl.setTextColor(0xFFFFFFFF);
-        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(14);
+        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
         android.widget.LinearLayout.LayoutParams ttlp = new android.widget.LinearLayout.LayoutParams(0, -2, 1f);
         ttlp.leftMargin = Ux.dp(6);
         tb.addView(ttl, ttlp);
@@ -2151,7 +2151,7 @@ public class EditorActivity extends Activity {
         eg.addView(egi, egil);
         android.widget.FrameLayout.LayoutParams egll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         egll.leftMargin = Ux.dp(10);
-        egll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        egll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         eg.addView(egl, egll);
         body.addView(eg, new LinearLayout.LayoutParams(-1, -2));
         // group: film combobox — same choices as the main list, independent selection
@@ -2187,7 +2187,7 @@ public class EditorActivity extends Activity {
         fg.addView(fgi, fgil);
         android.widget.FrameLayout.LayoutParams fgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         fgll.leftMargin = Ux.dp(10);
-        fgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        fgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         fg.addView(fgl, fgll);
         body.addView(fg, new LinearLayout.LayoutParams(-1, -2));
         // group: stamp/border mode — the camera's full C2 set (settings dialog hides polaroid/collage)
@@ -2221,7 +2221,7 @@ public class EditorActivity extends Activity {
         sg.addView(sgi, sgil);
         android.widget.FrameLayout.LayoutParams sgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         sgll.leftMargin = Ux.dp(10);
-        sgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        sgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         sg.addView(sgl, sgll);
         body.addView(sg, new LinearLayout.LayoutParams(-1, -2));
         // group: watched dirs — the same [+|spinner|✕] row as the settings import groups; + opens the system folder picker
@@ -2274,7 +2274,7 @@ public class EditorActivity extends Activity {
         dg.addView(dgi, dgil);
         android.widget.FrameLayout.LayoutParams dgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         dgll.leftMargin = Ux.dp(10);
-        dgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * getResources().getDisplayMetrics().scaledDensity);
+        dgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         dg.addView(dgl2, dgll);
         body.addView(dg, new LinearLayout.LayoutParams(-1, -2));
         Ux.themeTree(body);   // theme BEFORE mounting the title bar: themeTree would recolor the white title text
@@ -2284,11 +2284,11 @@ public class EditorActivity extends Activity {
         tb.setBackground(Ux.navySunkenBar());
         tb.setGravity(android.view.Gravity.CENTER_VERTICAL);
         tb.setPadding(Ux.dp(6), Ux.dp(1), Ux.dp(1), Ux.dp(1));
-        TextView tico = new TextView(this); tico.setText("\uD83D\uDD75\uFE0F"); tico.setTextSize(18); tico.setTextColor(0xFF000000);   // same glyph as the title-bar button
+        TextView tico = new TextView(this); tico.setText("\uD83D\uDD75\uFE0F"); tico.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(18)); tico.setTextColor(0xFF000000);   // same glyph as the title-bar button
         tico.setGravity(android.view.Gravity.CENTER);
         tb.addView(tico, new android.widget.LinearLayout.LayoutParams(-2, -2));
         TextView ttl = new TextView(this); ttl.setText(L.s("spyMode")); ttl.setTextColor(0xFFFFFFFF);
-        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(14);
+        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
         android.widget.LinearLayout.LayoutParams ttlp = new android.widget.LinearLayout.LayoutParams(0, -2, 1f);
         ttlp.leftMargin = Ux.dp(6);
         tb.addView(ttl, ttlp);
