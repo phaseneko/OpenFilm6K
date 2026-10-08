@@ -909,13 +909,16 @@ public class EditorActivity extends Activity {
     static class StdSpinnerAdapter extends ArrayAdapter<String> {
         android.widget.Spinner spin;   // owner, for the selected-position highlight
         java.util.HashSet<Integer> div = new java.util.HashSet<Integer>();   // divider row positions
+        String label(String s) { return s; }   // display-only transform (items stay the data keys)
         StdSpinnerAdapter(android.content.Context c, java.util.List<String> items) { super(c, android.R.layout.simple_spinner_item, items); }
         StdSpinnerAdapter(android.content.Context c, String[] items) { super(c, android.R.layout.simple_spinner_item, items); }
         private TextView fix(TextView v) { v.setTextSize(Ux.BODY); v.setTextColor(Ux.TXT); return v; }
         @Override public boolean isEnabled(int pos) { return !div.contains(pos); }
         @Override public View getView(int pos, View cv, android.view.ViewGroup pg) {
             if (div.contains(pos)) { TextView t = new TextView(pg.getContext()); t.setVisibility(View.INVISIBLE); return t; }
-            return fix((TextView) super.getView(pos, null, pg));   // never recycle: divider rows poison TextView convertViews
+            TextView v = fix((TextView) super.getView(pos, null, pg));   // never recycle: divider rows poison TextView convertViews
+            v.setText(label(getItem(pos)));
+            return v;
         }
         @Override public View getDropDownView(int pos, View cv, android.view.ViewGroup pg) {
             if (div.contains(pos)) {   // win98 menu separator: 1px dark over 1px light etched line
@@ -931,6 +934,7 @@ public class EditorActivity extends Activity {
                 return l;
             }
             TextView v = fix((TextView) super.getView(pos, null, pg));   // fresh row: a recycled divider LinearLayout breaks the TextView cast
+            v.setText(label(getItem(pos)));
             v.setPadding(Ux.dp(10), Ux.dp(12), Ux.dp(10), Ux.dp(12));   // roomier rows
             int selPos = spin == null ? -1 : spin.getSelectedItemPosition();
             boolean sel = (pos == selPos);
@@ -2239,7 +2243,12 @@ public class EditorActivity extends Activity {
         refill[0] = new Runnable() { public void run() {
             java.util.ArrayList<String> dirs = spyDirs(pf);
             if (dirs.isEmpty()) dirs.add(L.s("noneItem"));
-            StdSpinnerAdapter da = new StdSpinnerAdapter(EditorActivity.this, dirs);
+            StdSpinnerAdapter da = new StdSpinnerAdapter(EditorActivity.this, dirs) {
+                @Override String label(String s) {   // full paths are unreadable: show the final directory name only
+                    int c = s.lastIndexOf('/');
+                    return c >= 0 ? s.substring(c + 1) : s;
+                }
+            };
             da.spin = spyDirSpin;
             spyDirSpin.setAdapter(da);
         }};
