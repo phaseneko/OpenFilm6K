@@ -535,24 +535,26 @@ public class Server {
         return composeDouble(g0, g1, out);
     }
 
-    /** 8-bit linear-light AVERAGE LUT: each channel -> linear light, average the two exposures, back to
-     *  sRGB. Averaging (not summing) is exposure-neutral (each frame at half) and keeps the 8-bit
-     *  intermediate from clipping — used both for the different-film composite and, same-film, for the
-     *  pre-grade merge. 65536 entries = one array lookup per channel. */
-    private static byte[] AVG_FT;
-    private static synchronized byte[] avgTable() {
-        if (AVG_FT == null) {
+    /** 8-bit stacked-exposure LUT: each channel -> linear light, SUM the two exposures (the film
+     *  plane integrates photons), each frame pulled to 0.8 (the standard per-shot compensation),
+     *  then a tanh shoulder (knee 0.6) plays the negative's shoulder + paper latitude: highlight-
+     *  over-midtone lands ~0.94 sRGB (the old 0.5 average capped it at ~0.79, washing both frames
+     *  into midtones). 65536 entries = one array lookup per channel. */
+    private static byte[] STACK_FT;
+    private static synchronized byte[] stackTable() {
+        if (STACK_FT == null) {
             float[] lin = new float[256];
             for (int i = 0; i < 256; i++) lin[i] = srgb2lin(i / 255f);
             byte[] t = new byte[65536];
             for (int a = 0; a < 256; a++)
                 for (int b = 0; b < 256; b++) {
-                    float s = (lin[a] + lin[b]) * 0.5f;              // linear average of the two exposures
-                    t[(a << 8) | b] = (byte) Math.round(lin2srgb(s) * 255f);
+                    float s = (lin[a] + lin[b]) * 0.8f;              // film-plane sum, per-shot pull
+                    float v = s <= 0.6f ? s : 0.6f + 0.4f * (float) Math.tanh((s - 0.6f) / 0.4f);
+                    t[(a << 8) | b] = (byte) Math.round(lin2srgb(v) * 255f);
                 }
-            AVG_FT = t;
+            STACK_FT = t;
         }
-        return AVG_FT;
+        return STACK_FT;
     }
     private static float srgb2lin(float c) { return c <= 0.04045f ? c / 12.92f : (float) Math.pow((c + 0.055f) / 1.055f, 2.4); }
     private static float lin2srgb(float c) { c = c < 0 ? 0 : c > 1 ? 1 : c; return c <= 0.0031308f ? c * 12.92f : (float) (1.055 * Math.pow(c, 1.0 / 2.4) - 0.055); }
@@ -619,13 +621,13 @@ public class Server {
     /** 2 = double exposure with DIFFERENT films (the two graded frames can't be developed together):
      *  average them in linear light — each exposure at half, exposure-neutral, no highlight clipping. */
     static String composeDouble(java.io.File g0, java.io.File g1, java.io.File out) {
-        return blendTwo(g0, g1, out, avgTable());
+        return blendTwo(g0, g1, out, stackTable());
     }
 
-    /** same-film double exposure: accumulate the two ORIGINAL exposures in light (linear average),
-     *  then develop ONCE through the film engine — the physically correct film behaviour. */
+    /** same-film double exposure: accumulate the two ORIGINAL exposures in light, then develop ONCE
+     *  through the film engine — the physically correct film behaviour (curve applied to the sum). */
     static String mergeLight(java.io.File src0, java.io.File src1, java.io.File out) {
-        return blendTwo(src0, src1, out, avgTable());
+        return blendTwo(src0, src1, out, stackTable());
     }
 
     /** H (half-frame): each source's CENTRAL HALF (3:4, full height) is placed left/right on a
