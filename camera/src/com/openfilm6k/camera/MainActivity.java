@@ -854,13 +854,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // ---- lens-cap auto sleep: preview stays near-black -> cap on -> sleep after 10s ----
     private boolean capDim = false;                // screen dimmed by lens-cap sleep
-    private long capDarkSince = 0;                 // manual-lock countdown start; 0 = idle
     private float capPrevBrightness = -1f;
     private long capGapRecent = 33;
     private long capOneShotAt = 0;        // guard: register buffers ONCE per camera open (2nd pair OOMs and kills the stream)                // recent typical inter-frame gap (ms); stall threshold = clamp(2x, 2s, 32s)
-    private android.widget.TextView capCount;      // centered A-mode countdown (shutter pinned at 30s for 10s)
-    private android.widget.TextView capLabel;      // "UNTIL SLEEP" under the number
-    private android.widget.LinearLayout capBoxView;   // countdown container (visibility toggled as a whole)
     private android.widget.TextView filmWarn;        // centered red NO FILM LIST warning
     private long sDbg = 0;                         // throttled debug log
     private long sDump = 0;                        // throttled full parameter dump in S mode
@@ -938,31 +934,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         } catch (Throwable t) { Logger.log("batt: " + t); }
         root.addView(fbox, new FrameLayout.LayoutParams(-1, -1));
         root.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
-        android.widget.LinearLayout capBox = new android.widget.LinearLayout(this);
-        capBoxView = capBox;
-        capBox.setOrientation(android.widget.LinearLayout.VERTICAL);
-        capBox.setGravity(android.view.Gravity.CENTER);
-        capCount = mkText(36, 0xFF2196F3, 0x00000000);
-        capCount.setTypeface(fbox.tf);
-        capCount.setShadowLayer(3, 1, 2, 0xFF000000);   // same drop shadow as all other on-screen text
-        capCount.setGravity(android.view.Gravity.CENTER);
-        capLabel = mkText(14, 0xFF64A9F5, 0x00000000);
-        capLabel.setTypeface(fbox.tf);   // DSEG14, same as everything else
-        capLabel.setShadowLayer(3, 1, 2, 0xFF000000);
-        capLabel.setText("TO!SLEEP");   // DSEG14: '!' is a full-width blank cell (0.816em; ' ' is only 0.2em)
-        capLabel.setGravity(android.view.Gravity.CENTER);
-        android.widget.FrameLayout numWrap = new android.widget.FrameLayout(this);
-        android.widget.FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(-2, -2);
-        cp.gravity = android.view.Gravity.CENTER_HORIZONTAL;   // number dead-center horizontally
-        numWrap.addView(capCount, cp);
-        capCount.setVisibility(View.VISIBLE);   // mkText defaults to INVISIBLE
-        capLabel.setVisibility(View.VISIBLE);
-        capBox.addView(numWrap, new android.widget.LinearLayout.LayoutParams(-1, -2));
-        capBox.addView(capLabel, new android.widget.LinearLayout.LayoutParams(-1, -2));
-        capBox.setVisibility(View.GONE);
-        android.widget.FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(-1, -1);
-        bp.gravity = android.view.Gravity.CENTER;   // whole box vertically centered on screen
-        root.addView(capBox, bp);
         filmWarn = mkText(24, 0xFFFF5252, 0x00000000);   // same red as the AF-fail state
         filmWarn.setTypeface(fbox.tf);                    // DSEG14, same as everything else
         filmWarn.setShadowLayer(3, 1, 2, 0xFF000000);     // same drop shadow
@@ -1156,8 +1127,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private void capSleep() {
         // deliberately inert: no preview stop, no brightness change, no power/wakelock calls.
         // just flag the state and show the unlock hint — isolating what actually killed the keys.
-        capDim = true; capDarkSince = 0;
-        if (capBoxView != null) capBoxView.setVisibility(View.GONE);
+        capDim = true;
         if (fbox != null) fbox.hideAf = false;
         try { rig.camera().stopPreview(); } catch (Throwable t) { Logger.log("sleep stopPreview: " + t); }
         try {
@@ -1175,7 +1145,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /** any key wakes: first press only restores, its UP is swallowed */
     private void capWake() {
-        capDim = false; capDarkSince = 0;
+        capDim = false;
         overlay.setVisibility(View.INVISIBLE);
         hud.setVisibility(View.VISIBLE);
         status.setVisibility(View.VISIBLE);
@@ -2182,12 +2152,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_AEL) {
                 aelHeld = false;
                 handler.removeCallbacks(aelLongAction);
-                if (capDarkSince != 0 && !capDim) {   // manual lock countdown in progress: release cancels
-                    capDarkSince = 0;
-                    handler.removeCallbacks(capManualTick);
-                    capBoxView.setVisibility(View.GONE);
-                    if (fbox != null && fbox.hideAf) { fbox.hideAf = false; fbox.postInvalidate(); }
-                }
                 if (!aelFired) {
                     spotMode = !spotMode;
                     if (spotMode) {                                     // entering adjust: refresh from system
@@ -2323,31 +2287,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private boolean c1Held = false;
     private int stampMode = 0;   // 0 off, 1 date(D), 2 exposure(E), 3 DE, 4 B(frame), 5 X(collage), 6 F(film name), 7 FE(film name + exposure)
     private boolean spotMode = false;
-    private boolean aelLong = false;
     private boolean aelHeld = false, aelFired = false;
     private final Runnable aelLongAction = new Runnable() { public void run() {
         if (!aelHeld || capDim) return;
-        aelFired = true;
-        capDarkSince = android.os.SystemClock.elapsedRealtime();   // manual lock: 3s countdown, ANY release cancels
-        handler.removeCallbacks(capManualTick);
-        handler.postDelayed(capManualTick, 200);
-        Logger.log("AEL long: manual lock countdown");
-    } };
-
-    private final Runnable capManualTick = new Runnable() { public void run() {
-        if (capDim || capDarkSince == 0) return;
-        long left = 3 - (android.os.SystemClock.elapsedRealtime() - capDarkSince) / 1000;
-        if (left <= 0) {
-            capDarkSince = 0;
-            capSleep();
-        } else {
-            capCount.setText(String.valueOf(left));
-            capCount.setVisibility(View.VISIBLE);
-            capLabel.setVisibility(View.VISIBLE);
-            capBoxView.setVisibility(View.VISIBLE);
-            if (fbox != null) fbox.hideAf = true;
-            handler.postDelayed(this, 200);
-        }
+        aelFired = true;   // release won't toggle focus-adjust mode
+        spotX = 0; spotY = 0;
+        rig.setSpot(spotX, spotY);
+        if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.postInvalidate(); }
+        Logger.log("AEL long: spot recentered");
     } };
     private boolean fnHeld = false, fnFired = false;
     private final Runnable fnLongAction = new Runnable() { public void run() {   // NEX:长按 Fn = 按住 C1 (进入切换收藏卷选择模式)
