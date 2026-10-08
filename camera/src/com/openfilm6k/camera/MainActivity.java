@@ -39,7 +39,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // models); anything unlisted falls back to the A6000 map.
     static final class KeyMap {
         final int up, down, left, right, enter, menu, ael, c1, c2, c3, c4, fn, s1, s2, del, play;
-        final int wheelCw, wheelCcw;   // 波轮 (control wheel)      -> change the highlighted value
+        final int wheelCw, wheelCcw;   // 波轮 (control wheel)      -> change the highlighted value; focus-adjust: cycle AF area mode
         final int dialCw, dialCcw;     // 后转盘 (rear dial)        -> EV
         final int frontCw, frontCcw;   // 前转盘 (front dial)       -> select film (0 = model has none)
         final int[] wheelExtra;
@@ -2216,6 +2216,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (settings >= 0) return settingsKey(scan, dir);
         if (scan == K_WHEEL_CW || scan == K_WHEEL_CCW || inArr(K_WHEEL_EXTRA, scan)) {   // 波轮: change the highlighted value
             int wd = (scan == K_WHEEL_CCW) ? -1 : 1;
+            if (spotMode && !c1Held) {                        // focus-adjust: wheel cycles AF area mode (C1+wheel still changes film)
+                String m = (wd > 0) ? rig.cycleFocusModeBack() : rig.cycleFocusMode();
+                setStatus("AF " + m); renderHud(); return true;
+            }
             return dialItem(wd);
         }
         if (scan == K_DIAL_CW || scan == K_DIAL_CCW) {   // 后转盘: EV; with C1 held -> cycle favorites
