@@ -263,8 +263,10 @@ public class Ux {
         b.setGravity(android.view.Gravity.CENTER);   // wrapped labels center vertically (default sits low)
         b.setMaxLines(1);   // win98 buttons never wrap; autosize below shrinks text to fit instead (NOT setSingleLine: it enables horizontal scrolling and disables autosize)
         if (android.os.Build.VERSION.SDK_INT >= 26)
-            b.setAutoSizeTextTypeUniformWithConfiguration(9, 15, 1, android.util.TypedValue.COMPLEX_UNIT_DIP);
+            b.setAutoSizeTextTypeUniformWithConfiguration(Math.round(9 * sd()), Math.round(15 * sd()), 1, android.util.TypedValue.COMPLEX_UNIT_PX);   // pinned px: DIP would let the device density inflate wide-button labels
         b.setPadding(dp(10), 0, dp(10), 0);
+        b.setMinimumHeight(dp(48));   // theme Button minimum is 48 DEVICE-dp (wrap-content rows clamp to it); pin it so the clamp scales with the layout, not the panel
+        b.setMinimumWidth(0);
         b.setMinHeight(dp(36));   // visual body is smaller than the 44dp slot: bg shrinks, slot stays
         if (primaryText(b.getText().toString())) b.getPaint().setFakeBoldText(true);
     }
