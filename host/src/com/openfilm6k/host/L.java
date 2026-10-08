@@ -193,6 +193,8 @@ public class L {
         {"sky2", "云", "雲", "Clouds", "雲", "구름", "Wolken", "Nuages", "Nubes", "Облака", "Nuvens"},
         {"street1", "街景", "街景", "Street", "街並み", "거리", "Straße", "Rue", "Calle", "Улица", "Rua"},
         {"street2", "商街", "商街", "Shopping street", "商店街", "상점가", "Einkaufsstraße", "Rue commerçante", "Calle comercial", "Торговая улица", "Rua comercial"},
+        {"veh_metal", "车辆1", "車輛1", "Vehicle 1", "車両1", "차량 1", "Fahrzeug 1", "Véhicule 1", "Vehículo 1", "Автомобиль 1", "Veículo 1"},
+        {"veh_paint", "车辆2", "車輛2", "Vehicle 2", "車両2", "차량 2", "Fahrzeug 2", "Véhicule 2", "Vehículo 2", "Автомобиль 2", "Veículo 2"},
     };
 
     static int col(String code) {
