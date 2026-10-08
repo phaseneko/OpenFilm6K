@@ -435,9 +435,11 @@ public class EditorActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Ux.FACE);   // content column face: keeps section gaps gray while the scroll behind turns desktop-teal
         root.setPadding(Ux.dp(6), Ux.dp(6), Ux.dp(6), Ux.dp(14));   // breathing room between the last group and the window bottom edge
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
+        container.setBackgroundColor(0xFF008080);   // fillViewport leftover (short content on tall screens) reads as desktop, not gray dead space
         container.addView(root, new LinearLayout.LayoutParams(-1, -2));
         scroll.addView(container);
         scroll.setClipToPadding(false);

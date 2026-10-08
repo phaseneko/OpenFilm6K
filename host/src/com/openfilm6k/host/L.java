@@ -42,7 +42,7 @@ public class L {
         {"savedSplit", "（含白天/夜晚两份）", "（含日間/夜間兩份）", " (incl. day/night)", "（昼/夜の2件を含む）", " (낮/밤 2세트 포함)", " (inkl. Tag/Nacht)", " (incl. jour/nuit)", " (incl. día/noche)", " (включая день/ночь)", " (incl. dia/noite)"},
         {"reload", "重读", "重讀", "Reload", "再読み込み", "다시 읽기", "Neu laden", "Recharger", "Recargar", "Перечитать", "Recarregar"},
         // ---- node ui ----
-        {"addNode", "添加节点", "添加節點", "Add node", "ノード追加", "노드 추가", "Knoten hinzufügen", "Ajouter un nœud", "Añadir nodo", "Добавить узел", "Adicionar nó"},
+        {"addNode", "+ 添加节点", "+ 添加節點", "+ Add node", "+ ノード追加", "+ 노드 추가", "+ Knoten hinzufügen", "+ Ajouter un nœud", "+ Añadir nodo", "+ Добавить узел", "+ Adicionar nó"},
         {"copyCfg", "⧉ 复制配置", "⧉ 複製配置", "⧉ Copy config", "⧉ 設定をコピー", "⧉ 구성 복사", "⧉ Konfig kopieren", "⧉ Copier config", "⧉ Copiar config", "⧉ Копировать конфиг", "⧉ Copiar config"},
         {"pasteCfg", "📋 粘贴配置", "📋 貼上配置", "📋 Paste config", "📋 設定を貼り付け", "📋 구성 붙여넣기", "📋 Konfig einfügen", "📋 Coller config", "📋 Pegar config", "📋 Вставить конфиг", "📋 Colar config"},
         {"clipEmpty", "剪贴板为空", "剪貼板是空的", "Clipboard empty", "クリップボードが空です", "클립보드 비어 있음", "Zwischenablage leer", "Presse-papiers vide", "Portapapeles vacío", "Буфер обмена пуст", "Área de transferência vazia"},
