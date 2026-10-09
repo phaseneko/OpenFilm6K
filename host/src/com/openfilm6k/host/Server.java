@@ -676,11 +676,19 @@ public class Server {
         android.graphics.BitmapRegionDecoder rd = android.graphics.BitmapRegionDecoder.newInstance(f.getAbsolutePath(), false);
         try {
             int iw = rd.getWidth(), ih = rd.getHeight();
-            int cw = Math.max(1, iw / 2), cx = iw / 2 - cw / 2;              // central half, full height
+            // cover-crop the source to the slot aspect, centered. A landscape 3:2 frame reduces to
+            // its central half (camera half-frame semantics, full height); any other aspect — 4:3,
+            // 16:9, portrait, square (spy mode accepts anything) — gets a plain center crop instead
+            // of being stretched out of shape.
+            float slotA = (float) w / (float) h, srcA = (float) iw / (float) ih;
+            int cw, ch;
+            if (srcA > slotA) { ch = ih; cw = Math.max(1, Math.round(ih * slotA)); }
+            else              { cw = iw; ch = Math.max(1, Math.round(iw / slotA)); }
+            int cx = (iw - cw) / 2, cy = (ih - ch) / 2;
             android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
             o.inSampleSize = sc;
             o.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
-            android.graphics.Bitmap half = rd.decodeRegion(new android.graphics.Rect(cx, 0, cx + cw, ih), o);
+            android.graphics.Bitmap half = rd.decodeRegion(new android.graphics.Rect(cx, cy, cx + cw, cy + ch), o);
             if (half == null) return;
             cv.drawBitmap(half, new android.graphics.Rect(0, 0, half.getWidth(), half.getHeight()),
                     new android.graphics.RectF(x, y, x + w, y + h), bp);
