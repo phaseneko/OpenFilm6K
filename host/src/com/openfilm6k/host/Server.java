@@ -909,6 +909,49 @@ public class Server {
         } catch (Throwable t) { return "ERR " + t; }
     }
 
+    /** 5x7 dot-matrix glyphs (camera data-back look), MSB = leftmost column */
+    private static final String DM_KEY = "0123456789PASMF/.+-\u00b1";
+    private static final byte[][] DM_GLYPH = {
+        {0x0E,0x11,0x13,0x15,0x19,0x11,0x0E}, // 0
+        {0x04,0x0C,0x04,0x04,0x04,0x04,0x0E}, // 1
+        {0x0E,0x11,0x01,0x02,0x04,0x08,0x1F}, // 2
+        {0x1F,0x02,0x04,0x02,0x01,0x11,0x0E}, // 3
+        {0x02,0x06,0x0A,0x12,0x1F,0x02,0x02}, // 4
+        {0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E}, // 5
+        {0x06,0x08,0x10,0x1E,0x11,0x11,0x0E}, // 6
+        {0x1F,0x01,0x02,0x04,0x08,0x08,0x08}, // 7
+        {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E}, // 8
+        {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C}, // 9
+        {0x0E,0x11,0x11,0x1E,0x10,0x10,0x10}, // P
+        {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11}, // A
+        {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E}, // S
+        {0x11,0x1B,0x15,0x15,0x11,0x11,0x11}, // M
+        {0x1F,0x10,0x10,0x1E,0x10,0x10,0x10}, // F
+        {0x01,0x02,0x02,0x04,0x08,0x08,0x10}, // /
+        {0x00,0x00,0x00,0x00,0x00,0x0C,0x0C}, // .
+        {0x00,0x04,0x04,0x1F,0x04,0x04,0x00}, // +
+        {0x00,0x00,0x00,0x1F,0x00,0x00,0x00}, // -
+        {0x04,0x04,0x1F,0x04,0x1F,0x00,0x00}, // plus-minus
+    };
+
+    /** one dot-matrix token centered at (cx, cy): 5x7 glyphs, glow paint, fits maxW/maxH, never wider */
+    private static void drawDotToken(android.graphics.Canvas cv, String s, float cx, float cy, float maxW, float maxH, android.graphics.Paint glow) {
+        byte[][] gs = new byte[s.length()][];
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) {
+            int k = DM_KEY.indexOf(s.charAt(i));
+            if (k >= 0) gs[n++] = DM_GLYPH[k];
+        }
+        if (n == 0) return;
+        float d = Math.min(maxW / (6 * n - 1), maxH / 7f);
+        float x0 = cx - (6 * n - 1) * d / 2f;
+        for (int i = 0; i < n; i++)
+            for (int r = 0; r < 7; r++)
+                for (int c = 0; c < 5; c++)
+                    if ((gs[i][r] & (0x10 >> c)) != 0)
+                        cv.drawCircle(x0 + (i * 6 + c) * d + d / 2f, cy - 3 * d + r * d + d / 2f, d * 0.38f, glow);
+    }
+
     /** B2 (film edge): the scanned-negative look — generous near-black rebate strips above and
      *  below the photo, each carrying a row of sprocket holes (portrait, 35mm BH-perforation
      *  proportions), mirrored gold edge print (stock name + shooting data line; edge marks read
@@ -994,28 +1037,15 @@ public class Server {
             //      dot-matrix tokens in the gaps between the TOP holes, same look as DE/FE stamps ----
             String[] segs = readExposureSegments(src);
             if (segs != null) {
-                float ts = W / 62f;
-                android.graphics.Paint dp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                dp.setTypeface(Ux.seg14(ctx));
-                dp.setColor(0xFFFF9500);
-                dp.setTextSize(ts);
-                dp.setStyle(android.graphics.Paint.Style.FILL_AND_STROKE);
-                dp.setStrokeWidth(ts * 0.06f);
-                dp.setShadowLayer(ts * 0.45f, 0, 0, 0xFFFF9500);
-                android.graphics.Paint de = new android.graphics.Paint(dp);
-                de.clearShadowLayer();
-                de.setStyle(android.graphics.Paint.Style.STROKE);
-                de.setStrokeWidth(ts * 0.10f);
-                de.setColor(0x66000000);
-                dp.setTextAlign(android.graphics.Paint.Align.CENTER);
-                de.setTextAlign(android.graphics.Paint.Align.CENTER);
-                float dataMid = hTopTop + hh * 0.55f;
-                int[] gi = {0, 2, 4, 6};                          // one token every other hole gap
-                for (int g = 0; g < 4; g++) {
-                    if (segs[g] == null) continue;
-                    float gx = x0 + hw + (gi[g] + 0.5f) * (pitch - hw);
-                    cv.drawText(segs[g], gx, dataMid, de);
-                    cv.drawText(segs[g], gx, dataMid, dp);
+                android.graphics.Paint glow = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                glow.setColor(0xFFFF9500);
+                glow.setShadowLayer(W / 150f, 0, 0, 0xFFFF9500);
+                float slotW = pitch - hw - W / 40f;               // token must clear the holes on both sides
+                drawDotToken(cv, segs[0] == null ? "" : segs[0], x0 / 2f, hTopTop + hh / 2f, x0 - W / 60f, hh * 1.1f, glow);
+                for (int g = 0; g < 3; g++) {
+                    if (segs[g + 1] == null) continue;
+                    float gx = x0 + hw + (2 * g + 1) * pitch / 2f;   // centered in every other hole gap
+                    drawDotToken(cv, segs[g + 1], gx, hTopTop + hh / 2f, slotW, hh * 1.1f, glow);
                 }
             }
             java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
