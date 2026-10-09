@@ -881,7 +881,7 @@ public class Server {
             int rb = Math.round(W * 0.16f);   // rebate geometry scales with the FILM WIDTH (35mm: 8 perf per frame width), not the frame aspect
             android.graphics.Bitmap ob = android.graphics.Bitmap.createBitmap(W, H + rb * 2, android.graphics.Bitmap.Config.ARGB_8888);
             android.graphics.Canvas cv = new android.graphics.Canvas(ob);
-            cv.drawColor(0xFF101010);                             // film rebate: near-black
+            cv.drawColor(0xFF000000);                             // film rebate: near-black
             cv.drawBitmap(bm, 0, rb, null);
             bm.recycle();
             // soft dissolve across both photo boundaries (wavy, like a real scan's frame edge)
@@ -890,13 +890,13 @@ public class Server {
             int fade = Math.max(6, Math.round(mn / 90f));
             float[] wr = wavh(W, amp, 0x0F6A1E5AL);
             android.graphics.Paint sp = new android.graphics.Paint();
-            sp.setColor(0xFF101010);
+            sp.setColor(0xFF000000);
             for (int x = 0; x < W; x += 2) {
                 float t = rb + wr[x];
-                sp.setShader(new android.graphics.LinearGradient(0, t, 0, t + fade, 0xFF101010, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
+                sp.setShader(new android.graphics.LinearGradient(0, t, 0, t + fade, 0xFF000000, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
                 cv.drawRect(x, t - fade, Math.min(W, x + 2), t + fade, sp);
                 float b = rb + H + wr[x];
-                sp.setShader(new android.graphics.LinearGradient(0, b, 0, b - fade, 0xFF101010, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
+                sp.setShader(new android.graphics.LinearGradient(0, b, 0, b - fade, 0xFF000000, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
                 cv.drawRect(x, b - fade, Math.min(W, x + 2), b + fade, sp);
             }
             // sprocket holes: 8 per film width; holes HUG the photo edge (tiny gap, as scanned) —
