@@ -559,6 +559,33 @@ public class Server {
     private static float srgb2lin(float c) { return c <= 0.04045f ? c / 12.92f : (float) Math.pow((c + 0.055f) / 1.055f, 2.4); }
     private static float lin2srgb(float c) { c = c < 0 ? 0 : c > 1 ? 1 : c; return c <= 0.0031308f ? c * 12.92f : (float) (1.055 * Math.pow(c, 1.0 / 2.4) - 0.055); }
 
+    /** data-back segments for the B2 edge print: {mode, shutter, aperture, EV}; null where absent */
+    private static String[] readExposureSegments(java.io.File f) {
+        String[] out = new String[4];
+        try {
+            android.media.ExifInterface e = new android.media.ExifInterface(f.getAbsolutePath());
+            int prog = e.getAttributeInt(android.media.ExifInterface.TAG_EXPOSURE_PROGRAM, 0);
+            if (prog == 1) out[0] = "M"; else if (prog == 2) out[0] = "P";
+            else if (prog == 3) out[0] = "A"; else if (prog == 4) out[0] = "S";
+            String et = e.getAttribute(android.media.ExifInterface.TAG_EXPOSURE_TIME);
+            if (et != null) try {
+                double d = Double.parseDouble(et);
+                if (d > 0) out[1] = d < 1 ? String.valueOf(Math.round(1 / d)) : String.valueOf(Math.round(d));
+            } catch (NumberFormatException ig) {}
+            String ap = e.getAttribute(android.media.ExifInterface.TAG_F_NUMBER);
+            if (ap != null) try {
+                double d = Double.parseDouble(ap);
+                out[2] = "F" + (d == Math.rint(d) ? String.valueOf((long) d) : String.valueOf(d));
+            } catch (NumberFormatException ig) {}
+            String bv = e.getAttribute("ExposureBias");
+            if (bv != null) try {
+                double d = Double.parseDouble(bv);
+                out[3] = (d > 0 ? "+" : d < 0 ? "-" : "±") + String.format(java.util.Locale.US, "%.1f", Math.abs(d));
+            } catch (NumberFormatException ig) {}
+        } catch (Throwable ig) {}
+        return out;
+    }
+
     /** banded, full-res 2-image blend: out(channel) = ft[(a<<8)|b]; writes a JPEG. Uses
      *  BitmapRegionDecoder so only one full-size (the output) bitmap is ever resident. */
     static String blendTwo(java.io.File fa, java.io.File fb, java.io.File out, byte[] ft) {
@@ -941,25 +968,55 @@ public class Server {
                 cv.drawRoundRect(new android.graphics.RectF(hx, hTopTop, hx + hw - inset * 2, hTopTop + hh - inset * 2), rad, rad, p);
                 cv.drawRoundRect(new android.graphics.RectF(hx, hBotTop, hx + hw - inset * 2, hBotTop + hh - inset * 2), rad, rad, p);
             }
-            float dataY = hTopTop + hh / 2f;                      // data line weaves between the top holes
-            // mirrored gold edge print: stock name (big) + data line (small), both strips
+            // ---- edge print part 1: stock name — bold gothic (Fjalla One, OFL), cream, soft edge
+            //      with a red-brown fringe pass (same treatment as the sprocket edges) ----
             String nm = (film == null ? "" : film.trim()).toUpperCase(java.util.Locale.US);
             if (nm.length() > 0) {
-                p.setColor(0xFFE0B050);
-                p.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD));
-                p.setTextSize(W / 45f);
-                p.setLetterSpacing(0.10f);
+                android.graphics.Paint np = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                np.setTypeface(Ux.fjalla(ctx));
+                np.setTextSize(W / 34f);
+                np.setLetterSpacing(0.08f);
+                android.graphics.Paint fr = new android.graphics.Paint(np);
+                fr.setColor(0xFF8A4224);                          // red-brown fringe, blurred, offset to the photo side
+                fr.setMaskFilter(new android.graphics.BlurMaskFilter(W / 400f, android.graphics.BlurMaskFilter.Blur.NORMAL));
+                np.setColor(0xFFE8D9B0);                          // cream
+                np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 1400f, android.graphics.BlurMaskFilter.Blur.NORMAL));
+                float nameY0 = hTopTop - W / 90f;                 // above the top hole band
+                float nameY1 = rb + H + gap + hh + W / 32f;       // below the bottom hole band
                 cv.save(); cv.scale(-1f, 1f);
-                cv.drawText(nm, -(W * 0.88f), rb * 0.30f, p);                    // top strip: name at the outer edge
-                cv.drawText(nm, -(W * 0.88f), rb + H + gap + hh + W / 45f, p);   // bottom strip: name under the holes
+                cv.drawText(nm, -(W * 0.88f) - W / 90f, nameY0 + W / 600f, fr);
+                cv.drawText(nm, -(W * 0.88f) - W / 90f, nameY1 + W / 600f, fr);
+                cv.drawText(nm, -(W * 0.88f), nameY0, np);
+                cv.drawText(nm, -(W * 0.88f), nameY1, np);
                 cv.restore();
-                String data = src == null ? "" : readExposure(src);
-                p.setTextSize(W / 95f);
-                String small = (data == null || data.length() == 0) ? "P" : data;
-                cv.save(); cv.scale(-1f, 1f);
-                cv.drawText(small, -(W * 0.42f), dataY + W / 280f, p);           // data line weaves between top holes
-                cv.drawText("1A", -(W * 0.86f), rb + H + gap + hh + W / 32f, p); // frame mark under bottom holes
-                cv.restore();
+            }
+            // ---- edge print part 2: camera data back — mode / shutter / aperture / EV as separate
+            //      dot-matrix tokens in the gaps between the TOP holes, same look as DE/FE stamps ----
+            String[] segs = readExposureSegments(src);
+            if (segs != null) {
+                float ts = W / 62f;
+                android.graphics.Paint dp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                dp.setTypeface(Ux.seg14(ctx));
+                dp.setColor(0xFFFF9500);
+                dp.setTextSize(ts);
+                dp.setStyle(android.graphics.Paint.Style.FILL_AND_STROKE);
+                dp.setStrokeWidth(ts * 0.06f);
+                dp.setShadowLayer(ts * 0.45f, 0, 0, 0xFFFF9500);
+                android.graphics.Paint de = new android.graphics.Paint(dp);
+                de.clearShadowLayer();
+                de.setStyle(android.graphics.Paint.Style.STROKE);
+                de.setStrokeWidth(ts * 0.10f);
+                de.setColor(0x66000000);
+                dp.setTextAlign(android.graphics.Paint.Align.CENTER);
+                de.setTextAlign(android.graphics.Paint.Align.CENTER);
+                float dataMid = hTopTop + hh * 0.55f;
+                int[] gi = {0, 2, 4, 6};                          // one token every other hole gap
+                for (int g = 0; g < 4; g++) {
+                    if (segs[g] == null) continue;
+                    float gx = x0 + hw + (gi[g] + 0.5f) * (pitch - hw);
+                    cv.drawText(segs[g], gx, dataMid, de);
+                    cv.drawText(segs[g], gx, dataMid, dp);
+                }
             }
             java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
             ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
