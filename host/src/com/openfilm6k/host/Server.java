@@ -945,8 +945,8 @@ public class Server {
                 for (int c = 0; c < 5; c++)
                     if ((DM_GLYPH[k][r] & (0x10 >> c)) != 0) {
                         float dx = x0 + (i * 6 + c) * d + d / 2f, dy = cy - 3 * d + r * d + d / 2f;
-                        cv.drawCircle(dx, dy, d * 0.55f, glow);
-                        cv.drawCircle(dx, dy, d * 0.55f, edge);
+                        cv.drawCircle(dx, dy, d * 0.68f, glow);
+                        cv.drawCircle(dx, dy, d * 0.68f, edge);
                     }
         }
     }
@@ -1055,15 +1055,15 @@ public class Server {
                     android.graphics.Paint glow = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
                     glow.setColor(0xFFFF9500);
                     glow.setStyle(android.graphics.Paint.Style.FILL_AND_STROKE);
-                    glow.setStrokeWidth(d * 0.06f);
-                    glow.setShadowLayer(d * 0.45f, 0, 0, 0xFFFF9500);
+                    glow.setStrokeWidth(d * 0.10f);
+                    glow.setShadowLayer(d * 0.90f, 0, 0, 0xFFFF3D00);   // redder, larger bloom
                     android.graphics.Paint edge = new android.graphics.Paint(glow);
                     edge.clearShadowLayer();
                     edge.setStyle(android.graphics.Paint.Style.STROKE);
                     edge.setStrokeWidth(d * 0.10f);
                     edge.setColor(0x66000000);
                     for (int i = 0; i < toks.size(); i++)
-                        drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh / 2f, d, glow, edge);
+                        drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh - 3.5f * d, d, glow, edge);   // bottom-aligned to the holes
                 }
             }
             java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
