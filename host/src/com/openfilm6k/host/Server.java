@@ -1044,7 +1044,7 @@ public class Server {
                 drawDotToken(cv, segs[0] == null ? "" : segs[0], x0 / 2f, hTopTop + hh / 2f, x0 - W / 60f, hh * 1.1f, glow);
                 for (int g = 0; g < 3; g++) {
                     if (segs[g + 1] == null) continue;
-                    float gx = x0 + hw + (2 * g + 1) * pitch / 2f;   // centered in every other hole gap
+                    float gx = x0 + hw + g * pitch + (pitch - hw) / 2f;   // true center of hole-gap g
                     drawDotToken(cv, segs[g + 1], gx, hTopTop + hh / 2f, slotW, hh * 1.1f, glow);
                 }
             }
