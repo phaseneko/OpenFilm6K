@@ -934,22 +934,21 @@ public class Server {
         {0x04,0x04,0x1F,0x04,0x1F,0x00,0x00}, // plus-minus
     };
 
-    /** one dot-matrix token centered at (cx, cy): 5x7 glyphs, glow paint, fits maxW/maxH, never wider */
-    private static void drawDotToken(android.graphics.Canvas cv, String s, float cx, float cy, float maxW, float maxH, android.graphics.Paint glow) {
-        byte[][] gs = new byte[s.length()][];
-        int n = 0;
+    /** one dot-matrix token centered at (cx, cy): 5x7 glyphs at pitch d — dots overlap so the
+     *  glyph reads solid (no pixel gaps); rendered exactly like the watermark: glow pass + dark edge pass */
+    private static void drawDotToken(android.graphics.Canvas cv, String s, float cx, float cy, float d, android.graphics.Paint glow, android.graphics.Paint edge) {
+        float x0 = cx - (6 * s.length() - 1) * d / 2f;
         for (int i = 0; i < s.length(); i++) {
             int k = DM_KEY.indexOf(s.charAt(i));
-            if (k >= 0) gs[n++] = DM_GLYPH[k];
-        }
-        if (n == 0) return;
-        float d = Math.min(maxW / (6 * n - 1), maxH / 7f);
-        float x0 = cx - (6 * n - 1) * d / 2f;
-        for (int i = 0; i < n; i++)
+            if (k < 0) continue;
             for (int r = 0; r < 7; r++)
                 for (int c = 0; c < 5; c++)
-                    if ((gs[i][r] & (0x10 >> c)) != 0)
-                        cv.drawCircle(x0 + (i * 6 + c) * d + d / 2f, cy - 3 * d + r * d + d / 2f, d * 0.38f, glow);
+                    if ((DM_GLYPH[k][r] & (0x10 >> c)) != 0) {
+                        float dx = x0 + (i * 6 + c) * d + d / 2f, dy = cy - 3 * d + r * d + d / 2f;
+                        cv.drawCircle(dx, dy, d * 0.55f, glow);
+                        cv.drawCircle(dx, dy, d * 0.55f, edge);
+                    }
+        }
     }
 
     /** B2 (film edge): the scanned-negative look — generous near-black rebate strips above and
@@ -1037,15 +1036,34 @@ public class Server {
             //      dot-matrix tokens in the gaps between the TOP holes, same look as DE/FE stamps ----
             String[] segs = readExposureSegments(src);
             if (segs != null) {
-                android.graphics.Paint glow = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                glow.setColor(0xFFFF9500);
-                glow.setShadowLayer(W / 150f, 0, 0, 0xFFFF9500);
-                float slotW = pitch - hw - W / 40f;               // token must clear the holes on both sides
-                drawDotToken(cv, segs[0] == null ? "" : segs[0], x0 / 2f, hTopTop + hh / 2f, x0 - W / 60f, hh * 1.1f, glow);
-                for (int g = 0; g < 3; g++) {
-                    if (segs[g + 1] == null) continue;
-                    float gx = x0 + hw + g * pitch + (pitch - hw) / 2f;   // true center of hole-gap g
-                    drawDotToken(cv, segs[g + 1], gx, hTopTop + hh / 2f, slotW, hh * 1.1f, glow);
+                // one uniform dot pitch for every token: the most constrained slot+token sets it
+                java.util.ArrayList<String> toks = new java.util.ArrayList<String>();
+                java.util.ArrayList<Float> cs = new java.util.ArrayList<Float>();
+                java.util.ArrayList<Float> mws = new java.util.ArrayList<Float>();
+                float gapMax = pitch - hw - W / 40f;
+                if (segs[0] != null) { toks.add(segs[0]); cs.add(x0 / 2f); mws.add(x0 - W / 60f); }
+                for (int g = 0; g < 3; g++) if (segs[g + 1] != null) {
+                    toks.add(segs[g + 1]);
+                    cs.add(x0 + hw + g * pitch + (pitch - hw) / 2f);   // true center of hole-gap g
+                    mws.add(gapMax);
+                }
+                if (!toks.isEmpty()) {
+                    float d = Float.MAX_VALUE;
+                    for (int i = 0; i < toks.size(); i++) d = Math.min(d, mws.get(i) / (6 * toks.get(i).length() - 1));
+                    d = Math.min(d, hh * 1.1f / 7f);
+                    // watermark render, scaled to the dot pitch: glow pass (fill+stroke+halo) then dark edge
+                    android.graphics.Paint glow = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                    glow.setColor(0xFFFF9500);
+                    glow.setStyle(android.graphics.Paint.Style.FILL_AND_STROKE);
+                    glow.setStrokeWidth(d * 0.06f);
+                    glow.setShadowLayer(d * 0.45f, 0, 0, 0xFFFF9500);
+                    android.graphics.Paint edge = new android.graphics.Paint(glow);
+                    edge.clearShadowLayer();
+                    edge.setStyle(android.graphics.Paint.Style.STROKE);
+                    edge.setStrokeWidth(d * 0.10f);
+                    edge.setColor(0x66000000);
+                    for (int i = 0; i < toks.size(); i++)
+                        drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh / 2f, d, glow, edge);
                 }
             }
             java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
