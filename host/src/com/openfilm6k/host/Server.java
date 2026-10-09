@@ -1010,26 +1010,24 @@ public class Server {
                 cv.drawRoundRect(new android.graphics.RectF(hx, hTopTop, hx + hw - inset * 2, hTopTop + hh - inset * 2), rad, rad, p);
                 cv.drawRoundRect(new android.graphics.RectF(hx, hBotTop, hx + hw - inset * 2, hBotTop + hh - inset * 2), rad, rad, p);
             }
-            // ---- edge print part 1: stock name — bold gothic (Fjalla One, OFL), cream, soft edge
-            //      with a red-brown fringe pass (same treatment as the sprocket edges) ----
+            // ---- edge print part 1: stock name — Helvetica-like (Liberation Sans, OFL), pale
+            //      yellow with a soft edge (sprocket-feather radius) and a red-brown rim; ONE copy,
+            //      top-right corner of the top rebate ----
             String nm = (film == null ? "" : film.trim()).toUpperCase(java.util.Locale.US);
             if (nm.length() > 0) {
                 android.graphics.Paint np = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                np.setTypeface(Ux.fjalla(ctx));
-                np.setTextSize(W / 34f);
-                np.setLetterSpacing(0.08f);
-                android.graphics.Paint fr = new android.graphics.Paint(np);
-                fr.setColor(0xFF8A4224);                          // red-brown fringe, blurred, offset to the photo side
-                fr.setMaskFilter(new android.graphics.BlurMaskFilter(W / 400f, android.graphics.BlurMaskFilter.Blur.NORMAL));
-                np.setColor(0xFFE8D9B0);                          // cream
-                np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 1400f, android.graphics.BlurMaskFilter.Blur.NORMAL));
-                float nameY0 = hTopTop - W / 90f;                 // above the top hole band
-                float nameY1 = rb + H + gap + hh + W / 32f;       // below the bottom hole band
+                np.setTypeface(Ux.liberation(ctx));
+                np.setTextSize(W / 30f);
+                np.setLetterSpacing(0.06f);
+                float nameX = -(W * 0.92f);                       // mirrored: right edge lands at 0.92W
+                float nameY = hTopTop - W / 90f;                  // above the top hole band
+                android.graphics.Paint rim = new android.graphics.Paint(np);   // red-brown rim: same spot, wider blur
+                rim.setColor(0xFF8A4224);
+                rim.setMaskFilter(new android.graphics.BlurMaskFilter(W / 300f, android.graphics.BlurMaskFilter.Blur.NORMAL));
+                np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 3600f + 1f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // soft edge = sprocket feather radius
                 cv.save(); cv.scale(-1f, 1f);
-                cv.drawText(nm, -(W * 0.88f) - W / 90f, nameY0 + W / 600f, fr);
-                cv.drawText(nm, -(W * 0.88f) - W / 90f, nameY1 + W / 600f, fr);
-                cv.drawText(nm, -(W * 0.88f), nameY0, np);
-                cv.drawText(nm, -(W * 0.88f), nameY1, np);
+                cv.drawText(nm, nameX, nameY, rim);
+                cv.drawText(nm, nameX, nameY, np);
                 cv.restore();
             }
             // ---- edge print part 2: camera data back — mode / shutter / aperture / EV as separate
@@ -1044,7 +1042,7 @@ public class Server {
                 if (segs[0] != null) { toks.add(segs[0]); cs.add(x0 / 2f); mws.add(x0 - W / 60f); }
                 for (int g = 0; g < 3; g++) if (segs[g + 1] != null) {
                     toks.add(segs[g + 1]);
-                    cs.add(x0 + hw + g * pitch + (pitch - hw) / 2f);   // true center of hole-gap g
+                    cs.add(x0 + hw + (g + 1) * pitch + (pitch - hw) / 2f);   // start at the SECOND hole gap
                     mws.add(gapMax);
                 }
                 if (!toks.isEmpty()) {

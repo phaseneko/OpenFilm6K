@@ -74,27 +74,27 @@ public class Ux {
         return seg14Tf;
     }
 
-    private static android.graphics.Typeface fjallaTf;
+    private static android.graphics.Typeface libTf;
     /** Fjalla One (OFL, res/raw): condensed bold gothic for the B2 film-edge print */
-    static android.graphics.Typeface fjalla(android.content.Context c) {
-        if (fjallaTf == null) {
+    static android.graphics.Typeface liberation(android.content.Context c) {
+        if (libTf == null) {
             try {
-                java.io.File f = new java.io.File(c.getCacheDir(), "fjallaone.ttf");
+                java.io.File f = new java.io.File(c.getCacheDir(), "liberationsans.ttf");
                 if (!f.exists() || f.length() == 0) {
-                    java.io.InputStream in = c.getResources().openRawResource(R.raw.fjallaone);
+                    java.io.InputStream in = c.getResources().openRawResource(R.raw.liberationsans);
                     java.io.FileOutputStream fo = new java.io.FileOutputStream(f);
                     byte[] buf = new byte[8192]; int n;
                     while ((n = in.read(buf)) > 0) fo.write(buf, 0, n);
                     fo.close(); in.close();
                 }
-                fjallaTf = android.graphics.Typeface.createFromFile(f);
-                android.util.Log.i("of6kUI", "fjalla font loaded, size=" + f.length());
+                libTf = android.graphics.Typeface.createFromFile(f);
+                android.util.Log.i("of6kUI", "liberation font loaded, size=" + f.length());
             } catch (Throwable t) {
-                android.util.Log.e("of6kUI", "fjalla font failed", t);
-                fjallaTf = android.graphics.Typeface.SANS_SERIF;
+                android.util.Log.e("of6kUI", "liberation font failed", t);
+                libTf = android.graphics.Typeface.SANS_SERIF;
             }
         }
-        return fjallaTf;
+        return libTf;
     }
 
     private static android.graphics.Typeface seg14iTf;
