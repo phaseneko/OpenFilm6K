@@ -923,7 +923,7 @@ public class Server {
             float rad = W / 70f;
             float gap = W / 69f;
             p.setColor(0xFFE8E4DC);
-            float feather = W / 300f;                             // sprocket edges are softly bled (scanned light spill)
+            float feather = W / 1200f;                            // sprocket edges softly bled (1/4 of the first pass)
             p.setMaskFilter(new android.graphics.BlurMaskFilter(feather, android.graphics.BlurMaskFilter.Blur.NORMAL));
             float inset = feather * 0.4f;                         // keep the perceived hole size after feathering
             float hTopTop = rb - gap - hh + inset;                // top strip: holes sit just above the photo
