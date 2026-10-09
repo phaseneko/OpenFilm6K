@@ -922,7 +922,7 @@ public class Server {
             float x0 = (W - (pitch * 7 + hw)) / 2f;
             float rad = W / 70f;
             float gap = W / 69f;
-            float feather = W / 3600f;                            // sprocket edges softly bled (1/2 of previous)
+            float feather = W / 3600f + 1f;                       // sprocket edges softly bled (user-tuned: +1px)
             float inset = feather * 0.4f;                         // keep the perceived hole size after feathering
             float hTopTop = rb - gap - hh + inset;                // top strip: holes sit just above the photo
             float hBotTop = rb + H + gap + inset;                 // bottom strip: holes just below the photo
