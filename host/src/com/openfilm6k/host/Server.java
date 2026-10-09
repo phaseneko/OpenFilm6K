@@ -725,6 +725,21 @@ public class Server {
     /** edge profile = low-frequency undulation band + high-frequency roughness band. Each band is a
      *  value-noise fBm (Gaussian lattice, smoothstep), RMS-normalised, then mixed by LOWW/HIGHW so the
      *  two scales are independently controllable. Final peak normalised to `amp`. */
+    /** B2 variant: same shape as wavh but all frequencies /5 (long slow undulation) */
+    private static float[] wavh5(int n, float amp, long seed) {
+        java.util.Random r = new java.util.Random(seed);
+        float[] lo = octaveSum(n, r, 0.9f, 2, 0.6f);     // low band: 0.9, 1.8 cycles
+        float[] hi = octaveSum(n, r, 7.2f, 5, 0.75f);    // high band: 7.2..1.15 cycles
+        normRms(lo); normRms(hi);
+        float LOWW = 0.5f, HIGHW = 1.0f;
+        float[] out = new float[n];
+        float mx = 1e-6f;
+        for (int i = 0; i < n; i++) { out[i] = LOWW * lo[i] + HIGHW * hi[i]; mx = Math.max(mx, Math.abs(out[i])); }
+        float s = amp / mx;
+        for (int i = 0; i < n; i++) out[i] *= s;
+        return out;
+    }
+
     private static float[] wavh(int n, float amp, long seed) {
         java.util.Random r = new java.util.Random(seed);
         float[] lo = octaveSum(n, r, 4.5f, 2, 0.6f);     // low band: 4.5, 9 cycles  (big undulation)
@@ -886,9 +901,9 @@ public class Server {
             bm.recycle();
             // soft dissolve across both photo boundaries (wavy, like a real scan's frame edge)
             int mn = Math.min(W, H);
-            int amp = Math.max(3, Math.round(mn / 150f));
+            int amp = Math.max(2, Math.round(mn / 750f));    // B2: amplitude 1/5 of the half-frame edge
             int fade = Math.max(6, Math.round(mn / 90f));
-            float[] wr = wavh(W, amp, 0x0F6A1E5AL);
+            float[] wr = wavh5(W, amp, 0x0F6A1E5AL);
             android.graphics.Paint sp = new android.graphics.Paint();
             sp.setColor(0xFF000000);
             for (int x = 0; x < W; x += 2) {
