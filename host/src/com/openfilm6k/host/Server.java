@@ -878,7 +878,7 @@ public class Server {
             if (bm == null) return graded.getAbsolutePath();
             if (!bm.isMutable()) bm = bm.copy(android.graphics.Bitmap.Config.ARGB_8888, true);
             int W = bm.getWidth(), H = bm.getHeight();
-            int rb = Math.round(H * 0.36f);
+            int rb = Math.round(W * 0.16f);   // rebate geometry scales with the FILM WIDTH (35mm: 8 perf per frame width), not the frame aspect
             android.graphics.Bitmap ob = android.graphics.Bitmap.createBitmap(W, H + rb * 2, android.graphics.Bitmap.Config.ARGB_8888);
             android.graphics.Canvas cv = new android.graphics.Canvas(ob);
             cv.drawColor(0xFF101010);                             // film rebate: near-black
@@ -899,37 +899,36 @@ public class Server {
                 sp.setShader(new android.graphics.LinearGradient(0, b, 0, b - fade, 0xFF101010, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
                 cv.drawRect(x, b - fade, Math.min(W, x + 2), b + fade, sp);
             }
-            // sprocket holes: reference-measured proportions (of photo height): w .107, h .149,
-            // pitch .2535, corner r ~.19 of width; as many whole holes as fit, row centered
+            // sprocket holes: fixed 8 per film width (real 35mm: 8 perforations per 36mm frame),
+            // reference-measured on the W axis: pitch W/8, hole W/23.2 x W/13.46, corner r ~W/122
             android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            float pitch = H * 0.2535f;
-            float hh = H * 0.149f, hw = hh * 0.717f;
-            int n = (int) ((W - hw) / pitch) + 1;
-            float x0 = (W - ((n - 1) * pitch + hw)) / 2f;
-            float rad = hw * 0.19f;
+            float pitch = W / 8f;
+            float hw = W / 23.2f, hh = W / 13.46f;
+            float x0 = (W - (pitch * 7 + hw)) / 2f;
+            float rad = W / 122f;
             p.setColor(0xFFE8E4DC);
-            for (int i = 0; i < n; i++) {
+            for (int i = 0; i < 8; i++) {
                 float hx = x0 + i * pitch;
-                cv.drawRoundRect(new android.graphics.RectF(hx, rb * 0.55f - hh / 2f, hx + hw, rb * 0.55f + hh / 2f), rad, rad, p);
-                cv.drawRoundRect(new android.graphics.RectF(hx, rb + H + rb * 0.55f - hh / 2f, hx + hw, rb + H + rb * 0.55f + hh / 2f), rad, rad, p);
+                cv.drawRoundRect(new android.graphics.RectF(hx, rb * 0.58f - hh / 2f, hx + hw, rb * 0.58f + hh / 2f), rad, rad, p);
+                cv.drawRoundRect(new android.graphics.RectF(hx, rb + H + rb * 0.58f - hh / 2f, hx + hw, rb + H + rb * 0.58f + hh / 2f), rad, rad, p);
             }
             // mirrored gold edge print: stock name (big) + data line (small), both strips
             String nm = (film == null ? "" : film.trim()).toUpperCase(java.util.Locale.US);
             if (nm.length() > 0) {
                 p.setColor(0xFFE0B050);
                 p.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD));
-                p.setTextSize(rb * 0.236f);          // name glyphs ~0.085 photo-H
+                p.setTextSize(W / 45f);              // name glyphs ~ reference measurement (32px @ 1440)
                 p.setLetterSpacing(0.10f);
                 cv.save(); cv.scale(-1f, 1f);
-                cv.drawText(nm, -(W * 0.88f), rb * 0.24f, p);
-                cv.drawText(nm, -(W * 0.88f), rb + H + rb * 0.30f, p);
+                cv.drawText(nm, -(W * 0.88f), rb * 0.36f, p);
+                cv.drawText(nm, -(W * 0.88f), rb + H + rb * 0.42f, p);
                 cv.restore();
                 String data = src == null ? "" : readExposure(src);
-                p.setTextSize(rb * 0.125f);          // data glyphs ~0.045 photo-H
+                p.setTextSize(W / 95f);              // data glyphs ~ reference measurement (15px @ 1440)
                 String small = (data == null || data.length() == 0) ? "P" : data;
                 cv.save(); cv.scale(-1f, 1f);
-                cv.drawText(small, -(W * 0.42f), rb * 0.92f, p);
-                cv.drawText("1A", -(W * 0.86f), rb + H + rb * 0.92f, p);
+                cv.drawText(small, -(W * 0.42f), rb * 0.95f, p);
+                cv.drawText("1A", -(W * 0.86f), rb + H + rb * 0.95f, p);
                 cv.restore();
             }
             java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
