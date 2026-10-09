@@ -902,7 +902,7 @@ public class Server {
             // soft dissolve across both photo boundaries (wavy, like a real scan's frame edge)
             int mn = Math.min(W, H);
             int amp = Math.max(2, Math.round(mn / 750f));    // B2: amplitude 1/5 of the half-frame edge
-            int fade = Math.max(6, Math.round(mn / 90f));
+            int fade = Math.max(1, Math.round(Math.max(2, mn / 300) * 0.375f));   // fade = half-frame radius
             float[] wr = wavh5(W, amp, 0x0F6A1E5AL);
             android.graphics.Paint sp = new android.graphics.Paint();
             sp.setColor(0xFF000000);
