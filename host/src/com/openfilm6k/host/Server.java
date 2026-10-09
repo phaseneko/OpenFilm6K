@@ -935,8 +935,8 @@ public class Server {
     };
 
     /** one dot-matrix token centered at (cx, cy): 5x7 glyphs at pitch d — dots overlap so the
-     *  glyph reads solid (no pixel gaps); rendered exactly like the watermark: glow pass + dark edge pass */
-    private static void drawDotToken(android.graphics.Canvas cv, String s, float cx, float cy, float d, android.graphics.Paint glow, android.graphics.Paint edge) {
+     *  glyph reads solid with no dark seams between pixels */
+    private static void drawDotToken(android.graphics.Canvas cv, String s, float cx, float cy, float d, android.graphics.Paint glow) {
         float x0 = cx - (6 * s.length() - 1) * d / 2f;
         for (int i = 0; i < s.length(); i++) {
             int k = DM_KEY.indexOf(s.charAt(i));
@@ -944,9 +944,8 @@ public class Server {
             for (int r = 0; r < 7; r++)
                 for (int c = 0; c < 5; c++)
                     if ((DM_GLYPH[k][r] & (0x10 >> c)) != 0) {
-                        float dx = x0 + (i * 6 + c) * d + d / 2f, dy = cy - 3 * d + r * d + d / 2f;
-                        cv.drawCircle(dx, dy, d * 0.68f, glow);
-                        cv.drawCircle(dx, dy, d * 0.68f, edge);
+                        float dx = x0 + (i * 6 + c) * d + d / 2f;
+                        cv.drawCircle(dx, cy - 3 * d + r * d + d / 2f, d * 0.68f, glow);
                     }
         }
     }
@@ -1057,14 +1056,9 @@ public class Server {
                     glow.setStyle(android.graphics.Paint.Style.FILL_AND_STROKE);
                     glow.setStrokeWidth(d * 0.10f);
                     glow.setShadowLayer(d * 1.80f, 0, 0, 0xFFFF3D00);   // bloom radius 2x; brightness 2x via double pass below
-                    android.graphics.Paint edge = new android.graphics.Paint(glow);
-                    edge.clearShadowLayer();
-                    edge.setStyle(android.graphics.Paint.Style.STROKE);
-                    edge.setStrokeWidth(d * 0.10f);
-                    edge.setColor(0x66000000);
                     for (int i = 0; i < toks.size(); i++) {
-                        drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh - 3.5f * d, d, glow, edge);   // bottom-aligned to the holes
-                        drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh - 3.5f * d, d, glow, edge);   // 2nd pass: glow doubled
+                        drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh - 3.5f * d, d, glow);   // bottom-aligned to the holes
+                        drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh - 3.5f * d, d, glow);   // 2nd pass: glow doubled
                     }
                 }
             }
