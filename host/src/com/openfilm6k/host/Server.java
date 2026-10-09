@@ -867,57 +867,68 @@ public class Server {
         } catch (Throwable t) { return "ERR " + t; }
     }
 
-    /** B2 (film edge): the scanned-negative look — near-black rebate strips above and below the
-     *  photo, a row of sprocket holes through each, and the film stock name printed MIRRORED in
-     *  gold edge-print style (edge marks read reversed when the rebate is shot emulsion-side up),
-     *  plus a direction arrow on the top strip. Rebate is 12% of the photo height per strip. */
-    private static String filmEdge(java.io.File graded, String film) {
+    /** B2 (film edge): the scanned-negative look — generous near-black rebate strips above and
+     *  below the photo, each carrying a row of sprocket holes (portrait, 35mm BH-perforation
+     *  proportions), mirrored gold edge print (stock name + shooting data line; edge marks read
+     *  reversed when the rebate is scanned emulsion-side up) and a frame mark. The photo/rebate
+     *  boundary dissolves with the same wavy soft edge the half-frame mode uses. */
+    private static String filmEdge(java.io.File graded, java.io.File src, String film) {
         try {
             android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
             if (bm == null) return graded.getAbsolutePath();
             if (!bm.isMutable()) bm = bm.copy(android.graphics.Bitmap.Config.ARGB_8888, true);
             int W = bm.getWidth(), H = bm.getHeight();
-            int rb = Math.round(H * 0.12f);
+            int rb = Math.round(H * 0.30f);
             android.graphics.Bitmap ob = android.graphics.Bitmap.createBitmap(W, H + rb * 2, android.graphics.Bitmap.Config.ARGB_8888);
             android.graphics.Canvas cv = new android.graphics.Canvas(ob);
             cv.drawColor(0xFF101010);                             // film rebate: near-black
             cv.drawBitmap(bm, 0, rb, null);
             bm.recycle();
+            // soft dissolve across both photo boundaries (wavy, like a real scan's frame edge)
+            int mn = Math.min(W, H);
+            int amp = Math.max(3, Math.round(mn / 150f));
+            int fade = Math.max(6, Math.round(mn / 90f));
+            float[] wr = wavh(W, amp, 0x0F6A1E5AL);
+            android.graphics.Paint sp = new android.graphics.Paint();
+            sp.setColor(0xFF101010);
+            for (int x = 0; x < W; x += 2) {
+                float t = rb + wr[x];
+                sp.setShader(new android.graphics.LinearGradient(0, t, 0, t + fade, 0xFF101010, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
+                cv.drawRect(x, t - fade, Math.min(W, x + 2), t + fade, sp);
+                float b = rb + H + wr[x];
+                sp.setShader(new android.graphics.LinearGradient(0, b, 0, b - fade, 0xFF101010, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
+                cv.drawRect(x, b - fade, Math.min(W, x + 2), b + fade, sp);
+            }
+            // sprocket holes: 8 across, portrait rounded rects
             android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            // sprocket holes: 10 across, centered in each strip
-            float holeW = W / 16f, holeH = rb * 0.5f, pitch = W / 10f;
-            float x0 = (W - (pitch * 9 + holeW)) / 2f;
+            float pitch = W / 8f;
+            float hh = rb * 0.36f, hw = hh * 0.58f;
+            float x0 = (W - (pitch * 7 + hw)) / 2f;
             p.setColor(0xFFE8E4DC);
-            for (float top : new float[]{rb / 2f - holeH / 2f, rb + H + rb / 2f - holeH / 2f})
-                for (int i = 0; i < 10; i++) {
-                    float hx = x0 + i * pitch;
-                    cv.drawRoundRect(new android.graphics.RectF(hx, top, hx + holeW, top + holeH), holeW * 0.18f, holeW * 0.18f, p);
-                }
-            // mirrored gold edge print (edge marks read reversed on a scanned rebate)
+            for (int i = 0; i < 8; i++) {
+                float hx = x0 + i * pitch;
+                cv.drawRoundRect(new android.graphics.RectF(hx, rb * 0.62f - hh / 2f, hx + hw, rb * 0.62f + hh / 2f), hw * 0.30f, hw * 0.30f, p);
+                cv.drawRoundRect(new android.graphics.RectF(hx, rb + H + rb * 0.62f - hh / 2f, hx + hw, rb + H + rb * 0.62f + hh / 2f), hw * 0.30f, hw * 0.30f, p);
+            }
+            // mirrored gold edge print: stock name (big) + data line (small), both strips
             String nm = (film == null ? "" : film.trim()).toUpperCase(java.util.Locale.US);
             if (nm.length() > 0) {
-                p.setColor(0xFFC9A24B);
+                p.setColor(0xFFE0B050);
                 p.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD));
-                p.setTextSize(rb * 0.42f);
-                p.setLetterSpacing(0.12f);
-                float tw = p.measureText(nm);
-                cv.save();
-                cv.scale(-1f, 1f);
-                cv.drawText(nm, -(W * 0.86f), rb + H + rb * 0.68f, p);      // bottom strip: stock name
+                p.setTextSize(rb * 0.35f);
+                p.setLetterSpacing(0.10f);
+                cv.save(); cv.scale(-1f, 1f);
+                cv.drawText(nm, -(W * 0.88f), rb * 0.40f, p);
+                cv.drawText(nm, -(W * 0.88f), rb + H + rb * 0.46f, p);
                 cv.restore();
-                cv.save();
-                cv.scale(-1f, 1f);
-                cv.drawText(nm, -(W * 0.14f + tw), rb * 0.68f, p);          // top strip: stock name
+                String data = src == null ? "" : readExposure(src);
+                p.setTextSize(rb * 0.13f);
+                String small = (data == null || data.length() == 0) ? "P" : data;
+                cv.save(); cv.scale(-1f, 1f);
+                cv.drawText(small, -(W * 0.14f), rb * 0.92f, p);
+                cv.drawText("1A", -(W * 0.86f), rb + H + rb * 0.92f, p);
                 cv.restore();
             }
-            // direction arrow, gold, top strip
-            p.setColor(0xFFC9A24B);
-            float ay = rb * 0.5f, ax1 = W * 0.62f, ax2 = W * 0.75f;
-            cv.drawRect(ax1, ay - 2, ax2, ay + 2, p);
-            android.graphics.Path tri = new android.graphics.Path();
-            tri.moveTo(ax1, ay); tri.lineTo(ax1 + 14, ay - 9); tri.lineTo(ax1 + 14, ay + 9);
-            tri.close();
-            cv.drawPath(tri, p);
             java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
             ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
             fo.close();
@@ -935,7 +946,7 @@ public class Server {
         boolean pol = q.get("b") != null, col = q.get("x") != null, b2 = q.get("b2") != null;
         if (!pol && !col && !b2) return graded.getAbsolutePath();
         try {
-            if (b2) return filmEdge(graded, film);
+            if (b2) return filmEdge(graded, src, film);
             if (col) return collage(graded, film);
             android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
             if (bm == null) return graded.getAbsolutePath();
