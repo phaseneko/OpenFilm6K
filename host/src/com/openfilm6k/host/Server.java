@@ -1056,14 +1056,16 @@ public class Server {
                     glow.setColor(0xFFFF9500);
                     glow.setStyle(android.graphics.Paint.Style.FILL_AND_STROKE);
                     glow.setStrokeWidth(d * 0.10f);
-                    glow.setShadowLayer(d * 0.90f, 0, 0, 0xFFFF3D00);   // redder, larger bloom
+                    glow.setShadowLayer(d * 1.80f, 0, 0, 0xFFFF3D00);   // bloom radius 2x; brightness 2x via double pass below
                     android.graphics.Paint edge = new android.graphics.Paint(glow);
                     edge.clearShadowLayer();
                     edge.setStyle(android.graphics.Paint.Style.STROKE);
                     edge.setStrokeWidth(d * 0.10f);
                     edge.setColor(0x66000000);
-                    for (int i = 0; i < toks.size(); i++)
+                    for (int i = 0; i < toks.size(); i++) {
                         drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh - 3.5f * d, d, glow, edge);   // bottom-aligned to the holes
+                        drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh - 3.5f * d, d, glow, edge);   // 2nd pass: glow doubled
+                    }
                 }
             }
             java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
