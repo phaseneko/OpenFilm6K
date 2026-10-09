@@ -899,36 +899,40 @@ public class Server {
                 sp.setShader(new android.graphics.LinearGradient(0, b, 0, b - fade, 0xFF101010, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
                 cv.drawRect(x, b - fade, Math.min(W, x + 2), b + fade, sp);
             }
-            // sprocket holes: fixed 8 per film width (real 35mm: 8 perforations per 36mm frame),
-            // reference-measured on the W axis: pitch W/8, hole W/23.2 x W/13.46, corner r ~W/122
+            // sprocket holes: 8 per film width; holes HUG the photo edge (tiny gap, as scanned) —
+            // reference-measured: hole W/18.8 x W/13.46, pitch W/8, corner r ~W/70, gap W/69
             android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
             float pitch = W / 8f;
-            float hw = W / 23.2f, hh = W / 13.46f;
+            float hw = W / 18.8f, hh = W / 13.46f;
             float x0 = (W - (pitch * 7 + hw)) / 2f;
-            float rad = W / 122f;
+            float rad = W / 70f;
+            float gap = W / 69f;
             p.setColor(0xFFE8E4DC);
+            float hTopTop = rb - gap - hh;                        // top strip: holes sit just above the photo
+            float hBotTop = rb + H + gap;                         // bottom strip: holes just below the photo
             for (int i = 0; i < 8; i++) {
                 float hx = x0 + i * pitch;
-                cv.drawRoundRect(new android.graphics.RectF(hx, rb * 0.58f - hh / 2f, hx + hw, rb * 0.58f + hh / 2f), rad, rad, p);
-                cv.drawRoundRect(new android.graphics.RectF(hx, rb + H + rb * 0.58f - hh / 2f, hx + hw, rb + H + rb * 0.58f + hh / 2f), rad, rad, p);
+                cv.drawRoundRect(new android.graphics.RectF(hx, hTopTop, hx + hw, hTopTop + hh), rad, rad, p);
+                cv.drawRoundRect(new android.graphics.RectF(hx, hBotTop, hx + hw, hBotTop + hh), rad, rad, p);
             }
+            float dataY = hTopTop + hh / 2f;                      // data line weaves between the top holes
             // mirrored gold edge print: stock name (big) + data line (small), both strips
             String nm = (film == null ? "" : film.trim()).toUpperCase(java.util.Locale.US);
             if (nm.length() > 0) {
                 p.setColor(0xFFE0B050);
                 p.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD));
-                p.setTextSize(W / 45f);              // name glyphs ~ reference measurement (32px @ 1440)
+                p.setTextSize(W / 45f);
                 p.setLetterSpacing(0.10f);
                 cv.save(); cv.scale(-1f, 1f);
-                cv.drawText(nm, -(W * 0.88f), rb * 0.36f, p);
-                cv.drawText(nm, -(W * 0.88f), rb + H + rb * 0.42f, p);
+                cv.drawText(nm, -(W * 0.88f), rb * 0.30f, p);                    // top strip: name at the outer edge
+                cv.drawText(nm, -(W * 0.88f), rb + H + gap + hh + W / 45f, p);   // bottom strip: name under the holes
                 cv.restore();
                 String data = src == null ? "" : readExposure(src);
-                p.setTextSize(W / 95f);              // data glyphs ~ reference measurement (15px @ 1440)
+                p.setTextSize(W / 95f);
                 String small = (data == null || data.length() == 0) ? "P" : data;
                 cv.save(); cv.scale(-1f, 1f);
-                cv.drawText(small, -(W * 0.42f), rb * 0.95f, p);
-                cv.drawText("1A", -(W * 0.86f), rb + H + rb * 0.95f, p);
+                cv.drawText(small, -(W * 0.42f), dataY + W / 280f, p);           // data line weaves between top holes
+                cv.drawText("1A", -(W * 0.86f), rb + H + gap + hh + W / 32f, p); // frame mark under bottom holes
                 cv.restore();
             }
             java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
