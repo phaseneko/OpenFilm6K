@@ -83,7 +83,19 @@ public class SpyWatcher {
                 String film = pf.getString("spy_film", null);
                 int mode = pf.getInt("spy_stamp", 0);
                 if (film == null || film.length() == 0) { Engine.dbg(TAG + ": no film selected, skip"); return; }
-                String r = Server.spyIngest(f, film, mode);
+                String r;
+                if (mode == 8 || mode == 9) {           // 半格 / 双重曝光: every TWO arrivals compose into one
+                    String first = pf.getString("spy_pair_first", "");
+                    if (first.length() == 0 || !new File(first).exists()) {
+                        pf.edit().putString("spy_pair_first", f.getPath()).commit();
+                        MainActivity.say(L.s("spyPairWait"));
+                        return;
+                    }
+                    pf.edit().putString("spy_pair_first", "").commit();
+                    r = Server.spyPairIngest(new File(first), f, film, mode == 8);
+                } else {
+                    r = Server.spyIngest(f, film, mode);
+                }
                 if (r != null && r.startsWith("OK")) MainActivity.say(L.s("spyMode") + " " + r);
                 else MainActivity.say(L.s("spyMode") + " ERR " + r);
             } catch (Throwable t) { Engine.dbg(TAG + " render: " + t); }

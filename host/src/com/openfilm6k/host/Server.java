@@ -806,6 +806,58 @@ public class Server {
         } catch (Throwable t) { return "ERR " + t; }
     }
 
+    /** spy pair ingest (半格/双重曝光): two arrived files compose into ONE graded image.
+     *  spy mode has a single film, so double always takes the same-film physics path
+     *  (merge in light, develop once); half grades both and places the two halves. */
+    static String spyPairIngest(java.io.File src0, java.io.File src1, String film, boolean half) {
+        try {
+            String mode = half ? "half" : "double";
+            String name = src0.getName();
+            String base = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
+            byte[] exifApp1 = Exif.app1Of(src0);
+            galDir.mkdirs();
+            java.io.File out = new java.io.File(galDir, "graded_" + base + "_pair.jpg");
+            String r;
+            if (!half) {
+                java.io.File merged = new java.io.File(workDir, "m_" + base + ".jpg");
+                String rm = mergeLight(src0, src1, merged);
+                if (rm != null && !rm.startsWith("ERR") && merged.exists())
+                    r = Engine.get().process(merged.getAbsolutePath(), film, out.getAbsolutePath());
+                else r = "ERR merge " + rm;
+                merged.delete();
+            } else {
+                java.io.File g0 = new java.io.File(workDir, "p0_" + base + ".jpg");
+                java.io.File g1 = new java.io.File(workDir, "p1_" + base + ".jpg");
+                String r0 = Engine.get().process(src0.getAbsolutePath(), film, g0.getAbsolutePath());
+                String r1 = Engine.get().process(src1.getAbsolutePath(), film, g1.getAbsolutePath());
+                if (r0 != null && !r0.startsWith("ERR") && g0.exists() && r1 != null && !r1.startsWith("ERR") && g1.exists())
+                    r = composePair(mode, g0, g1, out);
+                else r = "ERR render " + r0 + " / " + r1;
+                g0.delete(); g1.delete();
+            }
+            if (exifApp1 != null && r != null && !r.startsWith("ERR") && out.exists())
+                Exif.carryBytes(out, exifApp1);
+            boolean ok = r != null && !r.startsWith("ERR") && out.exists();
+            try {
+                if (ok) {
+                    final String filmF = film + " + " + film;
+                    final String expoF = readExposure(src0);
+                    final String timeF = readTime(src0);
+                    final android.graphics.Bitmap thumbF = decodeThumb(out);
+                    final String gpath = out.getAbsolutePath();
+                    android.media.MediaScannerConnection.scanFile(ctx, new String[]{gpath}, new String[]{"image/jpeg"},
+                        new android.media.MediaScannerConnection.OnScanCompletedListener() {
+                            public void onScanCompleted(String p, android.net.Uri u) {
+                                try { HostService.photoInfo(filmF, expoF, timeF, thumbF, u); }
+                                catch (Throwable t2) { MainActivity.say("notif: " + t2); }
+                            }
+                        });
+                }
+            } catch (Throwable ig) {}
+            return ok ? "OK " + out.getName() : "ERR " + r;
+        } catch (Throwable t) { return "ERR " + t; }
+    }
+
     /** output-level extras: polaroid frame / 4-film collage dressing on the graded image */
     private static String stamped(java.io.File graded, java.io.File src, String film, Map<String,String> q) {
         boolean pol = q.get("b") != null, col = q.get("x") != null;
