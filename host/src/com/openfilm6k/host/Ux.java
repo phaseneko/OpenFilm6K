@@ -97,6 +97,29 @@ public class Ux {
         return libTf;
     }
 
+    private static android.graphics.Typeface libBoldTf;
+    /** Liberation Sans Bold for the B2 stock name */
+    static android.graphics.Typeface liberationBold(android.content.Context c) {
+        if (libBoldTf == null) {
+            try {
+                java.io.File f = new java.io.File(c.getCacheDir(), "liberationsansbold.ttf");
+                if (!f.exists() || f.length() == 0) {
+                    java.io.InputStream in = c.getResources().openRawResource(R.raw.liberationsansbold);
+                    java.io.FileOutputStream fo = new java.io.FileOutputStream(f);
+                    byte[] buf = new byte[8192]; int n;
+                    while ((n = in.read(buf)) > 0) fo.write(buf, 0, n);
+                    fo.close(); in.close();
+                }
+                libBoldTf = android.graphics.Typeface.createFromFile(f);
+                android.util.Log.i("of6kUI", "liberation bold font loaded, size=" + f.length());
+            } catch (Throwable t) {
+                android.util.Log.e("of6kUI", "liberation bold font failed", t);
+                libBoldTf = liberation(c);
+            }
+        }
+        return libBoldTf;
+    }
+
     private static android.graphics.Typeface seg14iTf;
     /** fourteen-segment italic (DSEG14 Italic) for watermarks */
     static android.graphics.Typeface seg14it(android.content.Context c) {

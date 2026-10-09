@@ -1016,16 +1016,17 @@ public class Server {
             String nm = (film == null ? "" : film.trim()).toUpperCase(java.util.Locale.US);
             if (nm.length() > 0) {
                 android.graphics.Paint np = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                np.setTypeface(Ux.liberation(ctx));
-                np.setTextSize(W / 30f);
+                np.setTypeface(Ux.liberationBold(ctx));           // bold gothic
+                np.setTextSize(W / 34f);
                 np.setLetterSpacing(0.06f);
-                float nameX = -(W * 0.92f);                       // mirrored: right edge lands at 0.92W
-                float nameY = hTopTop - W / 90f;                  // above the top hole band
+                float nameX = -(W * 0.92f) / 3f;                  // mirrored + Hx3: right edge lands at 0.92W
+                float nameY = hTopTop - W / 120f;                 // above the top hole band (Vx1.5 baseline)
                 android.graphics.Paint rim = new android.graphics.Paint(np);   // red-brown rim: same spot, wider blur
                 rim.setColor(0xFF8A4224);
                 rim.setMaskFilter(new android.graphics.BlurMaskFilter(W / 300f, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 3600f + 1f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // soft edge = sprocket feather radius
-                cv.save(); cv.scale(-1f, 1f);
+                np.setColor(0xFFF0DFA8);                          // pale yellow body
+                cv.save(); cv.scale(-3f, 1.5f);                   // Hx3, Vx1.5
                 cv.drawText(nm, nameX, nameY, rim);
                 cv.drawText(nm, nameX, nameY, np);
                 cv.restore();
@@ -1039,7 +1040,7 @@ public class Server {
                 java.util.ArrayList<Float> cs = new java.util.ArrayList<Float>();
                 java.util.ArrayList<Float> mws = new java.util.ArrayList<Float>();
                 float gapMax = pitch - hw - W / 40f;
-                if (segs[0] != null) { toks.add(segs[0]); cs.add(x0 / 2f); mws.add(x0 - W / 60f); }
+                if (segs[0] != null) { toks.add(segs[0]); cs.add(x0 + hw + (pitch - hw) / 2f); mws.add(pitch - hw - W / 40f); }
                 for (int g = 0; g < 3; g++) if (segs[g + 1] != null) {
                     toks.add(segs[g + 1]);
                     cs.add(x0 + hw + (g + 1) * pitch + (pitch - hw) / 2f);   // start at the SECOND hole gap
