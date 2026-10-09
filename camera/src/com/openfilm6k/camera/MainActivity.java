@@ -1573,7 +1573,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             }
             String stampQ = stampTxt.length() > 0 ? "&stamp=" + java.net.URLEncoder.encode(stampTxt) : "";
             if (stamp2Txt.length() > 0) stampQ += "&stamp2=" + java.net.URLEncoder.encode(stamp2Txt);
-            if (stampMode == 4) stampQ = "&b=1";               // B: selected film + Polaroid frame
+            if (stampMode == 4) stampQ = "&b=1";               // B1: selected film + Polaroid frame
+            else if (stampMode == 10) stampQ = "&b2=1";        // B2: film edge, sprockets + stock name
             else if (stampMode == 5) stampQ = "&x=1";          // X: no text, 4-film collage
             conn = (java.net.HttpURLConnection) new java.net.URL(
                 "http://" + phoneIp() + ":8800/ingest?film=" + java.net.URLEncoder.encode(pack, "UTF-8")
@@ -1825,7 +1826,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (hlIdx != 0 && !adjOk(hlIdx)) { hlIdx = adjOk(lastParam) ? lastParam : (adjOk(2) ? 2 : 1); }
         if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.spotOn = spotMode; fbox.afMode = rig.focusMode(); fbox.afName = rig.focusModeName(); fbox.afDisp = rig.focusModeDisplay(); }
         if (fbox != null) { fbox.filmFav = selFav(sel); fbox.c1 = c1Held; }
-        if (fbox != null) fbox.stampMark = (stampMode == 1 ? "D" : stampMode == 2 ? "E" : stampMode == 3 ? "DE" : stampMode == 4 ? "B" : stampMode == 5 ? "X" : stampMode == 6 ? "F" : stampMode == 7 ? "FE" : stampMode == 8 ? "H" : stampMode == 9 ? "2" : "");
+        if (fbox != null) fbox.stampMark = (stampMode == 1 ? "D" : stampMode == 2 ? "E" : stampMode == 3 ? "DE" : stampMode == 4 ? "B1" : stampMode == 5 ? "X" : stampMode == 6 ? "F" : stampMode == 7 ? "FE" : stampMode == 8 ? "H" : stampMode == 9 ? "2" : stampMode == 10 ? "B2" : "");
         if (fbox != null) { fbox.pairDisp = isPairMode() ? pairSlot : -1; fbox.pairBlink = pairBlinkOn; fbox.halfMask = (stampMode == 8); fbox.ghostFinder = ghostFinder; }
         String fn2 = selName(sel);
         int di = fn2.toUpperCase().indexOf(".FLM");
@@ -2147,7 +2148,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (e.getAction() == KeyEvent.ACTION_UP && (scan == K_C2 || (K_C4 != 0 && scan == K_C4))) {
             c2Held = false;
             handler.removeCallbacks(c2LongAction);
-            if (!c2Fired) { stampMode = (stampMode + 1) % 10; onStampModeChanged(); savePrefs(); renderHud(); }   // short press cycles stamp modes incl. H/2
+            if (!c2Fired) { stampMode = (stampMode + 1) % 11; onStampModeChanged(); savePrefs(); renderHud(); }   // short press cycles stamp modes incl. H/2/B2
         }
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_AEL) {
                 aelHeld = false;

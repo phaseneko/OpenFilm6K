@@ -2200,8 +2200,8 @@ public class EditorActivity extends Activity {
         sgi.setGravity(android.view.Gravity.CENTER_VERTICAL);
         sgi.setBackground(new Ux.Etched());
         sgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
-        final int[] spyCodes = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-        String[] spyNames = {L.s("stNone"), L.s("stD"), L.s("stE"), L.s("stDE"), L.s("stPolaroid"), L.s("stCollage"), L.s("stF"), L.s("stFE"), L.s("stHalf"), L.s("stDouble")};
+        final int[] spyCodes = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+        String[] spyNames = {L.s("stNone"), L.s("stD"), L.s("stE"), L.s("stDE"), L.s("stPolaroid"), L.s("stCollage"), L.s("stF"), L.s("stFE"), L.s("stHalf"), L.s("stDouble"), L.s("stB2")};
         Spinner ssp = new Spinner(this);
         StdSpinnerAdapter ssA = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(java.util.Arrays.asList(spyNames)));
         ssA.spin = ssp;

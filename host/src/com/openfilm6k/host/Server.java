@@ -256,7 +256,7 @@ public class Server {
                 if (left > 0) { src.delete(); resp = "ERR short read"; }
                 else {
                     StringBuilder extras = new StringBuilder();
-                    for (String k : new String[]{"stamp", "stamp2", "b", "x"})
+                    for (String k : new String[]{"stamp", "stamp2", "b", "b2", "x"})
                         if (q.get(k) != null) extras.append(' ').append(k).append('=').append(q.get(k));
                     if (extras.length() > 0) MainActivity.say("ingest stamps:" + extras);
                     // grab the camera's EXIF (APP1) from the untouched upload BEFORE anything
@@ -772,7 +772,8 @@ public class Server {
             java.util.HashMap<String,String> q = new java.util.HashMap<>();
             String name = src.getName();
             String base = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
-            if (mode == 4) q.put("b", "1");                       // polaroid frame
+            if (mode == 4) q.put("b", "1");                       // B1: polaroid frame
+            else if (mode == 10) q.put("b2", "1");                // B2: film edge, sprockets + stock name
             else if (mode == 5) q.put("x", "1");                  // 4-film collage
             else {
                 String bl = null, br = null;
@@ -866,11 +867,75 @@ public class Server {
         } catch (Throwable t) { return "ERR " + t; }
     }
 
+    /** B2 (film edge): the scanned-negative look — near-black rebate strips above and below the
+     *  photo, a row of sprocket holes through each, and the film stock name printed MIRRORED in
+     *  gold edge-print style (edge marks read reversed when the rebate is shot emulsion-side up),
+     *  plus a direction arrow on the top strip. Rebate is 12% of the photo height per strip. */
+    private static String filmEdge(java.io.File graded, String film) {
+        try {
+            android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
+            if (bm == null) return graded.getAbsolutePath();
+            if (!bm.isMutable()) bm = bm.copy(android.graphics.Bitmap.Config.ARGB_8888, true);
+            int W = bm.getWidth(), H = bm.getHeight();
+            int rb = Math.round(H * 0.12f);
+            android.graphics.Bitmap ob = android.graphics.Bitmap.createBitmap(W, H + rb * 2, android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas cv = new android.graphics.Canvas(ob);
+            cv.drawColor(0xFF101010);                             // film rebate: near-black
+            cv.drawBitmap(bm, 0, rb, null);
+            bm.recycle();
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            // sprocket holes: 10 across, centered in each strip
+            float holeW = W / 16f, holeH = rb * 0.5f, pitch = W / 10f;
+            float x0 = (W - (pitch * 9 + holeW)) / 2f;
+            p.setColor(0xFFE8E4DC);
+            for (float top : new float[]{rb / 2f - holeH / 2f, rb + H + rb / 2f - holeH / 2f})
+                for (int i = 0; i < 10; i++) {
+                    float hx = x0 + i * pitch;
+                    cv.drawRoundRect(new android.graphics.RectF(hx, top, hx + holeW, top + holeH), holeW * 0.18f, holeW * 0.18f, p);
+                }
+            // mirrored gold edge print (edge marks read reversed on a scanned rebate)
+            String nm = (film == null ? "" : film.trim()).toUpperCase(java.util.Locale.US);
+            if (nm.length() > 0) {
+                p.setColor(0xFFC9A24B);
+                p.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD));
+                p.setTextSize(rb * 0.42f);
+                p.setLetterSpacing(0.12f);
+                float tw = p.measureText(nm);
+                cv.save();
+                cv.scale(-1f, 1f);
+                cv.drawText(nm, -(W * 0.86f), rb + H + rb * 0.68f, p);      // bottom strip: stock name
+                cv.restore();
+                cv.save();
+                cv.scale(-1f, 1f);
+                cv.drawText(nm, -(W * 0.14f + tw), rb * 0.68f, p);          // top strip: stock name
+                cv.restore();
+            }
+            // direction arrow, gold, top strip
+            p.setColor(0xFFC9A24B);
+            float ay = rb * 0.5f, ax1 = W * 0.62f, ax2 = W * 0.75f;
+            cv.drawRect(ax1, ay - 2, ax2, ay + 2, p);
+            android.graphics.Path tri = new android.graphics.Path();
+            tri.moveTo(ax1, ay); tri.lineTo(ax1 + 14, ay - 9); tri.lineTo(ax1 + 14, ay + 9);
+            tri.close();
+            cv.drawPath(tri, p);
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
+            ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
+            fo.close();
+            ob.recycle();
+            return graded.getAbsolutePath();
+        } catch (Throwable t) {
+            MainActivity.say("B2 ex " + t);
+            Engine.dbg("B2 ex " + t);
+            return graded.getAbsolutePath();
+        }
+    }
+
     /** output-level extras: polaroid frame / 4-film collage dressing on the graded image */
     private static String stamped(java.io.File graded, java.io.File src, String film, Map<String,String> q) {
-        boolean pol = q.get("b") != null, col = q.get("x") != null;
-        if (!pol && !col) return graded.getAbsolutePath();
+        boolean pol = q.get("b") != null, col = q.get("x") != null, b2 = q.get("b2") != null;
+        if (!pol && !col && !b2) return graded.getAbsolutePath();
         try {
+            if (b2) return filmEdge(graded, film);
             if (col) return collage(graded, film);
             android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
             if (bm == null) return graded.getAbsolutePath();
