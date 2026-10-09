@@ -923,12 +923,15 @@ public class Server {
             float rad = W / 70f;
             float gap = W / 69f;
             p.setColor(0xFFE8E4DC);
-            float hTopTop = rb - gap - hh;                        // top strip: holes sit just above the photo
-            float hBotTop = rb + H + gap;                         // bottom strip: holes just below the photo
+            float feather = W / 300f;                             // sprocket edges are softly bled (scanned light spill)
+            p.setMaskFilter(new android.graphics.BlurMaskFilter(feather, android.graphics.BlurMaskFilter.Blur.NORMAL));
+            float inset = feather * 0.4f;                         // keep the perceived hole size after feathering
+            float hTopTop = rb - gap - hh + inset;                // top strip: holes sit just above the photo
+            float hBotTop = rb + H + gap + inset;                 // bottom strip: holes just below the photo
             for (int i = 0; i < 8; i++) {
-                float hx = x0 + i * pitch;
-                cv.drawRoundRect(new android.graphics.RectF(hx, hTopTop, hx + hw, hTopTop + hh), rad, rad, p);
-                cv.drawRoundRect(new android.graphics.RectF(hx, hBotTop, hx + hw, hBotTop + hh), rad, rad, p);
+                float hx = x0 + i * pitch + inset;
+                cv.drawRoundRect(new android.graphics.RectF(hx, hTopTop, hx + hw - inset * 2, hTopTop + hh - inset * 2), rad, rad, p);
+                cv.drawRoundRect(new android.graphics.RectF(hx, hBotTop, hx + hw - inset * 2, hBotTop + hh - inset * 2), rad, rad, p);
             }
             float dataY = hTopTop + hh / 2f;                      // data line weaves between the top holes
             // mirrored gold edge print: stock name (big) + data line (small), both strips
