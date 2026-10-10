@@ -577,7 +577,7 @@ public class Server {
                 double d = Double.parseDouble(ap);
                 out[2] = "F" + (d == Math.rint(d) ? String.valueOf((long) d) : String.valueOf(d));
             } catch (NumberFormatException ig) {}
-            String bv = e.getAttribute("ExposureBias");
+            String bv = e.getAttribute("ExposureBiasValue");
             if (bv != null) try {
                 double d = Double.parseDouble(bv);
                 out[3] = (d > 0 ? "+" : d < 0 ? "-" : "±") + String.format(java.util.Locale.US, "%.1f", Math.abs(d));
@@ -977,15 +977,15 @@ public class Server {
         for (int i = 0; i < code.length; i++) out[i] = (h >> (code.length - 1 - i)) & 1;
         return out;
     }
-    /** 8-bit frame code: d0 = half flag (0=full, 1=back half), d1..d6 = frame number, d7 = even parity of d0..d6 */
+    /** 10-bit frame code: d0 = half flag (0=full, 1=back half), d1..d6 = frame number (LSB-first),
+     *  d7..d9 = 3 check bits = low 3 bits of the sum of d0..d6 (2 more check bits than before) */
     private static int[] frameCode(int n, boolean half) {
-        int[] d = new int[8];
+        int[] d = new int[10];
         d[0] = half ? 1 : 0;
         int f = n & 63;
-        for (int i = 0; i < 6; i++) d[1 + i] = (f >> i) & 1;
-        int par = 0;
-        for (int i = 0; i < 7; i++) par ^= d[i];
-        d[7] = par;
+        int sum = d[0];
+        for (int i = 0; i < 6; i++) { d[1 + i] = (f >> i) & 1; sum += d[1 + i]; }
+        for (int i = 0; i < 3; i++) d[7 + i] = (sum >> i) & 1;
         return d;
     }
     private static int[] of6kCode(int n) {
@@ -1182,10 +1182,10 @@ public class Server {
                 float nameX = (W * 0.92f) / 1.5f;                 // Hx1.5: right edge lands at 0.92W (char width matches the number code)
                 float nameY = (rb - gap - hh - 0.013f * W) / 1.5f; // baseline aligned with the top frame number
                 android.graphics.Paint rim = new android.graphics.Paint(np);   // red-brown rim: same spot, wider blur
-                rim.setColor(0xFFD8301A);
+                rim.setColor(0xFFA8762E);
                 rim.setMaskFilter(new android.graphics.BlurMaskFilter(W / 300f, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 14400f + 0.25f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // soft edge (half radius)
-                np.setColor(0xFFF0961E);                          // orange
+                np.setColor(0xFFE0B454);                          // orange
                 lc.save(); lc.scale(1.5f, 1.5f);                  // uniform 1.5x (char width matches the number code)
                 drawEdge(lc, nm, nameX, nameY, android.graphics.Paint.Align.RIGHT, rim, W / 34f);
                 drawEdge(lc, nm, nameX, nameY, android.graphics.Paint.Align.RIGHT, np, W / 34f);
@@ -1238,10 +1238,10 @@ public class Server {
                 float bTop = holeBot + band * 0.14f, bBot = holeBot + band * 0.94f;
                 float softR = W / 14400f + 0.25f, rimR = W / 300f;
                 android.graphics.Paint rimP = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                rimP.setColor(0xFFD8301A);
+                rimP.setColor(0xFFA8762E);
                 rimP.setMaskFilter(new android.graphics.BlurMaskFilter(rimR, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 android.graphics.Paint bodyP = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                bodyP.setColor(0xFFF0961E);
+                bodyP.setColor(0xFFE0B454);
                 bodyP.setMaskFilter(new android.graphics.BlurMaskFilter(softR, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 float[] zc = {0.3146f * W, 0.8076f * W};
                 float zhw = 0.050f * W;
@@ -1252,19 +1252,19 @@ public class Server {
                 };
                 // left = previous frame (N-1) back half, middle = current frame N, right = current frame back half (N A)
                 int[][] zcodes = { frameCode(N - 1, true), frameCode(N, false), frameCode(N, true) };
-                float bcW = W * 0.30f;                               // FIXED width: all three barcodes identical
+                float bcW = W * 0.24f;                               // FIXED width: all three identical (was 0.30W, now 4/5)
                 float[] bleft = { zc[0] - (zc[1] - zc[0]) + zhw - 12f, zc[0] + zhw - 12f, zc[1] + zhw - 12f };   // all three shifted left 12px
-                int[] ztop = new int[10];                            // top row FIXED: wide + 8 narrow + wide
-                ztop[0] = 1; ztop[9] = 1;
+                int[] ztop = new int[12];                            // top row FIXED: wide + 10 narrow + wide
+                ztop[0] = 1; ztop[11] = 1;
                 float zMid = (bTop + bBot) / 2f;                     // two rows, columns aligned
                 android.graphics.Path zpath = new android.graphics.Path();
                 for (int g = 0; g < 3; g++) {
-                    int[] zbot = new int[10];                        // bottom row = the 8-bit code + wide guards
-                    zbot[0] = 1; zbot[9] = 1;
-                    for (int i = 0; i < 8; i++) zbot[1 + i] = zcodes[g][i];
-                    float cell = bcW / 10f;
+                    int[] zbot = new int[12];                        // bottom row = the 10-bit code + wide guards
+                    zbot[0] = 1; zbot[11] = 1;
+                    for (int i = 0; i < 10; i++) zbot[1 + i] = zcodes[g][i];
+                    float cell = bcW / 12f;
                     float bx0 = bleft[g];
-                    for (int i = 0; i < 10; i++) {
+                    for (int i = 0; i < 12; i++) {
                         float x = bx0 + i * cell;
                         float tw = (ztop[i] == 1 ? cell : cell * 0.5f);   // top row unchanged: wide / narrow
                         zpath.addRect(x, bTop, x + tw, zMid, android.graphics.Path.Direction.CW);
@@ -1280,10 +1280,10 @@ public class Server {
                 nr.setTypeface(Ux.archivo(ctx));
                 nr.setTextSize(0.045f * W);
                 nr.setTextAlign(android.graphics.Paint.Align.CENTER);
-                nr.setColor(0xFFD8301A);
+                nr.setColor(0xFFA8762E);
                 nr.setMaskFilter(new android.graphics.BlurMaskFilter(rimR, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 android.graphics.Paint nb = new android.graphics.Paint(nr);
-                nb.setColor(0xFFF0961E);
+                nb.setColor(0xFFE0B454);
                 nb.setMaskFilter(new android.graphics.BlurMaskFilter(softR, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 float numBase = holeBot + band * 0.72f;
                 String[] labs = {String.valueOf(N), N + "A"};
