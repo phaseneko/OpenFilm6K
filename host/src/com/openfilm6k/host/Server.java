@@ -1140,7 +1140,7 @@ public class Server {
             //      applied to it independently of the photo ----
             android.graphics.Bitmap layer = android.graphics.Bitmap.createBitmap(ob.getWidth(), ob.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
             android.graphics.Canvas lc = new android.graphics.Canvas(layer);
-            lc.translate(rl, 0);
+            lc.translate(2 * rl, 0);
             // ---- edge print part 1: stock name — Helvetica-like (Liberation Sans, OFL), pale
             //      yellow with a soft edge (sprocket-feather radius) and a red-brown rim; ONE copy,
             //      top-right corner of the top rebate ----
@@ -1225,7 +1225,7 @@ public class Server {
                 // left = previous frame (N-1) back half, middle = current frame N, right = current frame back half (N A)
                 int[][] zcodes = { frameCode(N - 1, true), frameCode(N, false), frameCode(N, true) };
                 float bcW = W * 0.30f;                               // FIXED width: all three barcodes identical
-                float[] bleft = { (zc[0] - zhw) - bcW, zc[0] + zhw, zc[1] + zhw };   // left edge = each number right edge
+                float[] bleft = { zc[0] - (zc[1] - zc[0]) + zhw, zc[0] + zhw, zc[1] + zhw };   // left = right edge of the OFF-FRAME previous number (N-1), leaving a gap before N
                 int[] ztop = new int[10];                            // top row FIXED: wide + 8 narrow + wide
                 ztop[0] = 1; ztop[9] = 1;
                 float zMid = (bTop + bBot) / 2f;                     // two rows, columns aligned
@@ -1238,13 +1238,13 @@ public class Server {
                     float bx0 = bleft[g];
                     for (int i = 0; i < 10; i++) {
                         float x = bx0 + i * cell;
-                        float tw = (ztop[i] == 1 ? cell : cell * 0.5f);   // wide / narrow
+                        float tw = (ztop[i] == 1 ? cell : cell * 0.5f);   // top row unchanged: wide / narrow
                         zpath.addRect(x, bTop, x + tw, zMid, android.graphics.Path.Direction.CW);
-                        float bw = (zbot[i] == 1 ? cell : cell * 0.5f);
-                        zpath.addRect(x, zMid, x + bw, bBot, android.graphics.Path.Direction.CW);
+                        float bx = (zbot[i] == 1 ? x + cell * 0.5f : x);  // bottom row: a wide bar becomes [gap + narrow], same width
+                        zpath.addRect(bx, zMid, bx + cell * 0.5f, bBot, android.graphics.Path.Direction.CW);
                     }
                 }
-                lc.save(); lc.clipRect(0, 0, W, ob.getHeight());     // outer barcodes naturally cut by the frame edges
+                lc.save(); lc.clipRect(-2f * rl, 0, W, ob.getHeight());     // let the outer barcodes run off to the frame edges
                 lc.drawPath(zpath, rimP);                            // same rim+soft edge as name/numbers
                 lc.drawPath(zpath, bodyP);                           // (grain applied after, on the layer)
                 lc.restore();
@@ -1269,7 +1269,7 @@ public class Server {
             }
             // ---- GD-200 film grain on the edge-print layer (mono, independent of the photo) ----
             grainLayer(layer, 45.0f, 3.0f);
-            cv.drawBitmap(layer, 0, 0, null);
+            cv.drawBitmap(layer, -rl, 0, null);
             layer.recycle();
 java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
             ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
