@@ -1010,27 +1010,18 @@ public class Server {
                 cv.drawRoundRect(new android.graphics.RectF(hx, hTopTop, hx + hw - inset * 2, hTopTop + hh - inset * 2), rad, rad, p);
                 cv.drawRoundRect(new android.graphics.RectF(hx, hBotTop, hx + hw - inset * 2, hBotTop + hh - inset * 2), rad, rad, p);
             }
-            // ---- edge print part 1: stock name — Helvetica-like (Liberation Sans, OFL), pale
-            //      yellow with a soft edge (sprocket-feather radius) and a red-brown rim; ONE copy,
-            //      top-right corner of the top rebate ----
+            // ---- truncated edge print: the film strip continues past the frame — the big stock
+            //      designation (top) and frame marks (bottom) are CUT by the image edge, colors
+            //      reference-fitted from the scan (gold E1B355 / data orange F09C00) ----
             String nm = (film == null ? "" : film.trim()).toUpperCase(java.util.Locale.US);
-            if (nm.length() > 0) {
-                android.graphics.Paint np = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                np.setTypeface(Ux.liberationBold(ctx));           // bold gothic
-                np.setTextSize(W / 34f);
-                np.setLetterSpacing(0.06f);
-                float nameX = -(W * 0.92f) / 3f;                  // mirrored + Hx3: right edge lands at 0.92W
-                float nameY = (hTopTop - 28f) / 1.5f;             // above ALL holes (Y is scaled by 1.5 under the canvas transform) (Vx1.5 baseline)
-                android.graphics.Paint rim = new android.graphics.Paint(np);   // red-brown rim: same spot, wider blur
-                rim.setColor(0xFF8A4224);
-                rim.setMaskFilter(new android.graphics.BlurMaskFilter(W / 300f, android.graphics.BlurMaskFilter.Blur.NORMAL));
-                np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 3600f + 1f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // soft edge = sprocket feather radius
-                np.setColor(0xFFF0DFA8);                          // pale yellow body
-                cv.save(); cv.scale(-3f, 1.5f);                   // Hx3, Vx1.5
-                cv.drawText(nm, nameX, nameY, rim);
-                cv.drawText(nm, nameX, nameY, np);
-                cv.restore();
-            }
+            android.graphics.Paint big = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            big.setTypeface(Ux.liberation(ctx));
+            big.setColor(0xFFE1B355);
+            big.setTextSize(W * 0.13f);
+            big.setLetterSpacing(0.05f);
+            cv.save(); cv.scale(-1f, 1f);
+            cv.drawText(nm, -(W * 0.94f), W * 0.066f, big);   // top: glyph tops cut by the canvas edge
+            cv.restore();
             // ---- edge print part 2: camera data back — mode / shutter / aperture / EV as separate
             //      dot-matrix tokens in the gaps between the TOP holes, same look as DE/FE stamps ----
             String[] segs = readExposureSegments(src);
@@ -1052,15 +1043,31 @@ public class Server {
                     d = Math.min(d, hh * 1.1f / 7f);
                     // watermark render, scaled to the dot pitch: glow pass (fill+stroke+halo) then dark edge
                     android.graphics.Paint glow = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                    glow.setColor(0xFFFF9500);
+                    glow.setColor(0xFFF09C00);
                     glow.setStyle(android.graphics.Paint.Style.FILL_AND_STROKE);
                     glow.setStrokeWidth(d * 0.10f);
-                    glow.setShadowLayer(d * 1.80f, 0, 0, 0xFFFF3D00);   // bloom radius 2x; brightness 2x via double pass below
+                    glow.setShadowLayer(d * 1.80f, 0, 0, 0xFFE88200);   // bloom radius 2x; brightness 2x via double pass below
                     for (int i = 0; i < toks.size(); i++) {
                         drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh - 3.5f * d, d, glow);   // bottom-aligned to the holes
                         drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh - 3.5f * d, d, glow);   // 2nd pass: glow doubled
                     }
                 }
+            }
+            // bottom strip: frame number + barcode marks, cut by the bottom edge (scan look)
+            android.graphics.Paint mk = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            mk.setTypeface(Ux.liberation(ctx));
+            mk.setColor(0xFFE1B355);
+            mk.setTextSize(W * 0.064f);
+            cv.save(); cv.scale(-1f, 1f);
+            cv.drawText("1", -(W * 0.585f), H + 2 * rb + W * 0.010f, mk);
+            cv.drawText("1A", -(W * 0.815f), H + 2 * rb + W * 0.010f, mk);
+            cv.restore();
+            java.util.Random brnd = new java.util.Random(0x25A25A5AL);
+            float bx = W * 0.63f;
+            while (bx < W * 0.76f) {
+                float bw = W * (0.003f + 0.007f * brnd.nextFloat());
+                cv.drawRect(bx, H + 2 * rb - W * 0.022f, bx + bw, H + 2 * rb + 1, mk);
+                bx += bw + W * 0.005f;
             }
             java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
             ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
