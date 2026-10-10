@@ -56,6 +56,43 @@ public class Exif {
         return null;
     }
 
+    /** ExposureBiasValue (tag 0x9204, SRATIONAL) parsed straight from the APP1 TIFF, or NaN if absent.
+     *  android.media.ExifInterface fails to return this tag for some cameras (e.g. the A6000). */
+    static double exposureBias(byte[] app1) {
+        try {
+            if (app1 == null || app1.length < 12) return Double.NaN;
+            int base = 10;                                   // FFE1(2) + len(2) + "Exif\0\0"(6)
+            boolean le = app1[base] == 'I' && app1[base + 1] == 'I';
+            int ifd0 = (int) (le ? u32le(app1, base + 4) : u32be(app1, base + 4));
+            int exifPtr = findTag(app1, base + ifd0, 0x8769, le);
+            if (exifPtr < 0) return Double.NaN;
+            int ebOff = findTag(app1, base + exifPtr, 0x9204, le);
+            if (ebOff < 0) return Double.NaN;
+            int v = base + ebOff;
+            if (v + 8 > app1.length) return Double.NaN;
+            long num = le ? (int) u32le(app1, v) : (int) u32be(app1, v);
+            long den = le ? (int) u32le(app1, v + 4) : (int) u32be(app1, v + 4);
+            if (den == 0) return Double.NaN;
+            return (double) num / den;
+        } catch (Throwable t) { return Double.NaN; }
+    }
+    /** value/offset field (4 bytes) of `tag` in the IFD at ifdOff, or -1 */
+    private static int findTag(byte[] b, int ifdOff, int tag, boolean le) {
+        if (ifdOff < 0 || ifdOff + 2 > b.length) return -1;
+        int n = le ? u16le(b, ifdOff) : u16be(b, ifdOff);
+        int e = ifdOff + 2;
+        for (int i = 0; i < n; i++, e += 12) {
+            if (e + 12 > b.length) return -1;
+            int tg = le ? u16le(b, e) : u16be(b, e);
+            if (tg == tag) return (int) (le ? u32le(b, e + 8) : u32be(b, e + 8));
+        }
+        return -1;
+    }
+    private static int u16le(byte[] b, int i) { return (b[i] & 0xFF) | ((b[i + 1] & 0xFF) << 8); }
+    private static int u16be(byte[] b, int i) { return ((b[i] & 0xFF) << 8) | (b[i + 1] & 0xFF); }
+    private static long u32le(byte[] b, int i) { return (b[i] & 0xFFL) | ((b[i + 1] & 0xFFL) << 8) | ((b[i + 2] & 0xFFL) << 16) | ((b[i + 3] & 0xFFL) << 24); }
+    private static long u32be(byte[] b, int i) { return ((b[i] & 0xFFL) << 24) | ((b[i + 1] & 0xFFL) << 16) | ((b[i + 2] & 0xFFL) << 8) | (b[i + 3] & 0xFFL); }
+
     /** splice `app1` into `jpg` immediately after SOI; returns null on any problem */
     static byte[] inject(byte[] jpg, byte[] app1) {
         if (jpg == null || app1 == null || app1.length < 8) return null;

@@ -577,11 +577,9 @@ public class Server {
                 double d = Double.parseDouble(ap);
                 out[2] = "F" + (d == Math.rint(d) ? String.valueOf((long) d) : String.valueOf(d));
             } catch (NumberFormatException ig) {}
-            String bv = e.getAttribute("ExposureBiasValue");
-            if (bv != null) try {
-                double d = Double.parseDouble(bv);
-                out[3] = (d > 0 ? "+" : d < 0 ? "-" : "±") + String.format(java.util.Locale.US, "%.1f", Math.abs(d));
-            } catch (NumberFormatException ig) {}
+            double ev = Exif.exposureBias(Exif.app1Of(f));   // manual APP1 parse: ExifInterface misses this tag on some cameras
+            if (!Double.isNaN(ev))
+                out[3] = (ev > 0 ? "+" : ev < 0 ? "-" : "±") + String.format(java.util.Locale.US, "%.1f", Math.abs(ev));
             if (out[3] == null) out[3] = "±0.0";   // data backs always print EV, even at neutral
         } catch (Throwable ig) {}
         return out;
@@ -1075,6 +1073,47 @@ public class Server {
         }
     }
 
+    /** apply a 3D LUT (film's own, LUT node only) to a bitmap, skipping the photo rect;
+     *  alpha-aware: colour is unpremultiplied before lookup and re-premultiplied after */
+    private static void lutRegion(android.graphics.Bitmap bm, CubeLib.Lut lut, int sx0, int sy0, int sx1, int sy1) {
+        int w = bm.getWidth(), h = bm.getHeight();
+        int[] px = new int[w * h];
+        bm.getPixels(px, 0, w, 0, 0, w, h);
+        int n = lut.n, nm1 = n - 1, n2 = n * n;
+        float[] d = lut.data;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if (x >= sx0 && x < sx1 && y >= sy0 && y < sy1) continue;   // leave the graded photo untouched
+                int c = px[y * w + x];
+                int a = (c >>> 24) & 255;
+                if (a == 0) continue;
+                float fr = ((c >> 16) & 255) / 255f, fg = ((c >> 8) & 255) / 255f, fb = (c & 255) / 255f;
+                float ri = fr * nm1, gi = fg * nm1, bi = fb * nm1;
+                int r0 = (int) ri, g0 = (int) gi, b0 = (int) bi;
+                int r1 = Math.min(r0 + 1, nm1), g1 = Math.min(g0 + 1, nm1), b1 = Math.min(b0 + 1, nm1);
+                float rt = ri - r0, gt = gi - g0, bt = bi - b0;
+                int i000 = (b0 * n + g0) * n + r0, i100 = (b0 * n + g0) * n + r1;
+                int i010 = (b0 * n + g1) * n + r0, i110 = (b0 * n + g1) * n + r1;
+                int i001 = (b1 * n + g0) * n + r0, i101 = (b1 * n + g0) * n + r1;
+                int i011 = (b1 * n + g1) * n + r0, i111 = (b1 * n + g1) * n + r1;
+                float[] oc = new float[3];
+                for (int ch = 0; ch < 3; ch++) {
+                    float c00 = d[i000 * 3 + ch] + (d[i100 * 3 + ch] - d[i000 * 3 + ch]) * rt;
+                    float c10 = d[i010 * 3 + ch] + (d[i110 * 3 + ch] - d[i010 * 3 + ch]) * rt;
+                    float c01 = d[i001 * 3 + ch] + (d[i101 * 3 + ch] - d[i001 * 3 + ch]) * rt;
+                    float c11 = d[i011 * 3 + ch] + (d[i111 * 3 + ch] - d[i011 * 3 + ch]) * rt;
+                    float c0 = c00 + (c10 - c00) * gt, c1 = c01 + (c11 - c01) * gt;
+                    oc[ch] = c0 + (c1 - c0) * bt;
+                }
+                int nr = Math.max(0, Math.min(255, Math.round(oc[0] * 255f)));
+                int ng = Math.max(0, Math.min(255, Math.round(oc[1] * 255f)));
+                int nb = Math.max(0, Math.min(255, Math.round(oc[2] * 255f)));
+                px[y * w + x] = (a << 24) | (nr << 16) | (ng << 8) | nb;
+            }
+        }
+        bm.setPixels(px, 0, w, 0, 0, w, h);
+    }
+
     private static String filmEdge(java.io.File graded, java.io.File src, String film) {
         try {
             android.graphics.Bitmap bm0 = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
@@ -1182,10 +1221,10 @@ public class Server {
                 float nameX = (W * 0.92f) / 1.5f;                 // Hx1.5: right edge lands at 0.92W (char width matches the number code)
                 float nameY = (rb - gap - hh - 0.013f * W) / 1.5f; // baseline aligned with the top frame number
                 android.graphics.Paint rim = new android.graphics.Paint(np);   // red-brown rim: same spot, wider blur
-                rim.setColor(0xFFA8762E);
+                rim.setColor(0xFFD8301A);
                 rim.setMaskFilter(new android.graphics.BlurMaskFilter(W / 300f, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 14400f + 0.25f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // soft edge (half radius)
-                np.setColor(0xFFE0B454);                          // orange
+                np.setColor(0xFFF0961E);                          // orange
                 lc.save(); lc.scale(1.5f, 1.5f);                  // uniform 1.5x (char width matches the number code)
                 drawEdge(lc, nm, nameX, nameY, android.graphics.Paint.Align.RIGHT, rim, W / 34f);
                 drawEdge(lc, nm, nameX, nameY, android.graphics.Paint.Align.RIGHT, np, W / 34f);
@@ -1238,10 +1277,10 @@ public class Server {
                 float bTop = holeBot + band * 0.14f, bBot = holeBot + band * 0.94f;
                 float softR = W / 14400f + 0.25f, rimR = W / 300f;
                 android.graphics.Paint rimP = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                rimP.setColor(0xFFA8762E);
+                rimP.setColor(0xFFD8301A);
                 rimP.setMaskFilter(new android.graphics.BlurMaskFilter(rimR, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 android.graphics.Paint bodyP = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                bodyP.setColor(0xFFE0B454);
+                bodyP.setColor(0xFFF0961E);
                 bodyP.setMaskFilter(new android.graphics.BlurMaskFilter(softR, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 float[] zc = {0.3146f * W, 0.8076f * W};
                 float zhw = 0.050f * W;
@@ -1280,10 +1319,10 @@ public class Server {
                 nr.setTypeface(Ux.archivo(ctx));
                 nr.setTextSize(0.045f * W);
                 nr.setTextAlign(android.graphics.Paint.Align.CENTER);
-                nr.setColor(0xFFA8762E);
+                nr.setColor(0xFFD8301A);
                 nr.setMaskFilter(new android.graphics.BlurMaskFilter(rimR, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 android.graphics.Paint nb = new android.graphics.Paint(nr);
-                nb.setColor(0xFFE0B454);
+                nb.setColor(0xFFF0961E);
                 nb.setMaskFilter(new android.graphics.BlurMaskFilter(softR, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 float numBase = holeBot + band * 0.72f;
                 String[] labs = {String.valueOf(N), N + "A"};
@@ -1299,6 +1338,12 @@ public class Server {
             grainLayer(layer, 45.0f, 3.0f);
             cv.drawBitmap(layer, -rl, 0, null);
             layer.recycle();
+            // ---- the whole B2 border takes the film's LUT (LUT node only); the graded photo is left as-is ----
+            try {
+                java.io.File lf = Films.lutFile(film);
+                if (lf != null && lf.getName().endsWith(".cube"))
+                    lutRegion(ob, CubeLib.parseCube(lf), rl, rb, rl + W, rb + H);
+            } catch (Throwable lutEx) { Engine.dbg("B2 lut ex " + lutEx); }
 java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
             ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
             fo.close();
