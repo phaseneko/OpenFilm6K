@@ -957,6 +957,37 @@ public class Server {
      *  reversed when the rebate is scanned emulsion-side up) and a frame mark. The photo/rebate
      *  boundary dissolves with the same wavy soft edge the half-frame mode uses. */
     /** B2 own edge frame code (non-patented): START(1,1,0) then N(6, MSB-first) then even-parity(1) then STOP(0,1,1) */
+    /** keep narrow bars (0) more numerous than wide bars (1); flip all bits if not */
+    private static int[] balance(int[] bits) {
+        int ones = 0;
+        for (int b : bits) ones += b;
+        if (ones * 2 > bits.length) {
+            int[] out = new int[bits.length];
+            for (int i = 0; i < bits.length; i++) out[i] = 1 - bits[i];
+            return out;
+        }
+        return bits;
+    }
+    /** lower barcode half: a 13-bit multiplicative hash of the frame code (same bit count) */
+    private static int[] codeHash(int[] code) {
+        int x = 0;
+        for (int b : code) x = (x << 1) | b;
+        int h = (int) (((x + 1) * 2654435761L) >>> 16);
+        int[] out = new int[code.length];
+        for (int i = 0; i < code.length; i++) out[i] = (h >> (code.length - 1 - i)) & 1;
+        return out;
+    }
+    /** 8-bit frame code: d0 = half flag (0=full, 1=back half), d1..d6 = frame number, d7 = even parity of d0..d6 */
+    private static int[] frameCode(int n, boolean half) {
+        int[] d = new int[8];
+        d[0] = half ? 1 : 0;
+        int f = n & 63;
+        for (int i = 0; i < 6; i++) d[1 + i] = (f >> i) & 1;
+        int par = 0;
+        for (int i = 0; i < 7; i++) par ^= d[i];
+        d[7] = par;
+        return d;
+    }
     private static int[] of6kCode(int n) {
         int[] b = new int[13];
         b[0] = 1; b[1] = 1; b[2] = 0;
@@ -1126,7 +1157,7 @@ public class Server {
                 rim.setColor(0xFFD8301A);
                 rim.setMaskFilter(new android.graphics.BlurMaskFilter(W / 300f, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 14400f + 0.25f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // soft edge (half radius)
-                np.setColor(0xFFE8BA57);                          // reference barcode colour (bright gold)
+                np.setColor(0xFFF0961E);                          // orange
                 lc.save(); lc.scale(1.5f, 1.5f);                  // uniform 1.5x (char width matches the number code)
                 lc.drawText(nm, nameX, nameY, rim);
                 lc.drawText(nm, nameX, nameY, np);
@@ -1182,31 +1213,41 @@ public class Server {
                 rimP.setColor(0xFFD8301A);
                 rimP.setMaskFilter(new android.graphics.BlurMaskFilter(rimR, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 android.graphics.Paint bodyP = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                bodyP.setColor(0xFFE8BA57);
+                bodyP.setColor(0xFFF0961E);
                 bodyP.setMaskFilter(new android.graphics.BlurMaskFilter(softR, android.graphics.BlurMaskFilter.Blur.NORMAL));
-                int[] code = of6kCode(N);
-                float w0 = 1f, w1 = 2.3f, gapU = 1.15f;
-                float u = W / 96f;
                 float[] zc = {0.3146f * W, 0.8076f * W};
                 float zhw = 0.050f * W;
-                float[][] zsegs = {
+                float[][] zgaps = {
                     {W * 0.015f, zc[0] - zhw},
                     {zc[0] + zhw, zc[1] - zhw},
                     {zc[1] + zhw, W * 0.985f}
                 };
-                for (float[] sg : zsegs) {
-                    float x = sg[0];
-                    int ci = 0;
-                    while (true) {
-                        int bit = code[(ci++) % code.length];
-                        float bw = (bit == 1 ? w1 : w0) * u;
-                        if (x + bw > sg[1]) break;
-                        android.graphics.RectF rr = new android.graphics.RectF(x, bTop, x + bw, bBot);
-                        lc.drawRect(rr, rimP);
-                        lc.drawRect(rr, bodyP);
-                        x += bw + gapU * u;
+                // left = previous frame (N-1) back half, middle = current frame N, right = current frame back half (N A)
+                int[][] zcodes = { frameCode(N - 1, true), frameCode(N, false), frameCode(N, true) };
+                float bcW = W * 0.30f;                               // FIXED width: all three barcodes identical
+                float[] bleft = { (zc[0] - zhw) - bcW, zc[0] + zhw, zc[1] + zhw };   // left edge = each number right edge
+                int[] ztop = new int[10];                            // top row FIXED: wide + 8 narrow + wide
+                ztop[0] = 1; ztop[9] = 1;
+                float zMid = (bTop + bBot) / 2f;                     // two rows, columns aligned
+                android.graphics.Path zpath = new android.graphics.Path();
+                for (int g = 0; g < 3; g++) {
+                    int[] zbot = new int[10];                        // bottom row = the 8-bit code + wide guards
+                    zbot[0] = 1; zbot[9] = 1;
+                    for (int i = 0; i < 8; i++) zbot[1 + i] = zcodes[g][i];
+                    float cell = bcW / 10f;
+                    float bx0 = bleft[g];
+                    for (int i = 0; i < 10; i++) {
+                        float x = bx0 + i * cell;
+                        float tw = (ztop[i] == 1 ? cell : cell * 0.5f);   // wide / narrow
+                        zpath.addRect(x, bTop, x + tw, zMid, android.graphics.Path.Direction.CW);
+                        float bw = (zbot[i] == 1 ? cell : cell * 0.5f);
+                        zpath.addRect(x, zMid, x + bw, bBot, android.graphics.Path.Direction.CW);
                     }
                 }
+                lc.save(); lc.clipRect(0, 0, W, ob.getHeight());     // outer barcodes naturally cut by the frame edges
+                lc.drawPath(zpath, rimP);                            // same rim+soft edge as name/numbers
+                lc.drawPath(zpath, bodyP);                           // (grain applied after, on the layer)
+                lc.restore();
                 android.graphics.Paint nr = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
                 nr.setTypeface(Ux.liberationBold(ctx));
                 nr.setTextSize(0.045f * W);
@@ -1214,7 +1255,7 @@ public class Server {
                 nr.setColor(0xFFD8301A);
                 nr.setMaskFilter(new android.graphics.BlurMaskFilter(rimR, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 android.graphics.Paint nb = new android.graphics.Paint(nr);
-                nb.setColor(0xFFE8BA57);
+                nb.setColor(0xFFF0961E);
                 nb.setMaskFilter(new android.graphics.BlurMaskFilter(softR, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 float numBase = holeBot + band * 0.72f;
                 String[] labs = {String.valueOf(N), N + "A"};
