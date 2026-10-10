@@ -1025,7 +1025,7 @@ public class Server {
                 rim.setColor(0xFF8A4224);
                 rim.setMaskFilter(new android.graphics.BlurMaskFilter(W / 300f, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 3600f + 1f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // soft edge = sprocket feather radius
-                np.setColor(0xFFF0DFA8);                          // pale yellow body
+                np.setColor(0xFFC6AD84);                          // reference-fitted warm champagne (XHS note top-right name)
                 cv.save(); cv.scale(-3f, 1.5f);                   // Hx3, Vx1.5
                 cv.drawText(nm, nameX, nameY, rim);
                 cv.drawText(nm, nameX, nameY, np);
