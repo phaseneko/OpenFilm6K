@@ -1020,7 +1020,7 @@ public class Server {
                 np.setTextSize(W / 34f);
                 np.setLetterSpacing(0.06f);
                 float nameX = -(W * 0.92f) / 3f;                  // mirrored + Hx3: right edge lands at 0.92W
-                float nameY = hTopTop - W / 120f;                 // above the top hole band (Vx1.5 baseline)
+                float nameY = (hTopTop - 28f) / 1.5f;             // above ALL holes (Y is scaled by 1.5 under the canvas transform) (Vx1.5 baseline)
                 android.graphics.Paint rim = new android.graphics.Paint(np);   // red-brown rim: same spot, wider blur
                 rim.setColor(0xFF8A4224);
                 rim.setMaskFilter(new android.graphics.BlurMaskFilter(W / 300f, android.graphics.BlurMaskFilter.Blur.NORMAL));
