@@ -816,8 +816,8 @@ public class Server {
             String name = src.getName();
             String base = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
             if (mode == 4) q.put("b", "1");                       // B1: polaroid frame
-            else if (mode == 10) q.put("b2", "1");                // B2: film edge, sprockets + stock name
-            else if (mode == 5) q.put("x", "1");                  // 4-film collage
+            else if (mode == 5) q.put("b2", "1");                 // B2: film edge, sprockets + stock name (right after B1)
+            else if (mode == 10) q.put("x", "1");                 // 4-film collage
             else {
                 String bl = null, br = null;
                 if (mode == 1) bl = "@DATE";                      // exifDate() resolves, mtime fallback
@@ -1046,6 +1046,35 @@ public class Server {
         layer.setPixels(px, 0, w, 0, 0, w, h);
     }
 
+    private static boolean isCjk(char ch) { return ch >= 0x2E80 && ch <= 0x9FFF; }
+
+    /** film-edge text with per-character fonts: Archivo Black for Latin, WenQuanYi Zen Hei for CJK
+     *  (CJK scaled 0.726x so its glyph height matches Archivo's cap height) */
+    private static void drawEdge(android.graphics.Canvas c, String s, float x, float baseY,
+                                 android.graphics.Paint.Align al, android.graphics.Paint p, float size) {
+        float cjkSize = size * 0.85f;                  // CJK scaled toward Archivo's cap height
+        p.setTextAlign(android.graphics.Paint.Align.LEFT);
+        float total = 0;
+        for (int i = 0; i < s.length(); i++) {
+            boolean cj = isCjk(s.charAt(i));
+            p.setTypeface(cj ? Ux.wqyZen(ctx) : Ux.archivo(ctx));
+            p.setTextSize(cj ? cjkSize : size);
+            p.setFakeBoldText(cj);                     // CJK bold
+            total += p.measureText(s, i, i + 1);
+        }
+        float sx = x;
+        if (al == android.graphics.Paint.Align.CENTER) sx = x - total / 2f;
+        else if (al == android.graphics.Paint.Align.RIGHT) sx = x - total;
+        for (int i = 0; i < s.length(); i++) {
+            boolean cj = isCjk(s.charAt(i));
+            p.setTypeface(cj ? Ux.wqyZen(ctx) : Ux.archivo(ctx));
+            p.setTextSize(cj ? cjkSize : size);
+            p.setFakeBoldText(cj);
+            c.drawText(s, i, i + 1, sx, baseY, p);
+            sx += p.measureText(s, i, i + 1);
+        }
+    }
+
     private static String filmEdge(java.io.File graded, java.io.File src, String film) {
         try {
             android.graphics.Bitmap bm0 = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
@@ -1108,7 +1137,7 @@ public class Server {
             float x0 = (W - (pitch * 7 + hw)) / 2f;
             float rad = W / 70f;
             float gap = W / 69f;
-            float feather = W / 2400f + 1f;                       // sprocket edges softly bled (user-tuned: +1px)
+            float feather = W / 2400f + 3f;                       // sprocket soft edge back to the original radius (half of the 2x)
             float inset = feather * 0.4f;                         // keep the perceived hole size after feathering
             float hTopTop = rb - gap - hh + inset;                // top strip: holes sit just above the photo
             float hBotTop = rb + H + gap + inset;                 // bottom strip: holes just below the photo
@@ -1128,13 +1157,15 @@ public class Server {
                 cv.drawRoundRect(new android.graphics.RectF(hx, hBotTop, hx + hw - inset * 2, hBotTop + hh - inset * 2), rad, rad, p);
             }
             android.graphics.Paint oh = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);   // 1px AA black outline on the hole edge
-            oh.setColor(0xFF000000);
+            oh.setColor(0x80000000);                              // 50% opacity
             oh.setStyle(android.graphics.Paint.Style.STROKE);
             oh.setStrokeWidth(1f);
+            float ohX = 4f;                                       // outline offset outward 4px (line width unchanged)
+            float ohDX = 0f, ohDY = 0f;                           // outline centered on the hole edge (no offset)
             for (int i = 0; i < 8; i++) {
                 float hx = x0 + i * pitch + inset;
-                cv.drawRoundRect(new android.graphics.RectF(hx, hTopTop, hx + hw - inset * 2, hTopTop + hh - inset * 2), rad, rad, oh);
-                cv.drawRoundRect(new android.graphics.RectF(hx, hBotTop, hx + hw - inset * 2, hBotTop + hh - inset * 2), rad, rad, oh);
+                cv.drawRoundRect(new android.graphics.RectF(hx - ohX + ohDX, hTopTop - ohX + ohDY, hx + hw - inset * 2 + ohX + ohDX, hTopTop + hh - inset * 2 + ohX + ohDY), rad, rad, oh);
+                cv.drawRoundRect(new android.graphics.RectF(hx - ohX + ohDX, hBotTop - ohX + ohDY, hx + hw - inset * 2 + ohX + ohDX, hBotTop + hh - inset * 2 + ohX + ohDY), rad, rad, oh);
             }
             // ---- edge-print layer (name + code numbers + barcode) so GD-200 film grain can be
             //      applied to it independently of the photo ----
@@ -1147,20 +1178,17 @@ public class Server {
             String nm = (film == null ? "" : film.trim()).toUpperCase(java.util.Locale.US);
             if (nm.length() > 0) {
                 android.graphics.Paint np = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                np.setTypeface(Ux.liberationBold(ctx));           // bold gothic
-                np.setTextSize(W / 34f);
                 np.setLetterSpacing(0.06f);
-                np.setTextAlign(android.graphics.Paint.Align.RIGHT);
                 float nameX = (W * 0.92f) / 1.5f;                 // Hx1.5: right edge lands at 0.92W (char width matches the number code)
-                float nameY = (hTopTop - 28f) / 1.5f;             // above ALL holes (Y is scaled by 1.5 under the canvas transform) (Vx1.5 baseline)
+                float nameY = (rb - gap - hh - 0.013f * W) / 1.5f; // baseline aligned with the top frame number
                 android.graphics.Paint rim = new android.graphics.Paint(np);   // red-brown rim: same spot, wider blur
                 rim.setColor(0xFFD8301A);
                 rim.setMaskFilter(new android.graphics.BlurMaskFilter(W / 300f, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 14400f + 0.25f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // soft edge (half radius)
                 np.setColor(0xFFF0961E);                          // orange
                 lc.save(); lc.scale(1.5f, 1.5f);                  // uniform 1.5x (char width matches the number code)
-                lc.drawText(nm, nameX, nameY, rim);
-                lc.drawText(nm, nameX, nameY, np);
+                drawEdge(lc, nm, nameX, nameY, android.graphics.Paint.Align.RIGHT, rim, W / 34f);
+                drawEdge(lc, nm, nameX, nameY, android.graphics.Paint.Align.RIGHT, np, W / 34f);
                 lc.restore();
             }
             // ---- edge print part 2: camera data back — mode / shutter / aperture / EV as separate
@@ -1225,7 +1253,7 @@ public class Server {
                 // left = previous frame (N-1) back half, middle = current frame N, right = current frame back half (N A)
                 int[][] zcodes = { frameCode(N - 1, true), frameCode(N, false), frameCode(N, true) };
                 float bcW = W * 0.30f;                               // FIXED width: all three barcodes identical
-                float[] bleft = { zc[0] - (zc[1] - zc[0]) + zhw, zc[0] + zhw, zc[1] + zhw };   // left = right edge of the OFF-FRAME previous number (N-1), leaving a gap before N
+                float[] bleft = { zc[0] - (zc[1] - zc[0]) + zhw - 12f, zc[0] + zhw - 12f, zc[1] + zhw - 12f };   // all three shifted left 12px
                 int[] ztop = new int[10];                            // top row FIXED: wide + 8 narrow + wide
                 ztop[0] = 1; ztop[9] = 1;
                 float zMid = (bTop + bBot) / 2f;                     // two rows, columns aligned
@@ -1249,7 +1277,7 @@ public class Server {
                 lc.drawPath(zpath, bodyP);                           // (grain applied after, on the layer)
                 lc.restore();
                 android.graphics.Paint nr = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-                nr.setTypeface(Ux.liberationBold(ctx));
+                nr.setTypeface(Ux.archivo(ctx));
                 nr.setTextSize(0.045f * W);
                 nr.setTextAlign(android.graphics.Paint.Align.CENTER);
                 nr.setColor(0xFFD8301A);
@@ -1260,12 +1288,12 @@ public class Server {
                 float numBase = holeBot + band * 0.72f;
                 String[] labs = {String.valueOf(N), N + "A"};
                 for (int s2 = 0; s2 < 2; s2++) {
-                    lc.drawText(labs[s2], zc[s2], numBase, nr);
-                    lc.drawText(labs[s2], zc[s2], numBase, nb);
+                    drawEdge(lc, labs[s2], zc[s2], numBase, android.graphics.Paint.Align.CENTER, nr, 0.045f * W);
+                    drawEdge(lc, labs[s2], zc[s2], numBase, android.graphics.Paint.Align.CENTER, nb, 0.045f * W);
                 }
                 float holeTop = rb - gap - hh;
-                lc.drawText(String.valueOf(N), 0.3299f * W, holeTop - 0.013f * W, nr);
-                lc.drawText(String.valueOf(N), 0.3299f * W, holeTop - 0.013f * W, nb);
+                drawEdge(lc, String.valueOf(N), 0.3299f * W, holeTop - 0.013f * W, android.graphics.Paint.Align.CENTER, nr, 0.045f * W);
+                drawEdge(lc, String.valueOf(N), 0.3299f * W, holeTop - 0.013f * W, android.graphics.Paint.Align.CENTER, nb, 0.045f * W);
             }
             // ---- GD-200 film grain on the edge-print layer (mono, independent of the photo) ----
             grainLayer(layer, 45.0f, 3.0f);

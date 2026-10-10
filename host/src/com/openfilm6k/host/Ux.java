@@ -120,6 +120,54 @@ public class Ux {
         return libBoldTf;
     }
 
+    private static android.graphics.Typeface archivoTf;
+    /** Archivo Black (OFL, res/raw): heavy display face for the B2 film-edge print (Latin) */
+    static android.graphics.Typeface archivo(android.content.Context c) {
+        if (archivoTf == null) archivoTf = loadFont(c, "archivoblack.ttf", R.raw.archivoblack, android.graphics.Typeface.SANS_SERIF, "archivo");
+        return archivoTf;
+    }
+
+    private static android.graphics.Typeface wqyTf;
+    /** WenQuanYi Zen Hei (res/raw, .ttc): CJK companion for the B2 film-edge print */
+    static android.graphics.Typeface wqyZen(android.content.Context c) {
+        if (wqyTf == null) wqyTf = loadFont(c, "wqyzenhei.ttc", R.raw.wqyzenhei, android.graphics.Typeface.SANS_SERIF, "wqyzen");
+        return wqyTf;
+    }
+
+    /** edge-print face: WenQuanYi Zen Hei when the string contains CJK, else Archivo Black */
+    static android.graphics.Typeface edgeFace(android.content.Context c, String s) {
+        return hasCjk(s) ? wqyZen(c) : archivo(c);
+    }
+
+    private static boolean hasCjk(String s) {
+        if (s == null) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch >= 0x2E80 && ch <= 0x9FFF) return true;   // CJK radicals .. unified ideographs
+        }
+        return false;
+    }
+
+    /** copy a res/raw ttf/ttc into the cache and build a Typeface (fallback on failure) */
+    private static android.graphics.Typeface loadFont(android.content.Context c, String name, int res, android.graphics.Typeface fb, String tag) {
+        try {
+            java.io.File f = new java.io.File(c.getCacheDir(), name);
+            if (!f.exists() || f.length() == 0) {
+                java.io.InputStream in = c.getResources().openRawResource(res);
+                java.io.FileOutputStream fo = new java.io.FileOutputStream(f);
+                byte[] buf = new byte[8192]; int n;
+                while ((n = in.read(buf)) > 0) fo.write(buf, 0, n);
+                fo.close(); in.close();
+            }
+            android.graphics.Typeface tf = android.graphics.Typeface.createFromFile(f);
+            android.util.Log.i("of6kUI", tag + " font loaded, size=" + f.length());
+            return tf;
+        } catch (Throwable t) {
+            android.util.Log.e("of6kUI", tag + " font failed", t);
+            return fb;
+        }
+    }
+
     private static android.graphics.Typeface seg14iTf;
     /** fourteen-segment italic (DSEG14 Italic) for watermarks */
     static android.graphics.Typeface seg14it(android.content.Context c) {
