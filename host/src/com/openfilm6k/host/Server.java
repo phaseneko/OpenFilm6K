@@ -969,18 +969,82 @@ public class Server {
         return b;
     }
 
+    private static float fractN(float v) { return v - (float) Math.floor(v); }
+    private static float mixN(float a, float b, float t) { return a + (b - a) * t; }
+    private static float hashN(float px, float py, float seed) {
+        float a = fractN(px * 0.1031f + seed * 0.317f);
+        float b = fractN(py * 0.1031f + seed * 0.317f);
+        float c = fractN(px * 0.1031f + seed * 0.317f);
+        float d = a * (b + 33.33f) + b * (c + 33.33f) + c * (a + 33.33f);
+        a += d; b += d; c += d;
+        return fractN((a + b) * c);
+    }
+    private static float vnN(float px, float py, float seed) {
+        float ix = (float) Math.floor(px), iy = (float) Math.floor(py);
+        float fx = px - ix, fy = py - iy;
+        fx = fx * fx * fx * (fx * (fx * 6f - 15f) + 10f);
+        fy = fy * fy * fy * (fy * (fy * 6f - 15f) + 10f);
+        return mixN(mixN(hashN(ix, iy, seed), hashN(ix + 1, iy, seed), fx),
+                    mixN(hashN(ix, iy + 1, seed), hashN(ix + 1, iy + 1, seed), fx), fy);
+    }
+    private static float gnN(float px, float py, float seed) {
+        float rx = 0.891f * px + 0.454f * py, ry = -0.454f * px + 0.891f * py;
+        return 0.5f * vnN(px, py, seed) + 0.5f * vnN(rx + 31.7f, ry + 11.3f, seed);
+    }
+    private static float clamp01(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }
+    /** GD-200-style film grain (mono value-noise fBm) applied to an ARGB layer; size scales with height */
+    private static void grainLayer(android.graphics.Bitmap layer, float amount, float size) {
+        int w = layer.getWidth(), h = layer.getHeight();
+        int[] px = new int[w * h];
+        layer.getPixels(px, 0, w, 0, 0, w, h);
+        float usize = Math.max(size * (h / 4000f), 1f);
+        for (int y = 0; y < h; y++) {
+            float gy = y / usize;
+            for (int x = 0; x < w; x++) {
+                int i = y * w + x, p = px[i];
+                if (((p >>> 24) & 0xff) == 0) continue;
+                float r = ((p >> 16) & 0xff) / 255f, g = ((p >> 8) & 0xff) / 255f, b = (p & 0xff) / 255f;
+                float gx = x / usize;
+                float n1 = gnN(gx, gy, 1f), n2 = gnN(gx + 37.7f, gy + 17.3f, 1f), n3 = gnN(gx + 11.7f, gy + 73.9f, 1f);
+                float lum = 0.299f * r + 0.587f * g + 0.114f * b;
+                float nv = ((n1 + n2 + n3) / 3f - 0.5f) * (amount / 50f) * (1f - Math.abs(lum - 0.5f) * 1.2f) * 0.35f;
+                r = clamp01(r + nv); g = clamp01(g + nv); b = clamp01(b + nv);
+                px[i] = (p & 0xFF000000) | (Math.round(r * 255f) << 16) | (Math.round(g * 255f) << 8) | Math.round(b * 255f);
+            }
+        }
+        layer.setPixels(px, 0, w, 0, 0, w, h);
+    }
+
     private static String filmEdge(java.io.File graded, java.io.File src, String film) {
         try {
-            android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
-            if (bm == null) return graded.getAbsolutePath();
-            if (!bm.isMutable()) bm = bm.copy(android.graphics.Bitmap.Config.ARGB_8888, true);
+            android.graphics.Bitmap bm0 = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
+            if (bm0 == null) return graded.getAbsolutePath();
+            // portrait shots: rotate 90 deg CW first, so the frame ends up landscape
+            if (bm0.getHeight() > bm0.getWidth()) {
+                android.graphics.Matrix rm = new android.graphics.Matrix();
+                rm.postRotate(90f);
+                android.graphics.Bitmap rot = android.graphics.Bitmap.createBitmap(bm0, 0, 0, bm0.getWidth(), bm0.getHeight(), rm, true);
+                bm0.recycle();
+                bm0 = rot;
+            }
+            // crop to the 135 frame ratio (36:24 = 3:2 landscape), centred
+            int fw0 = bm0.getWidth(), fh0 = bm0.getHeight();
+            float target = 1.5f;
+            int cw, ch;
+            if (fw0 > fh0 * target) { ch = fh0; cw = Math.round(fh0 * target); }
+            else { cw = fw0; ch = Math.round(fw0 / target); }
+            android.graphics.Bitmap bm = (cw == fw0 && ch == fh0) ? bm0
+                : android.graphics.Bitmap.createBitmap(bm0, (fw0 - cw) / 2, (fh0 - ch) / 2, cw, ch);
             int W = bm.getWidth(), H = bm.getHeight();
-            int rb = Math.round(W * 0.16f);   // rebate geometry scales with the FILM WIDTH (35mm: 8 perf per frame width), not the frame aspect
-            android.graphics.Bitmap ob = android.graphics.Bitmap.createBitmap(W, H + rb * 2, android.graphics.Bitmap.Config.ARGB_8888);
+            int rb = Math.round(W * 0.16f);   // rebate geometry scales with the FILM WIDTH (35mm), not the frame aspect
+            int rl = Math.round(W * 0.05f);   // black frame-line border on the left and right
+            android.graphics.Bitmap ob = android.graphics.Bitmap.createBitmap(W + rl * 2, H + rb * 2, android.graphics.Bitmap.Config.ARGB_8888);
             android.graphics.Canvas cv = new android.graphics.Canvas(ob);
             cv.drawColor(0xFF000000);                             // film rebate: near-black
+            cv.translate(rl, 0);                                  // inset the frame; left/right black margins stay black
             cv.drawBitmap(bm, 0, rb, null);
-            bm.recycle();
+            if (bm != bm0) bm.recycle();
+            bm0.recycle();
             // soft dissolve across both photo boundaries (wavy, like a real scan's frame edge)
             int mn = Math.min(W, H);
             int amp = Math.max(2, Math.round(mn / 750f));    // B2: amplitude 1/5 of the half-frame edge
@@ -996,6 +1060,15 @@ public class Server {
                 sp.setShader(new android.graphics.LinearGradient(0, b, 0, b - fade, 0xFF000000, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
                 cv.drawRect(x, b - fade, Math.min(W, x + 2), b + fade, sp);
             }
+            float[] wv = wavh5(H, amp, 0x0F6A1E5AL);              // left/right edges: SAME amp/fade/seed
+            for (int y = 0; y < H; y += 2) {
+                float lf = wv[y];
+                sp.setShader(new android.graphics.LinearGradient(lf, 0, lf + fade, 0, 0xFF000000, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
+                cv.drawRect(lf - fade, rb + y, lf + fade, rb + Math.min(H, y + 2), sp);
+                float rg = W + wv[y];
+                sp.setShader(new android.graphics.LinearGradient(rg, 0, rg - fade, 0, 0xFF000000, 0x00000000, android.graphics.Shader.TileMode.CLAMP));
+                cv.drawRect(rg - fade, rb + y, rg + fade, rb + Math.min(H, y + 2), sp);
+            }
             // sprocket holes: 8 per film width; holes HUG the photo edge (tiny gap, as scanned) —
             // reference-measured: hole W/18.8 x W/13.46, pitch W/8, corner r ~W/70, gap W/69
             android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
@@ -1004,7 +1077,7 @@ public class Server {
             float x0 = (W - (pitch * 7 + hw)) / 2f;
             float rad = W / 70f;
             float gap = W / 69f;
-            float feather = W / 7200f + 0.5f;                       // sprocket edges softly bled (user-tuned: +1px)
+            float feather = W / 2400f + 1f;                       // sprocket edges softly bled (user-tuned: +1px)
             float inset = feather * 0.4f;                         // keep the perceived hole size after feathering
             float hTopTop = rb - gap - hh + inset;                // top strip: holes sit just above the photo
             float hBotTop = rb + H + gap + inset;                 // bottom strip: holes just below the photo
@@ -1023,6 +1096,20 @@ public class Server {
                 cv.drawRoundRect(new android.graphics.RectF(hx, hTopTop, hx + hw - inset * 2, hTopTop + hh - inset * 2), rad, rad, p);
                 cv.drawRoundRect(new android.graphics.RectF(hx, hBotTop, hx + hw - inset * 2, hBotTop + hh - inset * 2), rad, rad, p);
             }
+            android.graphics.Paint oh = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);   // 1px AA black outline on the hole edge
+            oh.setColor(0xFF000000);
+            oh.setStyle(android.graphics.Paint.Style.STROKE);
+            oh.setStrokeWidth(1f);
+            for (int i = 0; i < 8; i++) {
+                float hx = x0 + i * pitch + inset;
+                cv.drawRoundRect(new android.graphics.RectF(hx, hTopTop, hx + hw - inset * 2, hTopTop + hh - inset * 2), rad, rad, oh);
+                cv.drawRoundRect(new android.graphics.RectF(hx, hBotTop, hx + hw - inset * 2, hBotTop + hh - inset * 2), rad, rad, oh);
+            }
+            // ---- edge-print layer (name + code numbers + barcode) so GD-200 film grain can be
+            //      applied to it independently of the photo ----
+            android.graphics.Bitmap layer = android.graphics.Bitmap.createBitmap(ob.getWidth(), ob.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas lc = new android.graphics.Canvas(layer);
+            lc.translate(rl, 0);
             // ---- edge print part 1: stock name — Helvetica-like (Liberation Sans, OFL), pale
             //      yellow with a soft edge (sprocket-feather radius) and a red-brown rim; ONE copy,
             //      top-right corner of the top rebate ----
@@ -1040,10 +1127,10 @@ public class Server {
                 rim.setMaskFilter(new android.graphics.BlurMaskFilter(W / 300f, android.graphics.BlurMaskFilter.Blur.NORMAL));
                 np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 14400f + 0.25f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // soft edge (half radius)
                 np.setColor(0xFFE8BA57);                          // reference barcode colour (bright gold)
-                cv.save(); cv.scale(1.5f, 1.5f);                  // uniform 1.5x (char width matches the number code)
-                cv.drawText(nm, nameX, nameY, rim);
-                cv.drawText(nm, nameX, nameY, np);
-                cv.restore();
+                lc.save(); lc.scale(1.5f, 1.5f);                  // uniform 1.5x (char width matches the number code)
+                lc.drawText(nm, nameX, nameY, rim);
+                lc.drawText(nm, nameX, nameY, np);
+                lc.restore();
             }
             // ---- edge print part 2: camera data back — mode / shutter / aperture / EV as separate
             //      dot-matrix tokens in the gaps between the TOP holes, same look as DE/FE stamps ----
@@ -1115,8 +1202,8 @@ public class Server {
                         float bw = (bit == 1 ? w1 : w0) * u;
                         if (x + bw > sg[1]) break;
                         android.graphics.RectF rr = new android.graphics.RectF(x, bTop, x + bw, bBot);
-                        cv.drawRect(rr, rimP);
-                        cv.drawRect(rr, bodyP);
+                        lc.drawRect(rr, rimP);
+                        lc.drawRect(rr, bodyP);
                         x += bw + gapU * u;
                     }
                 }
@@ -1132,13 +1219,17 @@ public class Server {
                 float numBase = holeBot + band * 0.72f;
                 String[] labs = {String.valueOf(N), N + "A"};
                 for (int s2 = 0; s2 < 2; s2++) {
-                    cv.drawText(labs[s2], zc[s2], numBase, nr);
-                    cv.drawText(labs[s2], zc[s2], numBase, nb);
+                    lc.drawText(labs[s2], zc[s2], numBase, nr);
+                    lc.drawText(labs[s2], zc[s2], numBase, nb);
                 }
                 float holeTop = rb - gap - hh;
-                cv.drawText(String.valueOf(N), 0.3299f * W, holeTop - 0.013f * W, nr);
-                cv.drawText(String.valueOf(N), 0.3299f * W, holeTop - 0.013f * W, nb);
+                lc.drawText(String.valueOf(N), 0.3299f * W, holeTop - 0.013f * W, nr);
+                lc.drawText(String.valueOf(N), 0.3299f * W, holeTop - 0.013f * W, nb);
             }
+            // ---- GD-200 film grain on the edge-print layer (mono, independent of the photo) ----
+            grainLayer(layer, 45.0f, 3.0f);
+            cv.drawBitmap(layer, 0, 0, null);
+            layer.recycle();
 java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
             ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
             fo.close();
