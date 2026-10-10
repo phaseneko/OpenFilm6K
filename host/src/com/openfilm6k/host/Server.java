@@ -956,6 +956,19 @@ public class Server {
      *  proportions), mirrored gold edge print (stock name + shooting data line; edge marks read
      *  reversed when the rebate is scanned emulsion-side up) and a frame mark. The photo/rebate
      *  boundary dissolves with the same wavy soft edge the half-frame mode uses. */
+    /** B2 own edge frame code (non-patented): START(1,1,0) then N(6, MSB-first) then even-parity(1) then STOP(0,1,1) */
+    private static int[] of6kCode(int n) {
+        int[] b = new int[13];
+        b[0] = 1; b[1] = 1; b[2] = 0;
+        int v = n & 63;
+        for (int i = 0; i < 6; i++) b[3 + i] = (v >> (5 - i)) & 1;
+        int par = 0;
+        for (int i = 0; i < 6; i++) par ^= (v >> i) & 1;
+        b[9] = par;
+        b[10] = 0; b[11] = 1; b[12] = 1;
+        return b;
+    }
+
     private static String filmEdge(java.io.File graded, java.io.File src, String film) {
         try {
             android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
@@ -991,7 +1004,7 @@ public class Server {
             float x0 = (W - (pitch * 7 + hw)) / 2f;
             float rad = W / 70f;
             float gap = W / 69f;
-            float feather = W / 3600f + 1f;                       // sprocket edges softly bled (user-tuned: +1px)
+            float feather = W / 7200f + 0.5f;                       // sprocket edges softly bled (user-tuned: +1px)
             float inset = feather * 0.4f;                         // keep the perceived hole size after feathering
             float hTopTop = rb - gap - hh + inset;                // top strip: holes sit just above the photo
             float hBotTop = rb + H + gap + inset;                 // bottom strip: holes just below the photo
@@ -1019,14 +1032,15 @@ public class Server {
                 np.setTypeface(Ux.liberationBold(ctx));           // bold gothic
                 np.setTextSize(W / 34f);
                 np.setLetterSpacing(0.06f);
-                float nameX = -(W * 0.92f) / 3f;                  // mirrored + Hx3: right edge lands at 0.92W
+                np.setTextAlign(android.graphics.Paint.Align.RIGHT);
+                float nameX = (W * 0.92f) / 1.5f;                 // Hx1.5: right edge lands at 0.92W (char width matches the number code)
                 float nameY = (hTopTop - 28f) / 1.5f;             // above ALL holes (Y is scaled by 1.5 under the canvas transform) (Vx1.5 baseline)
                 android.graphics.Paint rim = new android.graphics.Paint(np);   // red-brown rim: same spot, wider blur
-                rim.setColor(0xFF8A4224);
+                rim.setColor(0xFFD8301A);
                 rim.setMaskFilter(new android.graphics.BlurMaskFilter(W / 300f, android.graphics.BlurMaskFilter.Blur.NORMAL));
-                np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 3600f + 1f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // soft edge = sprocket feather radius
-                np.setColor(0xFFC6AD84);                          // reference-fitted warm champagne (XHS note top-right name)
-                cv.save(); cv.scale(-3f, 1.5f);                   // Hx3, Vx1.5
+                np.setMaskFilter(new android.graphics.BlurMaskFilter(W / 14400f + 0.25f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // soft edge (half radius)
+                np.setColor(0xFFE8BA57);                          // reference barcode colour (bright gold)
+                cv.save(); cv.scale(1.5f, 1.5f);                  // uniform 1.5x (char width matches the number code)
                 cv.drawText(nm, nameX, nameY, rim);
                 cv.drawText(nm, nameX, nameY, np);
                 cv.restore();
@@ -1055,6 +1069,7 @@ public class Server {
                     glow.setColor(0xFFFF9500);
                     glow.setStyle(android.graphics.Paint.Style.FILL_AND_STROKE);
                     glow.setStrokeWidth(d * 0.10f);
+                    glow.setMaskFilter(new android.graphics.BlurMaskFilter(d * 0.40f, android.graphics.BlurMaskFilter.Blur.NORMAL));   // softer dot edges
                     glow.setShadowLayer(d * 1.80f, 0, 0, 0xFFFF3D00);   // bloom radius 2x; brightness 2x via double pass below
                     for (int i = 0; i < toks.size(); i++) {
                         drawDotToken(cv, toks.get(i), cs.get(i), hTopTop + hh - 3.5f * d, d, glow);   // bottom-aligned to the holes
@@ -1062,7 +1077,69 @@ public class Server {
                     }
                 }
             }
-            java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
+            // ---- edge print part 3: bottom edge frame code (our OWN bar-width code) + frame number,
+            //      and the matching full-frame number on the top edge. Counter increments once per photo
+            //      and wraps 1..36. Code = START(110), N(6), even-parity(1), STOP(011); bit 0 = narrow
+            //      bar, bit 1 = wide bar; bars fill the bottom rebate with the two frame numbers in
+            //      carved gaps. All carry the stock-name edge effect (red-brown rim + soft edge, half radius) ----
+            {
+                android.content.SharedPreferences pf = ctx.getSharedPreferences("of6k_b2", 0);
+                int N = pf.getInt("frame", 0) + 1;
+                if (N > 36) N = 1;
+                pf.edit().putInt("frame", N).apply();
+                float holeBot = rb + H + gap + hh;
+                float band = rb - gap - hh;
+                float bTop = holeBot + band * 0.14f, bBot = holeBot + band * 0.94f;
+                float softR = W / 14400f + 0.25f, rimR = W / 300f;
+                android.graphics.Paint rimP = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                rimP.setColor(0xFFD8301A);
+                rimP.setMaskFilter(new android.graphics.BlurMaskFilter(rimR, android.graphics.BlurMaskFilter.Blur.NORMAL));
+                android.graphics.Paint bodyP = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                bodyP.setColor(0xFFE8BA57);
+                bodyP.setMaskFilter(new android.graphics.BlurMaskFilter(softR, android.graphics.BlurMaskFilter.Blur.NORMAL));
+                int[] code = of6kCode(N);
+                float w0 = 1f, w1 = 2.3f, gapU = 1.15f;
+                float u = W / 96f;
+                float[] zc = {0.3146f * W, 0.8076f * W};
+                float zhw = 0.050f * W;
+                float[][] zsegs = {
+                    {W * 0.015f, zc[0] - zhw},
+                    {zc[0] + zhw, zc[1] - zhw},
+                    {zc[1] + zhw, W * 0.985f}
+                };
+                for (float[] sg : zsegs) {
+                    float x = sg[0];
+                    int ci = 0;
+                    while (true) {
+                        int bit = code[(ci++) % code.length];
+                        float bw = (bit == 1 ? w1 : w0) * u;
+                        if (x + bw > sg[1]) break;
+                        android.graphics.RectF rr = new android.graphics.RectF(x, bTop, x + bw, bBot);
+                        cv.drawRect(rr, rimP);
+                        cv.drawRect(rr, bodyP);
+                        x += bw + gapU * u;
+                    }
+                }
+                android.graphics.Paint nr = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                nr.setTypeface(Ux.liberationBold(ctx));
+                nr.setTextSize(0.045f * W);
+                nr.setTextAlign(android.graphics.Paint.Align.CENTER);
+                nr.setColor(0xFFD8301A);
+                nr.setMaskFilter(new android.graphics.BlurMaskFilter(rimR, android.graphics.BlurMaskFilter.Blur.NORMAL));
+                android.graphics.Paint nb = new android.graphics.Paint(nr);
+                nb.setColor(0xFFE8BA57);
+                nb.setMaskFilter(new android.graphics.BlurMaskFilter(softR, android.graphics.BlurMaskFilter.Blur.NORMAL));
+                float numBase = holeBot + band * 0.72f;
+                String[] labs = {String.valueOf(N), N + "A"};
+                for (int s2 = 0; s2 < 2; s2++) {
+                    cv.drawText(labs[s2], zc[s2], numBase, nr);
+                    cv.drawText(labs[s2], zc[s2], numBase, nb);
+                }
+                float holeTop = rb - gap - hh;
+                cv.drawText(String.valueOf(N), 0.3299f * W, holeTop - 0.013f * W, nr);
+                cv.drawText(String.valueOf(N), 0.3299f * W, holeTop - 0.013f * W, nb);
+            }
+java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
             ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
             fo.close();
             ob.recycle();
