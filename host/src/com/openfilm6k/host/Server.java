@@ -1866,7 +1866,9 @@ java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
 
     /** B2 / WB2 / WB3 = film edge (rebate) borders: the overlay reaches the base beyond the photo */
     private static boolean isFilmBorder(java.util.Map<String,String> q) {
-        return q.get("b2") != null || q.get("wb2") != null || q.get("wb3") != null;
+        // B2 / WB2 only: additive cream sprockets on a dark rebate (screen-safe).
+        // WB3 carves BLACK holes into the photo -> handled by the direct filmEdgeWide path.
+        return q.get("b2") != null || q.get("wb2") != null;
     }
 
     static java.io.File postApply(java.io.File f, String post) {
