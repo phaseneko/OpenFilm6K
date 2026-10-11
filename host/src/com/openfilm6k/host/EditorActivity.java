@@ -2210,6 +2210,46 @@ public class EditorActivity extends Activity {
         sgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         sg.addView(sgl, sgll);
         body.addView(sg, new LinearLayout.LayoutParams(-1, -2));
+        // group: post-process (漏光/划痕/蒙尘), multi-select — applies to every arrived file (same pipeline as capture)
+        android.widget.FrameLayout qg = new android.widget.FrameLayout(this);
+        LinearLayout qgi = new LinearLayout(this);
+        qgi.setOrientation(LinearLayout.VERTICAL);
+        qgi.setBackground(new Ux.Etched());
+        qgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        final String[] spyPostCats = { "leak", "scratch", "dust" };
+        final String[] spyPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust") };
+        for (int i = 0; i < spyPostCats.length; i++) {
+            final String cc = spyPostCats[i];
+            CheckBox cb = new CheckBox(this); cb.setText(spyPostNames[i]);
+            java.util.HashSet<String> sel0 = new java.util.HashSet<String>();
+            for (String c : pf.getString("spy_post", "").split(",")) if (c.trim().length() > 0) sel0.add(c.trim());
+            cb.setChecked(sel0.contains(cc));
+            cb.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+                public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
+                    java.util.HashSet<String> s3 = new java.util.HashSet<String>();
+                    for (String c : pf.getString("spy_post", "").split(",")) if (c.trim().length() > 0) s3.add(c.trim());
+                    if (v) s3.add(cc); else s3.remove(cc);
+                    java.util.ArrayList<String> l2 = new java.util.ArrayList<String>(s3);
+                    java.util.Collections.sort(l2);
+                    StringBuilder sb2 = new StringBuilder();
+                    for (String c : l2) { if (sb2.length() > 0) sb2.append(','); sb2.append(c); }
+                    pf.edit().putString("spy_post", sb2.toString()).commit();
+                }
+            });
+            qgi.addView(cb, new LinearLayout.LayoutParams(-1, -2));
+        }
+        TextView qgl = new TextView(this); qgl.setText(L.s("ppLabel")); Ux.styleHeader(qgl);
+        qg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams qil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        qil.topMargin = Ux.dp(10);
+        qg.addView(qgi, qil);
+        android.widget.FrameLayout.LayoutParams qll2 = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        qll2.leftMargin = Ux.dp(10);
+        qll2.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        qg.addView(qgl, qll2);
+        android.widget.LinearLayout.LayoutParams qgp2 = new LinearLayout.LayoutParams(-1, -2);
+        qgp2.topMargin = Ux.dp(14);
+        body.addView(qg, qgp2);
         // group: watched dirs — the same [+|spinner|✕] row as the settings import groups; + opens the system folder picker
         android.widget.FrameLayout dg = new android.widget.FrameLayout(this);
         LinearLayout dgi = new LinearLayout(this);

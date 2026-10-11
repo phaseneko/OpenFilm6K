@@ -82,6 +82,7 @@ public class SpyWatcher {
                 if (!pf.getBoolean("spy_on", false)) return;      // switched off while queued
                 String film = pf.getString("spy_film", null);
                 int mode = pf.getInt("spy_stamp", 0);
+                String post = pf.getString("spy_post", "");
                 if (film == null || film.length() == 0) { Engine.dbg(TAG + ": no film selected, skip"); return; }
                 String r;
                 if (mode == 8 || mode == 9) {           // 半格 / 双重曝光: every TWO arrivals compose into one
@@ -94,7 +95,7 @@ public class SpyWatcher {
                     pf.edit().putString("spy_pair_first", "").commit();
                     r = Server.spyPairIngest(new File(first), f, film, mode == 8);
                 } else {
-                    r = Server.spyIngest(f, film, mode);
+                    r = Server.spyIngest(f, film, mode, post);
                 }
                 if (r != null && r.startsWith("OK")) MainActivity.say(L.s("spyMode") + " " + r);
                 else MainActivity.say(L.s("spyMode") + " ERR " + r);

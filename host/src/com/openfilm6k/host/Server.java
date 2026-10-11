@@ -840,7 +840,7 @@ public class Server {
     }
 
     /** spy mode: run the ingest pipeline on a local file — arrival-time stamps built host-side, output into the DCIM album */
-    static String spyIngest(java.io.File src, String film, int mode) {
+    static String spyIngest(java.io.File src, String film, int mode, String post) {
         try {
             java.util.HashMap<String,String> q = new java.util.HashMap<>();
             String name = src.getName();
@@ -862,11 +862,11 @@ public class Server {
                 if (bl != null) q.put("stamp", bl);
                 if (br != null) q.put("stamp2", br);
             }
+            if (post != null && post.length() > 0) q.put("post", post);
             byte[] exifApp1 = Exif.app1Of(src);
             java.io.File pipeIn = textStampOriginal(src, q);
             galDir.mkdirs();
             java.io.File out = new java.io.File(galDir, "graded_" + base + ".jpg");
-            String post = q.get("post");
             String leakdust = postSubset(post, "leak", "dust");
             String scratch = postSubset(post, "scratch");
             boolean isX = q.get("x") != null;
