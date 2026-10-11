@@ -206,11 +206,12 @@ public class Engine {
                     o2.inJustDecodeBounds = true;
                     android.graphics.BitmapFactory.decodeFile(pick.getAbsolutePath(), o2);
                     int ow = o2.outWidth > 0 ? o2.outWidth : 1, oh = o2.outHeight > 0 ? o2.outHeight : 1;
-                    float cv = Math.max((fw / (float) fh) / (ow / (float) oh), 1f);   // cover factor (matches the shader)
+                    float rr = (fw / (float) fh) / (ow / (float) oh);                  // frame aspect / overlay aspect
+                    float rx = Math.min(1f, rr), ry = Math.min(1f, 1f / rr);           // per-axis cover region (matches the shader)
                     float s = 1.0f + rnd.nextFloat() * 1.0f;                           // horizontal scale 1.00..2.00
                     float sv = 2.0f + rnd.nextFloat() * 2.0f;                          // vertical scale 2.0..4.0
-                    float offmax = Math.max(0f, (1f - cv / s)) / 2f;                   // horizontal slack
-                    float offymax = Math.max(0f, (1f - cv / sv)) / 2f;                 // vertical slack
+                    float offmax = Math.max(0f, (1f - rx / s)) / 2f;                   // horizontal slack
+                    float offymax = Math.max(0f, (1f - ry / sv)) / 2f;                 // vertical slack
                     float fx = rnd.nextBoolean() ? 1f : 0f, fy = rnd.nextBoolean() ? 1f : 0f;
                     float offx = (fx > 0.5f) ? -offmax : offmax;                       // pin the leak's anchored edge flush to the frame edge
                     float offy = (rnd.nextFloat() * 2f - 1f) * offymax;                // vertical offset stays random
