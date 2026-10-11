@@ -319,6 +319,14 @@ public class Engine {
             nBuf.position(0);
             android.graphics.Bitmap outBm = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
             outBm.copyPixelsFromBuffer(nBuf);
+            {   // GL readback rows are bottom-up: flip back so this path matches the native file path
+                android.graphics.Bitmap fl = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+                android.graphics.Canvas fc = new android.graphics.Canvas(fl);
+                android.graphics.Matrix fm = new android.graphics.Matrix();
+                fm.postScale(1f, -1f, w / 2f, h / 2f);
+                fc.drawBitmap(outBm, fm, null);
+                outBm.recycle(); outBm = fl;
+            }
             java.io.FileOutputStream fo = new java.io.FileOutputStream(outPath);
             outBm.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, fo);
             fo.close();
@@ -731,7 +739,7 @@ public class Engine {
                 Bitmap rotated = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
                 android.graphics.Canvas cv = new android.graphics.Canvas(rotated);
                 android.graphics.Matrix m = new android.graphics.Matrix();
-                // GL readback rows already match GLUtils upload order: no flip needed
+                m.postScale(1f, -1f, w / 2f, h / 2f);   // GL readback is bottom-up: flip back so the Java fallback matches the native path
                 cv.drawBitmap(outBm, m, null);
                 File of = new File(outPath);
                 of.getParentFile().mkdirs();
