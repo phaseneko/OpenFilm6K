@@ -2418,8 +2418,10 @@ public class EditorActivity extends Activity {
                 try {
                     String out2 = "/sdcard/OpenFilm6K/edit_preview.jpg";
                     java.io.File ps2 = Server.pvStampSource(src2, film);
+                    String ldu2 = Server.postSubset(pvPost(), "leak", "dust");
+                    if (!ldu2.isEmpty()) { java.io.File ov2 = new java.io.File("/sdcard/OpenFilm6K/_pvov.jpg"); String rr2 = Engine.get().applyPost(ps2.getAbsolutePath(), ov2.getAbsolutePath(), ldu2); if (rr2 != null && new java.io.File(rr2).exists()) ps2 = new java.io.File(rr2); }
                     Engine.get().process(ps2.getAbsolutePath(), pvFilm, out2);   // watermark burned BEFORE the pipeline (incl. LUT)
-                    String pp2 = pvPost(); if (!pp2.isEmpty()) Server.postApply(new File(out2), pp2);
+                    String scr2 = Server.postSubset(pvPost(), "scratch"); if (!scr2.isEmpty()) Server.postApply(new java.io.File(out2), scr2);
                     BitmapFactory.Options o = new BitmapFactory.Options();
                     adj2 = BitmapFactory.decodeFile(out2, o);
                     ref2 = BitmapFactory.decodeFile(src2, o);   // reference is always the original
@@ -2462,8 +2464,10 @@ public class EditorActivity extends Activity {
                 Films.reload("EDITTMP");
                 String out = "/sdcard/OpenFilm6K/edit_preview.jpg";
                 java.io.File ps = Server.pvStampSource(src, film);
+                String ldu = Server.postSubset(pvPost(), "leak", "dust");
+                if (!ldu.isEmpty()) { java.io.File ov = new java.io.File("/sdcard/OpenFilm6K/_pvov.jpg"); String rr = Engine.get().applyPost(ps.getAbsolutePath(), ov.getAbsolutePath(), ldu); if (rr != null && new java.io.File(rr).exists()) ps = new java.io.File(rr); }
                 String r = Engine.get().process(ps.getAbsolutePath(), "EDITTMP", out);   // watermark burned BEFORE the pipeline (incl. LUT)
-                String pp = pvPost(); if (r != null && !pp.isEmpty()) Server.postApply(new File(out), pp);
+                String scr = Server.postSubset(pvPost(), "scratch"); if (r != null && !scr.isEmpty()) Server.postApply(new File(out), scr);
                 if (r != null) adj = BitmapFactory.decodeFile(out);
             } catch (Throwable t) { MainActivity.say("preview EX " + t); }
             final Bitmap fRef = ref, fAdj = adj;

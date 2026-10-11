@@ -271,15 +271,21 @@ public class Server {
                     String post = q.get("post");
                     String leakdust = postSubset(post, "leak", "dust");   // exposure overlays: composited BEFORE the pipeline
                     String scratch = postSubset(post, "scratch");         // surface overlay: output-level, before any photo frame
-                    boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null) || (q.get("x") != null);   // B1/WB1 photo frames + X collage
+                    boolean isX = q.get("x") != null;
+                    boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null);
                     boolean filmBorder = isFilmBorder(q);
+                    String r = null;
+                    if (isX) {   // X collage: each of the 4 films gets its own overlay; the card frame is last
+                        r = collagePost(pipeIn, film, leakdust, scratch, out);
+                        if (pipeIn != src) pipeIn.delete();
+                    } else {
                     if (filmBorder) pipeIn = buildBorderCanvas(pipeIn, workDir, name);   // place the photo on the final-res black canvas
                     if (!leakdust.isEmpty()) {   // leak/dust join the film exposure -> graded by the pipeline
                         java.io.File ov = new java.io.File(workDir, "ov_" + name);
                         String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
                         if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
                     }
-                    String r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
+                    r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
                     if (pipeIn != src) pipeIn.delete();
                     if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
                         if (filmBorder) r = screenBorderLayer(out, src, film, q);   // screen the LUT-only border over the graded canvas
@@ -291,6 +297,7 @@ public class Server {
                             if (!scratch.isEmpty() && r != null && !r.startsWith("ERR"))
                                 r = postApply(new java.io.File(r), scratch).getAbsolutePath();
                         }
+                    }
                     }
                     // EXIF goes on last, so it survives the engine's encode AND the white-card/collage frame
                     if (exifApp1 != null && r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
@@ -862,20 +869,25 @@ public class Server {
             String post = q.get("post");
             String leakdust = postSubset(post, "leak", "dust");
             String scratch = postSubset(post, "scratch");
-            boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null) || (q.get("x") != null);   // B1/WB1 photo frames + X collage
+            boolean isX = q.get("x") != null;
+            boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null);
             boolean filmBorder = isFilmBorder(q);
+            String r = null;
+            if (isX) { r = collagePost(pipeIn, film, leakdust, scratch, out); if (pipeIn != src) pipeIn.delete(); }
+            else {
             if (filmBorder) pipeIn = buildBorderCanvas(pipeIn, workDir, base);
             if (!leakdust.isEmpty()) {
                 java.io.File ov = new java.io.File(workDir, "ov_" + base);
                 String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
                 if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
             }
-            String r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
+            r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
             if (pipeIn != src) pipeIn.delete();
             if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
                 if (filmBorder) r = screenBorderLayer(out, src, film, q);
                 else if (photoFrame) { if (!scratch.isEmpty()) r = postApply(out, scratch).getAbsolutePath(); r = stamped(out, src, film, q); }
                 else { r = stamped(out, src, film, q); if (!scratch.isEmpty()) r = postApply(new java.io.File(r), scratch).getAbsolutePath(); }
+            }
             }
             if (exifApp1 != null && r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
                 Exif.carryBytes(out, exifApp1);
@@ -1823,7 +1835,7 @@ java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
     /** post-process: apply the selected categories to a rendered file IN PLACE (screen overlay, randomised).
      *  engine.applyPost returns the posted file; copy it back over {@code f} so callers keep one path. */
     /** comma-subset of a post spec, keeping only the named categories (order preserved) */
-    private static String postSubset(String post, String... cats) {
+    static String postSubset(String post, String... cats) {
         if (post == null) return "";
         java.util.HashSet<String> want = new java.util.HashSet<String>(java.util.Arrays.asList(cats));
         StringBuilder sb = new StringBuilder();
@@ -1947,6 +1959,65 @@ java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
         cv.drawRect(0, h - bottomBar, w, h, wp);
         cv.drawRect(0, 0, side, h, wp);
         cv.drawRect(w - side, 0, w, h, wp);
+    }
+
+    /** X mode WITH post: one photo graded under 4 films (selected + 3 random), EACH composited with its own
+     *  overlay before its pipeline (all four treated equally); scratch is screened over the four cells; the
+     *  card frame is drawn LAST and is unaffected. Returns the output path or null on failure. */
+    private static String collagePost(java.io.File srcInput, String film, String leakdust, String scratch, java.io.File outFile) {
+        try {
+            java.util.List<String> all = Films.list();
+            java.util.ArrayList<String> picks = new java.util.ArrayList<String>();
+            java.util.Collections.shuffle(all, new java.util.Random());
+            for (String f : all) { if (picks.size() >= 4) break; if (!f.startsWith("EDITTMP")) picks.add(f); }
+            if (picks.size() < 2) return null;
+            while (picks.size() < 4) picks.add(picks.get(picks.size() - 1));
+            picks.set(0, film);
+            int w = 0, h = 0;
+            android.graphics.Bitmap[] cells = new android.graphics.Bitmap[4];
+            for (int i = 0; i < 4; i++) {
+                java.io.File input = srcInput;
+                if (!leakdust.isEmpty()) {
+                    java.io.File ov = new java.io.File(workDir, "xov_" + i + "_" + srcInput.getName());
+                    String rr = Engine.get().applyPost(srcInput.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
+                    if (rr != null && !rr.equals(srcInput.getAbsolutePath()) && new java.io.File(rr).exists()) input = new java.io.File(rr);
+                }
+                java.io.File cf = new java.io.File(workDir, "xc_" + i + "_" + srcInput.getName());
+                String r = Engine.get().process(input.getAbsolutePath(), picks.get(i), cf.getAbsolutePath());
+                android.graphics.Bitmap b = (r == null || r.startsWith("ERR")) ? null : android.graphics.BitmapFactory.decodeFile(cf.getAbsolutePath());
+                if (b != null) {
+                    if (w == 0) { w = b.getWidth(); h = b.getHeight(); }
+                    else if (b.getWidth() != w || b.getHeight() != h) b = android.graphics.Bitmap.createScaledBitmap(b, w, h, true);
+                }
+                cells[i] = b;
+                if (cf.exists()) cf.delete();
+            }
+            if (w == 0) return null;
+            android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas cv = new android.graphics.Canvas(out);
+            int wq = w / 2, hq = h / 2;
+            int[] qx = { 0, wq, 0, wq }, qy = { 0, 0, hq, hq }, gw = { wq, w - wq, wq, w - wq }, gh = { hq, hq, h - hq, h - hq };
+            for (int i = 0; i < 4; i++) {
+                if (cells[i] == null) continue;
+                cv.drawBitmap(cells[i], null, new android.graphics.RectF(qx[i], qy[i], qx[i] + gw[i], qy[i] + gh[i]), null);
+                cells[i].recycle();
+            }
+            if (!scratch.isEmpty()) {   // surface overlay over the four cells, BEFORE the card frame
+                java.io.File sf = new java.io.File(workDir, "xs_" + outFile.getName());
+                java.io.FileOutputStream sfo = new java.io.FileOutputStream(sf);
+                out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, sfo); sfo.close();
+                java.io.File sf2 = new java.io.File(workDir, "xs2_" + outFile.getName());
+                String sr = Engine.get().applyPost(sf.getAbsolutePath(), sf2.getAbsolutePath(), scratch);
+                android.graphics.Bitmap sb = android.graphics.BitmapFactory.decodeFile(sr);
+                if (sb != null) { out.recycle(); out = sb.copy(android.graphics.Bitmap.Config.ARGB_8888, true); sb.recycle(); cv = new android.graphics.Canvas(out); }
+                sf.delete(); if (sf2.exists()) sf2.delete();
+            }
+            decorateCardFrame(out, true);
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(outFile);
+            out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo); fo.close();
+            out.recycle();
+            return outFile.getAbsolutePath();
+        } catch (Throwable t) { MainActivity.say("collagePost ex " + t); return null; }
     }
 
     /** X mode: ONE photo graded with 4 RANDOM films (shuffled film list, tail-padded), stretched into
