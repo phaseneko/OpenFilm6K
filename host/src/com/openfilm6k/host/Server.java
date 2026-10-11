@@ -877,7 +877,7 @@ public class Server {
             else {
             if (filmBorder) pipeIn = buildBorderCanvas(pipeIn, workDir, base, q);
             if (!leakdust.isEmpty()) {
-                java.io.File ov = new java.io.File(workDir, "ov_" + base);
+                java.io.File ov = new java.io.File(workDir, "ov_" + base + ".jpg");
                 String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
                 if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
             }
