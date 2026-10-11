@@ -164,29 +164,73 @@ public class Engine {
         } catch (Throwable e) { return ""; }
     }
 
-    /** one random overlay file per enabled image node, in chain order */
-    private String[] buildOverlays(String film) {
-        if (Films.isSplit(film)) film = film + ".day";
-        java.util.ArrayList<String> out = new java.util.ArrayList<String>();
-        for (String step : Films.s(film, "chain", "").split(",")) {
-            step = step.trim();
-            if (step.isEmpty()) continue;
-            String[] pr = step.split(":", 2);
-            String ty = pr[0], nid = pr.length > 1 ? pr[1] : "";
-            if (!ty.equals("overlay")) continue;
-            if (np(film, ty, nid, "enable", 1.0f) <= 0) continue;
-            String list = Films.s(film, ty + "@" + nid + ".list", "");
-            java.util.ArrayList<String> fs = new java.util.ArrayList<String>();
-            for (String s2 : list.split(",")) {
-                s2 = s2.trim();
-                if (s2.length() > 0) fs.add("/sdcard/OpenFilm6K/overlays/" + s2);
-            }
-            if (fs.isEmpty()) continue;
-            String pick = fs.get((int) (Math.random() * fs.size()));
-            dbg("overlay pick " + pick);
-            out.add(pick);
+    /** post-process categories (fixed): leak / scratch / dust — each a gallery under /post/<cat>/ */
+    static final String[] POST_CATS = { "leak", "scratch", "dust" };
+    static String postDir(String cat) { return "/sdcard/OpenFilm6K/post/" + cat; }
+    /** random alpha range per category (the fixed strength is randomised within it) */
+    private static float[] postAlphaRange(String cat) {
+        if ("leak".equals(cat)) return new float[]{ 1.0f, 1.3f };
+        return new float[]{ 0.7f, 1.0f };   // scratch, dust
+    }
+
+    /** apply the selected post-process categories to an already-rendered file: each category randomly
+     *  picks one gallery image and composites it (screen) with random flip / scale / offset / alpha.
+     *  Categories are independent. Returns outPath (or inPath on failure / nothing to do). */
+    public String applyPost(String inPath, String outPath, String postSpec) {
+        synchronized (lock) {
+            try {
+                if (!NATIVE) return inPath;
+                if (!nInited) nInited = nInit();
+                if (!nInited) return inPath;
+                java.util.ArrayList<String> cats = new java.util.ArrayList<String>();
+                for (String c : postSpec.split(",")) { c = c.trim(); if (c.length() > 0) cats.add(c); }
+                if (cats.isEmpty()) return inPath;
+                android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+                o.inJustDecodeBounds = true;
+                android.graphics.BitmapFactory.decodeFile(inPath, o);
+                int fw = o.outWidth, fh = o.outHeight;
+                if (fw <= 0 || fh <= 0) return inPath;
+                java.util.ArrayList<Float> rows = new java.util.ArrayList<Float>();
+                java.util.ArrayList<String> files = new java.util.ArrayList<String>();
+                java.util.Random rnd = new java.util.Random();
+                for (String c : cats) {
+                    java.io.File[] fs = new java.io.File(postDir(c)).listFiles();
+                    java.util.ArrayList<java.io.File> imgs = new java.util.ArrayList<java.io.File>();
+                    if (fs != null) for (java.io.File f : fs) {
+                        String n = f.getName().toLowerCase(java.util.Locale.US);
+                        if (n.endsWith(".jpg") || n.endsWith(".jpeg")) imgs.add(f);
+                    }
+                    if (imgs.isEmpty()) continue;
+                    java.io.File pick = imgs.get(rnd.nextInt(imgs.size()));
+                    android.graphics.BitmapFactory.Options o2 = new android.graphics.BitmapFactory.Options();
+                    o2.inJustDecodeBounds = true;
+                    android.graphics.BitmapFactory.decodeFile(pick.getAbsolutePath(), o2);
+                    int ow = o2.outWidth > 0 ? o2.outWidth : 1, oh = o2.outHeight > 0 ? o2.outHeight : 1;
+                    float cv = Math.max((fw / (float) fh) / (ow / (float) oh), 1f);   // cover factor (matches the shader)
+                    float s = 1.0f + rnd.nextFloat() * 1.0f;                           // horizontal scale 1.00..2.00
+                    float sv = 2.0f + rnd.nextFloat() * 2.0f;                          // vertical scale 2.0..4.0
+                    float offmax = Math.max(0f, (1f - cv / s)) / 2f;                   // horizontal slack
+                    float offymax = Math.max(0f, (1f - cv / sv)) / 2f;                 // vertical slack
+                    float fx = rnd.nextBoolean() ? 1f : 0f, fy = rnd.nextBoolean() ? 1f : 0f;
+                    float offx = (fx > 0.5f) ? -offmax : offmax;                       // pin the leak's anchored edge flush to the frame edge
+                    float offy = (rnd.nextFloat() * 2f - 1f) * offymax;                // vertical offset stays random
+                    float[] ar = postAlphaRange(c);
+                    float al = ar[0] + rnd.nextFloat() * (ar[1] - ar[0]);
+                    float[] P = new float[12];
+                    P[0] = 6; P[1] = al; P[2] = 1f; P[3] = s; P[4] = fx; P[5] = fy; P[6] = offx; P[7] = offy; P[8] = sv;
+                    for (float v : P) rows.add(v);
+                    files.add(pick.getAbsolutePath());
+                    dbg("post " + c + " pick " + pick.getName() + " a=" + al + " s=" + s + " sv=" + sv + " off=" + offx + "," + offy + " flip=" + fx + "," + fy);
+                }
+                if (files.isEmpty()) return inPath;
+                float[] nodes = new float[rows.size()];
+                for (int i = 0; i < nodes.length; i++) nodes[i] = rows.get(i);
+                int rc = nProcessFile(inPath, outPath, null, nodes, files.toArray(new String[0]), null, null, 0f, new String[0], new String[0]);
+                if (rc == 0) { Exif.carry(new java.io.File(inPath), new java.io.File(outPath)); return outPath; }
+                dbg("applyPost rc=" + rc);
+                return inPath;
+            } catch (Throwable t) { dbg("applyPost ex " + t); return inPath; }
         }
-        return out.toArray(new String[0]);
     }
 
     private float[] buildNodes(String film, java.util.List<String> nodeLuts) {
@@ -201,7 +245,6 @@ public class Engine {
             else if (ty.equals("glow")) al = alF(film, ty, nid, "amount", 1f);
             else if (ty.equals("grain")) al = alF(film, ty, nid, "amount", 1f / 50f);
             else if (ty.equals("vig")) al = alF(film, ty, nid, "amount", 1f);
-            else if (ty.equals("overlay")) al = alF(film, ty, nid, "amount", 1f);
             else al = np(film, ty, nid, "alpha", 1.0f);
             if (np(film, ty, nid, "enable", 1.0f) <= 0) continue;
             float[] P = new float[12];
@@ -232,9 +275,6 @@ public class Engine {
                 P[0] = 3; P[1] = 50.0f; P[2] = np(film, ty, nid, "size", 1);   // amount folded into alpha
                 P[3] = np(film, ty, nid, "mono", 1); P[4] = np(film, ty, nid, "liftR", 0);
                 P[5] = np(film, ty, nid, "liftG", 0); P[6] = np(film, ty, nid, "liftB", 0); P[7] = al;
-            } else if (ty.equals("overlay")) {
-                P[0] = 6; P[1] = al;   // strength folded into alpha
-                P[2] = np(film, ty, nid, "blend", 0.0f); P[3] = np(film, ty, nid, "scale", 1.0f);
             } else if (ty.equals("hue")) {
                 P[0] = 7; P[1] = np(film, ty, nid, "hue", 0.58f); P[2] = np(film, ty, nid, "range", 0.15f);
                 P[3] = np(film, ty, nid, "shift", 0.0f); P[4] = al;
@@ -496,7 +536,7 @@ public class Engine {
                         float[] nds = buildNodes(dayKey, nlD);
                         java.io.File lf = Films.lutFile(dayKey);
                         long _n0 = android.os.SystemClock.elapsedRealtime();
-                        String[] ovs = buildOverlays(film);
+                        String[] ovs = new String[0];   // post-process is a separate output-level pass (applyPost)
                         // day/night split: score 0=day 1=night — TWO full renders, outputs blended
                         Float ov = scoreOverride; scoreOverride = null;   // consume-once: a leaked editor value can pin at most one render
                         float score = ov != null ? ov : dayNightScore(imgPath);

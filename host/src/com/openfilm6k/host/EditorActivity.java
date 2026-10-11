@@ -38,8 +38,8 @@ public class EditorActivity extends Activity {
 
     // ---------- node model ----------
     static class Node { String type, id; LinkedHashMap<String, Float> p = new LinkedHashMap<String, Float>(); String list = ""; String file; }   // file = per-node lut (lut nodes only; null = the film lut)
-    static final String[] TYPES = {"lut", "grade", "glow", "grain", "vig", "sharp", "overlay", "hue"};
-    static final String[] TLABEL = {"tLut", "tGrade", "tGlow", "tGrain", "tVig", "tSharp", "tOverlay", "tHue"};   // i18n keys
+    static final String[] TYPES = {"lut", "grade", "glow", "grain", "vig", "sharp", "hue"};
+    static final String[] TLABEL = {"tLut", "tGrade", "tGlow", "tGrain", "tVig", "tSharp", "tHue"};   // i18n keys
     static String[] tlTr() {   // translated copy for adapters
         String[] a = new String[TLABEL.length];
         for (int i = 0; i < TLABEL.length; i++) a[i] = L.s(TLABEL[i]);
@@ -1497,61 +1497,6 @@ public class EditorActivity extends Activity {
                     lr.addView(cspW, new LinearLayout.LayoutParams(0, Ux.dp(38), 1.6f));
                     panel.addView(lr, new LinearLayout.LayoutParams(-1, -2));
                 }
-                if (nd.type.equals("overlay")) {   // blend mode + overlay file pool
-                    LinearLayout br = new LinearLayout(this);
-                    TextView bl = new TextView(this); bl.setText(L.s("blendLabel")); bl.setPadding(16, 20, 4, 0);
-                    br.addView(bl, new LinearLayout.LayoutParams(-2, -2));
-                    final String[] bn = {L.s("bmNormal"), L.s("bmScreen"), L.s("bmMultiply"), L.s("bmOverlay"), L.s("bmSoft")};
-                    Spinner bsp = new Spinner(this);
-                    StdSpinnerAdapter bspA = new StdSpinnerAdapter(this, bn);
-                    bspA.spin = bsp;
-                    bsp.setAdapter(bspA);
-                    android.widget.FrameLayout bspW = Ux.wrapSpinner(this, bsp);
-                    bsp.setSelection(Math.max(0, Math.min(4, (int) (float) nd.p.get("blend"))));
-                    bsp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-                        public void onItemSelected(AdapterView<?> pp, View vv, int pos, long id2) { nd.p.put("blend", (float) pos); renderPreview(); }
-                        public void onNothingSelected(AdapterView<?> pp) {}
-                    });
-                    br.addView(bspW, new LinearLayout.LayoutParams(0, Ux.dp(38), 1f));
-                    nodesBox.addView(br);
-                    java.util.ArrayList<String> ovl = new java.util.ArrayList<String>();
-                    try {
-                        java.io.File od = new java.io.File("/sdcard/OpenFilm6K/overlays");
-                        java.io.File[] a3 = od.listFiles();
-                        if (a3 != null) for (java.io.File f : a3) {
-                            String n2 = f.getName();
-                            if (n2.endsWith(".jpg") || n2.endsWith(".JPG") || n2.endsWith(".jpeg")) ovl.add(n2);
-                        }
-                        java.util.Collections.sort(ovl);
-                    } catch (Throwable ig) {}
-                    if (!ovl.isEmpty()) {
-                        TextView oh = new TextView(this); oh.setText(L.s("ovPool")); oh.setPadding(16, 12, 0, 2);
-                        nodesBox.addView(oh);
-                        java.util.HashSet<String> sel = new java.util.HashSet<String>();
-                        for (String s2 : nd.list.split(",")) if (s2.trim().length() > 0) sel.add(s2.trim());
-                        for (int q = 0; q < ovl.size(); q++) {
-                            final String fn = ovl.get(q);
-                            CheckBox cb = new CheckBox(this); cb.setText(fn); cb.setChecked(sel.contains(fn));
-                            cb.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
-                                public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
-                                    java.util.HashSet<String> s3 = new java.util.HashSet<String>();
-                                    for (String s2 : nd.list.split(",")) if (s2.trim().length() > 0) s3.add(s2.trim());
-                                    if (v) s3.add(fn); else s3.remove(fn);
-                                    java.util.ArrayList<String> l2 = new java.util.ArrayList<String>(s3);
-                                    java.util.Collections.sort(l2);
-                                    StringBuilder sb2 = new StringBuilder();
-                                    for (String s2 : l2) { if (sb2.length() > 0) sb2.append(','); sb2.append(s2); }
-                                    nd.list = sb2.toString();
-                                    renderPreview();
-                                }
-                            });
-                            nodesBox.addView(cb);
-                        }
-                    } else {
-                        TextView oh = new TextView(this); oh.setText(L.s("ovEmpty")); oh.setPadding(16, 12, 0, 2);
-                        nodesBox.addView(oh);
-                    }
-                }
                 if (nd.type.equals("grade") || nd.type.equals("hue")) {   // tonal-range qualifiers
                     LinearLayout zr = new LinearLayout(this);
                     TextView zl = new TextView(this); zl.setText(L.s("zone")); zl.setPadding(16, 20, 4, 0);
@@ -2071,6 +2016,44 @@ public class EditorActivity extends Activity {
         android.widget.LinearLayout.LayoutParams pgp = new LinearLayout.LayoutParams(-1, -2);
         pgp.topMargin = Ux.dp(14);
         body.addView(pg, pgp);
+        // post-process group (漏光/划痕/蒙尘): multi-select; each category is randomised in the preview
+        android.widget.FrameLayout qg = new android.widget.FrameLayout(this);
+        android.widget.LinearLayout qgi = new android.widget.LinearLayout(this);
+        qgi.setOrientation(LinearLayout.VERTICAL);
+        qgi.setBackground(new Ux.Etched());
+        qgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        final String[] pvPostCats = { "leak", "scratch", "dust" };
+        final String[] pvPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust") };
+        for (int i = 0; i < pvPostCats.length; i++) {
+            final String cc = pvPostCats[i];
+            final CheckBox cb = new CheckBox(this); cb.setText(pvPostNames[i]);
+            cb.setChecked(pvPostSel().contains(cc));
+            cb.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+                public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
+                    java.util.HashSet<String> s3 = pvPostSel();
+                    if (v) s3.add(cc); else s3.remove(cc);
+                    java.util.ArrayList<String> l2 = new java.util.ArrayList<String>(s3);
+                    java.util.Collections.sort(l2);
+                    StringBuilder sb2 = new StringBuilder();
+                    for (String c : l2) { if (sb2.length() > 0) sb2.append(','); sb2.append(c); }
+                    getSharedPreferences("of6k", 0).edit().putString("pvpost", sb2.toString()).commit();
+                    renderPreview();
+                }
+            });
+            qgi.addView(cb, new LinearLayout.LayoutParams(-1, -2));
+        }
+        TextView qgl = new TextView(this); qgl.setText(L.s("ppLabel")); Ux.styleHeader(qgl);
+        qg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams qil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        qil.topMargin = Ux.dp(10);
+        qg.addView(qgi, qil);
+        android.widget.FrameLayout.LayoutParams qll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        qll.leftMargin = Ux.dp(10);
+        qll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        qg.addView(qgl, qll);
+        android.widget.LinearLayout.LayoutParams qgp = new LinearLayout.LayoutParams(-1, -2);
+        qgp.topMargin = Ux.dp(14);
+        body.addView(qg, qgp);
         android.widget.LinearLayout.LayoutParams glp1 = new LinearLayout.LayoutParams(-1, -2);
         glp1.topMargin = Ux.dp(14);
         body.addView(settingsGroup(L.s("customScene"), CUSTOM_SCENES, ".jpg", 1001, dlg), glp1);
@@ -2400,6 +2383,15 @@ public class EditorActivity extends Activity {
         buildNodeUI();   // LUT picker picks up new custom cubes
     }
 
+    /** selected post-process categories for the editor preview (comma list, from prefs) */
+    private String pvPost() { return getSharedPreferences("of6k", 0).getString("pvpost", ""); }
+    /** selected post categories as a set (from prefs) */
+    private java.util.HashSet<String> pvPostSel() {
+        java.util.HashSet<String> s = new java.util.HashSet<String>();
+        for (String c : pvPost().split(",")) if (c.trim().length() > 0) s.add(c.trim());
+        return s;
+    }
+
     private void renderPreview() {
         final String film = selFilm();
         if (film == null) return;
@@ -2427,6 +2419,7 @@ public class EditorActivity extends Activity {
                     String out2 = "/sdcard/OpenFilm6K/edit_preview.jpg";
                     java.io.File ps2 = Server.pvStampSource(src2, film);
                     Engine.get().process(ps2.getAbsolutePath(), pvFilm, out2);   // watermark burned BEFORE the pipeline (incl. LUT)
+                    String pp2 = pvPost(); if (!pp2.isEmpty()) Server.postApply(new File(out2), pp2);
                     BitmapFactory.Options o = new BitmapFactory.Options();
                     adj2 = BitmapFactory.decodeFile(out2, o);
                     ref2 = BitmapFactory.decodeFile(src2, o);   // reference is always the original
@@ -2470,6 +2463,7 @@ public class EditorActivity extends Activity {
                 String out = "/sdcard/OpenFilm6K/edit_preview.jpg";
                 java.io.File ps = Server.pvStampSource(src, film);
                 String r = Engine.get().process(ps.getAbsolutePath(), "EDITTMP", out);   // watermark burned BEFORE the pipeline (incl. LUT)
+                String pp = pvPost(); if (r != null && !pp.isEmpty()) Server.postApply(new File(out), pp);
                 if (r != null) adj = BitmapFactory.decodeFile(out);
             } catch (Throwable t) { MainActivity.say("preview EX " + t); }
             final Bitmap fRef = ref, fAdj = adj;

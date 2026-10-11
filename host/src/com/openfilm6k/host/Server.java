@@ -268,10 +268,16 @@ public class Server {
                     // render straight into the gallery album: one output file, no second copy
                     galDir.mkdirs();
                     java.io.File out = new java.io.File(galDir, "graded_" + name);
+                    String post = q.get("post");
+                    boolean postUnderFrame = (q.get("b") != null) || (q.get("wb1") != null);   // B1/WB1 frames: post goes under the frame
                     String r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
                     if (pipeIn != src) pipeIn.delete();
-                    if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
+                    if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
+                        if (post != null) postApply(out, post);   // post the photo; frame (if any) drawn on top later for B1/WB1
                         r = stamped(out, src, film, q);   // white-card frame / collage stay output-level
+                        if (post != null && !postUnderFrame && r != null && !r.startsWith("ERR"))
+                            r = postApply(new java.io.File(r), post).getAbsolutePath();   // post over everything (incl. B2 edge/collage/wide)
+                    }
                     // EXIF goes on last, so it survives the engine's encode AND the white-card/collage frame
                     if (exifApp1 != null && r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
                         Exif.carryBytes(out, exifApp1);
@@ -344,6 +350,11 @@ public class Server {
             if (sc != null) try { Engine.scoreOverride = Float.valueOf(sc.trim()); } catch (Throwable ig) {}
             String img = q.get("img"), film = q.get("film"), out = q.get("out");
             String r = Engine.get().process(img, film, out);
+            String post = q.get("post");
+            if (post != null && r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
+                String rp = Engine.get().applyPost(r, out + ".post.jpg", post);
+                if (rp != null && new java.io.File(rp).exists()) r = rp;
+            }
             resp = r != null ? "OK " + r : "FAIL";
         } else resp = "?";
         } catch (Throwable t) { resp = "EX " + t; }
@@ -1718,6 +1729,26 @@ java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
     }
 
     /** output-level extras: white-card frame / 4-film collage / wide crop + wide frames */
+    /** post-process: apply the selected categories to a rendered file IN PLACE (screen overlay, randomised).
+     *  engine.applyPost returns the posted file; copy it back over {@code f} so callers keep one path. */
+    static java.io.File postApply(java.io.File f, String post) {
+        if (post == null || post.trim().isEmpty() || f == null || !f.exists()) return f;
+        try {
+            java.io.File tmp = new java.io.File(workDir, "post_" + f.getName());
+            String r = Engine.get().applyPost(f.getAbsolutePath(), tmp.getAbsolutePath(), post);
+            java.io.File res = new java.io.File(r);
+            if (res.exists() && !res.getAbsolutePath().equals(f.getAbsolutePath())) {
+                java.io.FileInputStream in = new java.io.FileInputStream(res);
+                java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+                byte[] b = new byte[65536]; int n;
+                while ((n = in.read(b)) > 0) out.write(b, 0, n);
+                in.close(); out.close();
+            }
+            if (tmp.exists() && !tmp.getAbsolutePath().equals(f.getAbsolutePath())) tmp.delete();
+        } catch (Throwable t) { Engine.dbg("postApply ex " + t); }
+        return f;
+    }
+
     private static String stamped(java.io.File graded, java.io.File src, String film, Map<String,String> q) {
         boolean pol = q.get("b") != null, col = q.get("x") != null, b2 = q.get("b2") != null;
         boolean wide = q.get("w") != null, wb1 = q.get("wb1") != null, wb2 = q.get("wb2") != null, wb3 = q.get("wb3") != null;

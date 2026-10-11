@@ -112,9 +112,11 @@ public class L {
         {"cMagenta", "洋红", "洋紅", "Magenta", "マゼンタ", "마젠타", "Magenta", "Magenta", "Magenta", "Пурпурный", "Magenta"},
         {"cPurple", "紫", "紫", "Purple", "紫", "보라", "Purpur", "Violet", "Morado", "Фиолетовый", "Roxo"},
         {"cViolet", "蓝紫", "藍紫", "Violet", "青紫", "청보라", "Violett", "Bleu-violet", "Violeta", "Сине-фиолетовый", "Violeta"},
-        // ---- overlay ----
-        {"ovPool", "叠层池（随机选一生效）", "疊層池（隨機選一生效）", "Overlay pool (one picked)", "オーバーレイプール（ランダム1枚）", "오버레이 풀(무작위 1장)", "Overlay-Pool (eines zufällig)", "Pool d'overlays (un au hasard)", "Conjunto de superposiciones", "Пул наложений (случайное)", "Conjunto de sobreposições"},
-        {"ovEmpty", "叠层池空：把 .jpg 放入 /sdcard/OpenFilm6K/overlays/", "疊層池空：把 .jpg 放入 /sdcard/OpenFilm6K/overlays/", "Pool empty: put .jpg into /sdcard/OpenFilm6K/overlays/", "プール空：.jpg を /sdcard/OpenFilm6K/overlays/ へ", "풀 비음: .jpg를 /sdcard/OpenFilm6K/overlays/에 넣으세요", "Pool leer: .jpg nach /sdcard/OpenFilm6K/overlays/", "Pool vide : mettre .jpg dans /sdcard/OpenFilm6K/overlays/", "Vacío: pon .jpg en /sdcard/OpenFilm6K/overlays/", "Пул пуст: положите .jpg в /sdcard/OpenFilm6K/overlays/", "Vazio: coloque .jpg em /sdcard/OpenFilm6K/overlays/"},
+        // ---- post-process (漏光/划痕/蒙尘) ----
+        {"ppLabel", "后期处理", "後期處理", "Post-process", "後処理", "후처리", "Nachbearbeitung", "Post-traitement", "Posprocesado", "Постобработка", "Pós-processamento"},
+        {"ppLeak", "漏光", "漏光", "Light leak", "光漏れ", "빛샘", "Lichteinfall", "Fuite de lumière", "Fuga de luz", "Засветка", "Vazamento de luz"},
+        {"ppScratch", "划痕", "劃痕", "Scratches", "傷", "스크래치", "Kratzer", "Rayures", "Arañazos", "Царапины", "Riscos"},
+        {"ppDust", "蒙尘", "蒙塵", "Dust", "ホコリ", "먼지", "Staub", "Poussière", "Polvo", "Пыль", "Poeira"},
         // ---- preview labels ----
         {"origLabel", "← 原图", "← 原圖", "← Original", "← 原画", "← 원본", "← Original", "← Original", "← Original", "← Оригинал", "← Original"},
         {"adjLabel", "成图 →", "成圖 →", "Result →", "完成画像 →", "결과 →", "Ergebnis →", "Résultat →", "Resultado →", "Результат →", "Resultado →"},

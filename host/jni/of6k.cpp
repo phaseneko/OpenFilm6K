@@ -149,12 +149,15 @@ static const char* FS_SHARP = FS_HEAD
 // overlay node: full-frame texture composited in image coordinates (tile-safe),
 // cover-fit + user scale, selectable blend mode, JPEG source decoded on demand
 static const char* FS_IMAGE = FS_HEAD
-    "uniform sampler2D uOv; uniform float uAmt, uScale; uniform vec2 uOvRes; uniform int uBlend;\n"
+    "uniform sampler2D uOv; uniform float uAmt, uScale, uScaleY; uniform vec2 uOvRes; uniform int uBlend;\n"
+    "uniform float uFlipX, uFlipY; uniform vec2 uOff;\n"
     "void main(){ vec3 c=src();\n"
     " vec2 ar=vec2((uFull.x/uFull.y)/(uOvRes.x/uOvRes.y),1.0);\n"
     " float cv=max(ar.x,ar.y);\n"
-    " vec2 ouv=(uv()-0.5)*cv*2.0/uScale*0.5*2.0+0.5;   // cover-fit, centered, scaled\n"
-    " ouv=(uv()-0.5)*cv/uScale+0.5;\n"
+    " vec2 ouv=(uv()-0.5)*cv*vec2(1.0/uScale,1.0/uScaleY)+0.5;   // cover-fit, centred, H/V scaled\n"
+    " ouv+=uOff;                            // offset (image space, before the mirror)\n"
+    " if(uFlipX>0.5) ouv.x=1.0-ouv.x;        // random mirror (post-process)\n"
+    " if(uFlipY>0.5) ouv.y=1.0-ouv.y;\n"
     " if(ouv.x<0.0||ouv.x>1.0||ouv.y<0.0||ouv.y>1.0){ o=vec4(c,1.0); return; }\n"
     " vec3 b=texture(uOv,ouv).rgb; vec3 r=c;\n"
     " if(uBlend==0) r=b;\n"
@@ -475,7 +478,7 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             // so the visual size is identical at every resolution
             float rEff = P[2] * (g_fh / 4000.0f);
             // peak mode: mask -> dilate -> ring, then blur the ring (dilate-then-subtract:
-            // ring amplitude independent of source size, matches observed FIMO behavior)
+            // ring amplitude independent of source size (empirically tuned)
             if (P[11] > 0.0f) {
                 // m -> tex[2]
                 glBindFramebuffer(GL_FRAMEBUFFER, g_fbo[2]);
@@ -582,8 +585,12 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             glUniform1i(glGetUniformLocation(g_progImage, "uOv"), 1);
             glUniform1f(glGetUniformLocation(g_progImage, "uAmt"), P[1]);
             glUniform1f(glGetUniformLocation(g_progImage, "uScale"), P[3] <= 0.01f ? 1.0f : P[3]);
+            glUniform1f(glGetUniformLocation(g_progImage, "uScaleY"), P[8] <= 0.01f ? 1.0f : P[8]);
             glUniform2f(glGetUniformLocation(g_progImage, "uOvRes"), (float) ow, (float) oh);
             glUniform1i(glGetUniformLocation(g_progImage, "uBlend"), (int) P[2]);
+            glUniform1f(glGetUniformLocation(g_progImage, "uFlipX"), P[4]);
+            glUniform1f(glGetUniformLocation(g_progImage, "uFlipY"), P[5]);
+            glUniform2f(glGetUniformLocation(g_progImage, "uOff"), P[6], P[7]);
             glActiveTexture(GL_TEXTURE0);
             bindRun(g_progImage, cur, dF, w, h, g_ox, g_oy, g_fw, g_fh);
             cur = dT; curFbo = dF;
@@ -1017,6 +1024,7 @@ Java_com_openfilm6k_host_Engine_nProcessFile(JNIEnv* env, jobject, jstring inPat
                         glFinish();
                     }
                                         if (outBlend && needLut && lp) loadLut(lp);   // night chain of the previous tile overwrote the shared LUT texture
+                    g_ovIdx = 0;   // reset post/overlay picks per tile
                     GLuint cur = g_inTex, curFbo = 0;
                     for (int k = 0; k < nNodes; k++) runNode(nd + k * 12, aw, ah, cur, curFbo);
                     if (curFbo == 0) {

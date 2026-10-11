@@ -957,6 +957,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         android.content.SharedPreferences pf = getPreferences(MODE_PRIVATE);
         sel = pf.getInt("film2", -1);
         stampMode = pf.getInt("stamp", 0);
+        printInfo = pf.getInt("printinfo", 0);
+        postSel.clear();
+        { String ps0 = pf.getString("post", ""); if (ps0.length() > 0) for (String c : ps0.split(",")) if (c.trim().length() > 0) postSel.add(c.trim()); }
         ghostFinder = pf.getInt("gfinder", 0);
         wantFilm = pf.getString("selfilm", "");
         favs.clear();
@@ -1568,26 +1571,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             final long flen = j.src.length();
             if (fbox != null) fbox.beginUpload();
             String stampTxt = "", stamp2Txt = "";
-            if (stampMode == 2 || stampMode == 3) {
-                String exposure = shutterText() + " " + "F" + apertureText() + " ISO" + stampIso(j.src);
-                if (stampMode == 2) stampTxt = exposure;       // exposure, bottom-left
-                else stamp2Txt = exposure;                     // DE: exposure, bottom-right
-            }
-            if (stampMode == 1 || stampMode == 3) stampTxt = "@DATE";   // date, bottom-left
-            if (stampMode == 6) stampTxt = pack;                        // F: film name, bottom-left
-            else if (stampMode == 7) {                                  // FE: film name + exposure
-                stampTxt = pack;
-                stamp2Txt = shutterText() + " " + "F" + apertureText() + " ISO" + stampIso(j.src);
-            }
+            String exposure = shutterText() + " " + "F" + apertureText() + " ISO" + stampIso(j.src);
+            if (printInfo == 1) stampTxt = "@DATE";                     // D: date
+            else if (printInfo == 2) stampTxt = exposure;               // E: exposure
+            else if (printInfo == 3) { stampTxt = "@DATE"; stamp2Txt = exposure; }   // DE
+            else if (printInfo == 4) stampTxt = pack;                   // F: film name
+            else if (printInfo == 5) { stampTxt = pack; stamp2Txt = exposure; }       // FE
             String stampQ = stampTxt.length() > 0 ? "&stamp=" + java.net.URLEncoder.encode(stampTxt) : "";
             if (stamp2Txt.length() > 0) stampQ += "&stamp2=" + java.net.URLEncoder.encode(stamp2Txt);
-            if (stampMode == 4) stampQ = "&b=1";               // B1: selected film + white-card frame
-            else if (stampMode == 5) stampQ = "&b2=1";         // B2: film edge, sprockets + stock name (right after B1)
-            else if (stampMode == 10) stampQ = "&x=1";         // X: no text, 4-film collage
-            else if (stampMode == 11) stampQ = "&w=1";         // W: wide, crop to the wide 2.7:1 ratio (host-side)
-            else if (stampMode == 12) stampQ = "&wb1=1";       // WB1: wide white-card paper
-            else if (stampMode == 13) stampQ = "&wb2=1";       // WB2: wide film edge
-            else if (stampMode == 14) stampQ = "&wb3=1";       // WB3: wide sprocket (photo covers the strip)
+            // frame (independent of print info; H/2 are pair modes handled elsewhere)
+            if (stampMode == 4) stampQ += "&b=1";               // B1: selected film + white-card frame
+            else if (stampMode == 5) stampQ += "&b2=1";         // B2: film edge, sprockets + stock name (right after B1)
+            else if (stampMode == 10) stampQ += "&x=1";         // X: no text, 4-film collage
+            else if (stampMode == 11) stampQ += "&w=1";         // W: wide, crop to the wide 2.7:1 ratio (host-side)
+            else if (stampMode == 12) stampQ += "&wb1=1";       // WB1: wide white-card paper
+            else if (stampMode == 13) stampQ += "&wb2=1";       // WB2: wide film edge
+            else if (stampMode == 14) stampQ += "&wb3=1";       // WB3: wide sprocket (photo covers the strip)
+            // post-process categories (multi-select)
+            if (!postSel.isEmpty()) {
+                StringBuilder pb = new StringBuilder();
+                for (String c : postSel) { if (pb.length() > 0) pb.append(','); pb.append(c); }
+                stampQ += "&post=" + java.net.URLEncoder.encode(pb.toString());
+            }
             conn = (java.net.HttpURLConnection) new java.net.URL(
                 "http://" + phoneIp() + ":8800/ingest?film=" + java.net.URLEncoder.encode(pack, "UTF-8")
                     + "&name=" + gname + "&orig=" + j.src.getName() + "&len=" + flen + stampQ).openConnection();   // film names may be any language — ALWAYS percent-encode
@@ -1838,7 +1843,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (hlIdx != 0 && !adjOk(hlIdx)) { hlIdx = adjOk(lastParam) ? lastParam : (adjOk(2) ? 2 : 1); }
         if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.spotOn = spotMode; fbox.afMode = rig.focusMode(); fbox.afName = rig.focusModeName(); fbox.afDisp = rig.focusModeDisplay(); }
         if (fbox != null) { fbox.filmFav = selFav(sel); fbox.c1 = c1Held; }
-        if (fbox != null) fbox.stampMark = (stampMode == 1 ? "D" : stampMode == 2 ? "E" : stampMode == 3 ? "DE" : stampMode == 4 ? "B1" : stampMode == 5 ? "B2" : stampMode == 6 ? "F" : stampMode == 7 ? "FE" : stampMode == 8 ? "H" : stampMode == 9 ? "2" : stampMode == 10 ? "X" : stampMode == 11 ? "W" : stampMode == 12 ? "WB1" : stampMode == 13 ? "WB2" : stampMode == 14 ? "WB3" : "");
+        if (fbox != null) {
+            String pi = printInfo == 1 ? "D" : printInfo == 2 ? "E" : printInfo == 3 ? "DE" : printInfo == 4 ? "F" : printInfo == 5 ? "FE" : "";
+            String bd = stampMode == 4 ? "B1" : stampMode == 5 ? "B2" : stampMode == 8 ? "H" : stampMode == 9 ? "2" : stampMode == 10 ? "X" : stampMode == 11 ? "W" : stampMode == 12 ? "WB1" : stampMode == 13 ? "WB2" : stampMode == 14 ? "WB3" : "";
+            String pp = postSel.isEmpty() ? "" : "[PP]";
+            fbox.stampMark = (pi + (pi.length() > 0 && bd.length() > 0 ? "+" : "") + bd + (pp.length() > 0 ? " " + pp : "")).trim();
+        }
         if (fbox != null) { fbox.pairDisp = isPairMode() ? pairSlot : -1; fbox.pairBlink = pairBlinkOn; fbox.halfMask = (stampMode == 8); fbox.wideMask = (stampMode >= 11 && stampMode <= 14); fbox.ghostFinder = ghostFinder; }
         String fn2 = selName(sel);
         int di = fn2.toUpperCase().indexOf(".FLM");
@@ -2091,8 +2101,62 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         } catch (Throwable t) { return false; }
     }
 
+    // ---- dual list: print info / frame (single-select) + post-process (multi-select) ----
+    private static final int[] BORDER_MODES = { 0, 4, 5, 10, 11, 12, 13, 14, 8, 9 };
+    private static final String[] POST_CATS = { "leak", "scratch", "dust" };
+
+    private int borderCursor() {
+        for (int i = 0; i < BORDER_MODES.length; i++) if (BORDER_MODES[i] == stampMode) return i;
+        return 0;
+    }
+    private int groupOf(int cur) { return cur <= 5 ? 0 : (cur <= 15 ? 1 : 2); }
+    private int stepGroup(int cur, int grp, int d) {
+        if (grp == 0) return (cur + d + 6) % 6;
+        if (grp == 1) return 6 + (((cur - 6) + d + 10) % 10);
+        return 16 + (((cur - 16) + d + 3) % 3);
+    }
+    private int groupStart(int grp) {
+        if (grp == 0) return printInfo;
+        if (grp == 1) return 6 + borderCursor();
+        return 16;
+    }
+
+    private void renderStampMenu() {
+        String[] pi = { "None", "Date", "Exposure", "Date+Exp", "Film Name", "Film+Exp" };
+        String[] bd = { "None", "B1 white-card", "B2 film edge", "X collage", "W wide", "WB1 wide card", "WB2 wide edge", "WB3 wide sprocket", "H half", "2 double" };
+        String[] pp = { "Leak", "Scratch", "Dust" };
+        int bc = borderCursor();
+        StringBuilder sb = new StringBuilder("Print info / Frame / Post\nwheel=move  L/R=column  center=set  Fn=close\n\nPRINT INFO\n");
+        for (int i = 0; i < pi.length; i++) sb.append(stampMenu == i ? "> " : (printInfo == i ? "* " : "  ")).append(pi[i]).append('\n');
+        sb.append("\nFRAME\n");
+        for (int i = 0; i < bd.length; i++) sb.append(stampMenu == 6 + i ? "> " : (bc == i ? "* " : "  ")).append(bd[i]).append('\n');
+        sb.append("\nPOST (multi)\n");
+        for (int i = 0; i < pp.length; i++) sb.append(stampMenu == 16 + i ? "> " : "  ").append(postSel.contains(POST_CATS[i]) ? "[x] " : "[ ] ").append(pp[i]).append('\n');
+        overlay.setText(sb);
+        overlay.setVisibility(View.VISIBLE);
+        if (fbox != null) fbox.clearMenu();
+    }
+
+    private boolean stampMenuKey(int scan, int dir) {
+        int grp = groupOf(stampMenu);
+        if (scan == K_UP || dir < 0)    { stampMenu = stepGroup(stampMenu, grp, -1); renderOverlay(); return true; }
+        if (scan == K_DOWN || dir > 0)  { stampMenu = stepGroup(stampMenu, grp, +1); renderOverlay(); return true; }
+        if (scan == K_LEFT)             { stampMenu = groupStart((grp + 2) % 3); renderOverlay(); return true; }
+        if (scan == K_RIGHT)            { stampMenu = groupStart((grp + 1) % 3); renderOverlay(); return true; }
+        if (scan == K_ENTER) {
+            if (grp == 0) printInfo = stampMenu;
+            else if (grp == 1) { stampMode = BORDER_MODES[stampMenu - 6]; onStampModeChanged(); }
+            else { String c = POST_CATS[stampMenu - 16]; if (!postSel.remove(c)) postSel.add(c); }
+            savePrefs(); renderOverlay(); renderHud(); return true;
+        }
+        if (scan == K_FN || scan == K_MENU) { stampMenu = -1; renderOverlay(); renderHud(); return true; }
+        return true;   // consume every key while the menu is open
+    }
+
     private void renderOverlay() {
-        if (browser >= 0) {
+        if (stampMenu >= 0) {
+            renderStampMenu();
+        } else if (browser >= 0) {
             StringBuilder sb = new StringBuilder("Film (center=load / Fn=close)\n\n");
             java.util.List<String> dn = displayNames();
             for (int i = 0; i < dn.size(); i++) {
@@ -2144,7 +2208,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             downHeld = true; handler.removeCallbacks(downLongAction); handler.postDelayed(downLongAction, 5000);
         }
         if (e.getAction() == KeyEvent.ACTION_UP || e.getAction() == KeyEvent.ACTION_MULTIPLE) {
-                if (e.getAction() == KeyEvent.ACTION_UP && scan == K_S2 && browser < 0 && settings < 0) shutterUp();
+                if (e.getAction() == KeyEvent.ACTION_UP && scan == K_S2 && browser < 0 && settings < 0 && stampMenu < 0) shutterUp();
                 if (e.getAction() == KeyEvent.ACTION_UP && scan == K_S1 && !shooting) {   // S1 released mid-focus: cancel it (firmware behaviour)
                     rig.cancelFocus(); afCancel = true;
                     if (fbox != null) fbox.set(0);
@@ -2155,12 +2219,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 fnHeld = false;
                 handler.removeCallbacks(fnLongAction);
                 if (fnFired) { c1Held = false; renderHud(); }
-                else if (browser < 0 && settings < 0) { browser = sel; renderOverlay(); }
+                else if (browser < 0 && settings < 0 && stampMenu < 0) { browser = sel; renderOverlay(); }
             }
         if (e.getAction() == KeyEvent.ACTION_UP && (scan == K_C2 || (K_C4 != 0 && scan == K_C4))) {
             c2Held = false;
             handler.removeCallbacks(c2LongAction);
-            if (!c2Fired) { stampMode = (stampMode + 1) % 15; onStampModeChanged(); savePrefs(); renderHud(); }   // short press cycles stamp modes incl. H/2/B2/W/WB1-3
+            if (!c2Fired) {                                             // short press: toggle the dual-list (print info / frame + post)
+                stampMenu = (stampMenu >= 0) ? -1 : 0;
+                renderOverlay(); renderHud();
+            }
         }
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_AEL) {
                 aelHeld = false;
@@ -2189,6 +2256,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         int dir = (scan == K_WHEEL_CW || scan == K_DIAL_CW) ? 1
                 : (scan == K_WHEEL_CCW || scan == K_DIAL_CCW) ? -1 : 0;
         if (viewing >= 0) return viewerKey(scan, dir);
+        if (stampMenu >= 0) return stampMenuKey(scan, dir);
         if (browser >= 0) return browserKey(scan, dir);
         if (settings >= 0) return settingsKey(scan, dir);
         if (scan == K_WHEEL_CW || scan == K_WHEEL_CCW || inArr(K_WHEEL_EXTRA, scan)) {   // 波轮: change the highlighted value
@@ -2222,7 +2290,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 handler.postDelayed(fnLongAction, 600);
                 return true;
             }
-            browser = sel; renderOverlay(); return true;
+            if (stampMenu < 0) { browser = sel; renderOverlay(); } return true;
         }
         if (scan == K_C1) {                                        // in focus-adjust: exit it and jump to film row
             c1Held = true;
@@ -2298,7 +2366,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private int lastParam = 2;   // remembered param-row cursor
     private final java.util.HashSet<String> favs = new java.util.HashSet<String>();   // by FILM NAME: survives list reordering
     private boolean c1Held = false;
-    private int stampMode = 0;   // 0 off, 1 D, 2 E, 3 DE, 4 B1(white-card), 5 B2(film edge), 6 F(film name), 7 FE(film+expo), 8 H(half), 9 2(double), 10 X(collage), 11 W(wide), 12 WB1, 13 WB2, 14 WB3
+    private int stampMode = 0;   // BORDER/special only: 0 none, 4 B1(white-card), 5 B2(film edge), 8 H(half), 9 2(double), 10 X(collage), 11 W(wide), 12 WB1, 13 WB2, 14 WB3
+    private int printInfo = 0;   // PRINT INFO (independent of the frame): 0 none, 1 D(date), 2 E(exposure), 3 DE, 4 F(film name), 5 FE
+    private final java.util.LinkedHashSet<String> postSel = new java.util.LinkedHashSet<String>();   // post-process categories: leak / scratch / dust (multi-select)
+    private int stampMenu = -1;  // >=0: dual-list open, cursor over print(0..5) / border(6..15) / post(16..18)
     private boolean spotMode = false;
     private boolean aelHeld = false, aelFired = false;
     private final Runnable aelLongAction = new Runnable() { public void run() {
@@ -2619,11 +2690,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private void savePrefs() {
+        StringBuilder psb = new StringBuilder();
+        for (String c : postSel) { if (psb.length() > 0) psb.append(','); psb.append(c); }
         android.content.SharedPreferences.Editor ed = getPreferences(MODE_PRIVATE).edit()
                 .putInt("film2", sel)
                 .putInt("quality", qualityIdx)
                 .putString("favs", favsStr())
                 .putInt("stamp", stampMode)
+                .putInt("printinfo", printInfo)
+                .putString("post", psb.toString())
                 .putInt("gfinder", ghostFinder);
         String nm = selName();                            // persist the selected film by NAME too (the index is unstable across list changes)
         if (nm.length() > 0) { wantFilm = nm; ed.putString("selfilm", nm); }
