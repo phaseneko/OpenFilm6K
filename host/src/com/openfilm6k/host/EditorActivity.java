@@ -2019,7 +2019,7 @@ public class EditorActivity extends Activity {
         // post-process group (漏光/划痕/蒙尘): multi-select; each category is randomised in the preview
         android.widget.FrameLayout qg = new android.widget.FrameLayout(this);
         android.widget.LinearLayout qgi = new android.widget.LinearLayout(this);
-        qgi.setOrientation(LinearLayout.VERTICAL);
+        qgi.setOrientation(LinearLayout.HORIZONTAL);
         qgi.setBackground(new Ux.Etched());
         qgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
         final String[] pvPostCats = { "leak", "scratch", "dust" };
@@ -2040,7 +2040,7 @@ public class EditorActivity extends Activity {
                     renderPreview();
                 }
             });
-            qgi.addView(cb, new LinearLayout.LayoutParams(-1, -2));
+            qgi.addView(cb, new LinearLayout.LayoutParams(0, -2, 1f));
         }
         TextView qgl = new TextView(this); qgl.setText(L.s("ppLabel")); Ux.styleHeader(qgl);
         qg.setClipChildren(false);
@@ -2213,7 +2213,7 @@ public class EditorActivity extends Activity {
         // group: post-process (漏光/划痕/蒙尘), multi-select — applies to every arrived file (same pipeline as capture)
         android.widget.FrameLayout qg = new android.widget.FrameLayout(this);
         LinearLayout qgi = new LinearLayout(this);
-        qgi.setOrientation(LinearLayout.VERTICAL);
+        qgi.setOrientation(LinearLayout.HORIZONTAL);
         qgi.setBackground(new Ux.Etched());
         qgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
         final String[] spyPostCats = { "leak", "scratch", "dust" };
@@ -2236,7 +2236,7 @@ public class EditorActivity extends Activity {
                     pf.edit().putString("spy_post", sb2.toString()).commit();
                 }
             });
-            qgi.addView(cb, new LinearLayout.LayoutParams(-1, -2));
+            qgi.addView(cb, new LinearLayout.LayoutParams(0, -2, 1f));
         }
         TextView qgl = new TextView(this); qgl.setText(L.s("ppLabel")); Ux.styleHeader(qgl);
         qg.setClipChildren(false);
