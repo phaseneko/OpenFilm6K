@@ -279,7 +279,7 @@ public class Server {
                         r = collagePost(pipeIn, film, leakdust, scratch, out);
                         if (pipeIn != src) pipeIn.delete();
                     } else {
-                    if (filmBorder) pipeIn = buildBorderCanvas(pipeIn, workDir, name);   // place the photo on the final-res black canvas
+                    if (filmBorder) pipeIn = buildBorderCanvas(pipeIn, workDir, name, q);   // place the photo on the final-res black canvas
                     if (!leakdust.isEmpty()) {   // leak/dust join the film exposure -> graded by the pipeline
                         java.io.File ov = new java.io.File(workDir, "ov_" + name);
                         String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
@@ -875,7 +875,7 @@ public class Server {
             String r = null;
             if (isX) { r = collagePost(pipeIn, film, leakdust, scratch, out); if (pipeIn != src) pipeIn.delete(); }
             else {
-            if (filmBorder) pipeIn = buildBorderCanvas(pipeIn, workDir, base);
+            if (filmBorder) pipeIn = buildBorderCanvas(pipeIn, workDir, base, q);
             if (!leakdust.isEmpty()) {
                 java.io.File ov = new java.io.File(workDir, "ov_" + base);
                 String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
@@ -1526,27 +1526,39 @@ public class Server {
 
     /** B2/WB2/WB3: place the (stamped) original on the final-resolution black canvas (photo centred, base margins black).
      *  The overlay then composites over the WHOLE canvas, and the pipeline runs on it — so the leak/dust reach the base. */
-    private static java.io.File buildBorderCanvas(java.io.File photo, java.io.File wd, String name) {
+    private static java.io.File buildBorderCanvas(java.io.File photo, java.io.File wd, String name, java.util.Map<String,String> q) {
         try {
             android.graphics.Bitmap bm0 = android.graphics.BitmapFactory.decodeFile(photo.getAbsolutePath());
             if (bm0 == null) return photo;
-            if (bm0.getHeight() > bm0.getWidth()) {   // portrait: rotate 90 CW (same geometry as filmEdge)
+            if (bm0.getHeight() > bm0.getWidth()) {   // portrait: rotate 90 CW (same geometry as the border renderer)
                 android.graphics.Matrix rm = new android.graphics.Matrix(); rm.postRotate(90f);
                 android.graphics.Bitmap rot = android.graphics.Bitmap.createBitmap(bm0, 0, 0, bm0.getWidth(), bm0.getHeight(), rm, true);
                 bm0.recycle(); bm0 = rot;
             }
+            boolean wide = q.get("wb2") != null || q.get("wb3") != null;   // WB family crops to 2.7:1 first
+            boolean fills = q.get("wb3") != null;                          // WB3: photo fills the strip 1:1
+            float target = wide ? 2.7f : 1.5f;
             int fw0 = bm0.getWidth(), fh0 = bm0.getHeight();
-            float target = 1.5f; int cw, ch;
+            int cw, ch;
             if (fw0 > fh0 * target) { ch = fh0; cw = Math.round(fh0 * target); }
             else { cw = fw0; ch = Math.round(fw0 / target); }
             android.graphics.Bitmap bm = (cw == fw0 && ch == fh0) ? bm0
                 : android.graphics.Bitmap.createBitmap(bm0, (fw0 - cw) / 2, (fh0 - ch) / 2, cw, ch);
             int W = bm.getWidth(), H = bm.getHeight();
-            int rb = Math.round(W * 0.16f), rl = Math.round(W * 0.05f);
-            android.graphics.Bitmap ob = android.graphics.Bitmap.createBitmap(W + rl * 2, H + rb * 2, android.graphics.Bitmap.Config.ARGB_8888);
+            int rl, rb, CW, CH, px, py;
+            if (wide) {
+                float U = 1.5f * H;
+                rl = Math.round(U * 0.05f); rb = Math.round(U * 0.16f);
+                CW = fills ? W : W + 2 * rl; CH = fills ? H : H + 2 * rb;
+                px = fills ? 0 : rl; py = fills ? 0 : rb;
+            } else {
+                rb = Math.round(W * 0.16f); rl = Math.round(W * 0.05f);
+                CW = W + 2 * rl; CH = H + 2 * rb; px = rl; py = rb;
+            }
+            android.graphics.Bitmap ob = android.graphics.Bitmap.createBitmap(CW, CH, android.graphics.Bitmap.Config.ARGB_8888);
             android.graphics.Canvas cv = new android.graphics.Canvas(ob);
             cv.drawColor(0xFF000000);
-            cv.drawBitmap(bm, rl, rb, null);
+            cv.drawBitmap(bm, px, py, null);
             if (bm != bm0) bm.recycle();
             bm0.recycle();
             java.io.File out = new java.io.File(wd, "bc_" + name + ".jpg");
@@ -1570,7 +1582,13 @@ public class Server {
             java.io.File blackF = new java.io.File(workDir, "blk_" + gradedCanvas.getName());
             java.io.FileOutputStream fo = new java.io.FileOutputStream(blackF);
             black.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo); fo.close(); black.recycle();
-            String bp = filmEdge(blackF, src, film);   // border with a BLACK photo region; LUT applied to the base only
+            String bp;
+            if (q.get("wb2") != null || q.get("wb3") != null) {   // wide film edge: crop to 2.7:1 first, then the W renderer
+                cropWide(blackF);
+                bp = filmEdgeWide(blackF, film, q.get("wb3") != null);
+            } else {
+                bp = filmEdge(blackF, src, film);   // B2: border with a BLACK photo region; LUT applied to the base only
+            }
             android.graphics.Bitmap A = android.graphics.BitmapFactory.decodeFile(gradedCanvas.getAbsolutePath());
             android.graphics.Bitmap B = android.graphics.BitmapFactory.decodeFile(bp);
             if (A == null || B == null) { if (A != null) A.recycle(); if (B != null) B.recycle(); if (blackF.exists()) blackF.delete(); return gradedCanvas.getAbsolutePath(); }
