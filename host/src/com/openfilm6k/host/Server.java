@@ -269,14 +269,28 @@ public class Server {
                     galDir.mkdirs();
                     java.io.File out = new java.io.File(galDir, "graded_" + name);
                     String post = q.get("post");
-                    boolean postUnderFrame = (q.get("b") != null) || (q.get("wb1") != null);   // B1/WB1 frames: post goes under the frame
+                    String leakdust = postSubset(post, "leak", "dust");   // exposure overlays: composited BEFORE the pipeline
+                    String scratch = postSubset(post, "scratch");         // surface overlay: output-level, before any photo frame
+                    boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null) || (q.get("x") != null);   // B1/WB1 photo frames + X collage
+                    boolean filmBorder = isFilmBorder(q);
+                    if (filmBorder) pipeIn = buildBorderCanvas(pipeIn, workDir, name);   // place the photo on the final-res black canvas
+                    if (!leakdust.isEmpty()) {   // leak/dust join the film exposure -> graded by the pipeline
+                        java.io.File ov = new java.io.File(workDir, "ov_" + name);
+                        String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
+                        if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
+                    }
                     String r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
                     if (pipeIn != src) pipeIn.delete();
                     if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
-                        if (post != null) postApply(out, post);   // post the photo; frame (if any) drawn on top later for B1/WB1
-                        r = stamped(out, src, film, q);   // white-card frame / collage stay output-level
-                        if (post != null && !postUnderFrame && r != null && !r.startsWith("ERR"))
-                            r = postApply(new java.io.File(r), post).getAbsolutePath();   // post over everything (incl. B2 edge/collage/wide)
+                        if (filmBorder) r = screenBorderLayer(out, src, film, q);   // screen the LUT-only border over the graded canvas
+                        else if (photoFrame) {                                       // B1/WB1: scratch first, then the frame on top
+                            if (!scratch.isEmpty()) r = postApply(out, scratch).getAbsolutePath();
+                            r = stamped(out, src, film, q);
+                        } else {                                                     // borderless / W: output-level scratch after everything
+                            r = stamped(out, src, film, q);
+                            if (!scratch.isEmpty() && r != null && !r.startsWith("ERR"))
+                                r = postApply(new java.io.File(r), scratch).getAbsolutePath();
+                        }
                     }
                     // EXIF goes on last, so it survives the engine's encode AND the white-card/collage frame
                     if (exifApp1 != null && r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
@@ -845,10 +859,24 @@ public class Server {
             java.io.File pipeIn = textStampOriginal(src, q);
             galDir.mkdirs();
             java.io.File out = new java.io.File(galDir, "graded_" + base + ".jpg");
+            String post = q.get("post");
+            String leakdust = postSubset(post, "leak", "dust");
+            String scratch = postSubset(post, "scratch");
+            boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null) || (q.get("x") != null);   // B1/WB1 photo frames + X collage
+            boolean filmBorder = isFilmBorder(q);
+            if (filmBorder) pipeIn = buildBorderCanvas(pipeIn, workDir, base);
+            if (!leakdust.isEmpty()) {
+                java.io.File ov = new java.io.File(workDir, "ov_" + base);
+                String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
+                if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
+            }
             String r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
             if (pipeIn != src) pipeIn.delete();
-            if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
-                r = stamped(out, src, film, q);
+            if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
+                if (filmBorder) r = screenBorderLayer(out, src, film, q);
+                else if (photoFrame) { if (!scratch.isEmpty()) r = postApply(out, scratch).getAbsolutePath(); r = stamped(out, src, film, q); }
+                else { r = stamped(out, src, film, q); if (!scratch.isEmpty()) r = postApply(new java.io.File(r), scratch).getAbsolutePath(); }
+            }
             if (exifApp1 != null && r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
                 Exif.carryBytes(out, exifApp1);
             try {   // register into the gallery album + refresh the standing notification (same as camera ingest)
@@ -1484,6 +1512,69 @@ public class Server {
         }
     }
 
+    /** B2/WB2/WB3: place the (stamped) original on the final-resolution black canvas (photo centred, base margins black).
+     *  The overlay then composites over the WHOLE canvas, and the pipeline runs on it — so the leak/dust reach the base. */
+    private static java.io.File buildBorderCanvas(java.io.File photo, java.io.File wd, String name) {
+        try {
+            android.graphics.Bitmap bm0 = android.graphics.BitmapFactory.decodeFile(photo.getAbsolutePath());
+            if (bm0 == null) return photo;
+            if (bm0.getHeight() > bm0.getWidth()) {   // portrait: rotate 90 CW (same geometry as filmEdge)
+                android.graphics.Matrix rm = new android.graphics.Matrix(); rm.postRotate(90f);
+                android.graphics.Bitmap rot = android.graphics.Bitmap.createBitmap(bm0, 0, 0, bm0.getWidth(), bm0.getHeight(), rm, true);
+                bm0.recycle(); bm0 = rot;
+            }
+            int fw0 = bm0.getWidth(), fh0 = bm0.getHeight();
+            float target = 1.5f; int cw, ch;
+            if (fw0 > fh0 * target) { ch = fh0; cw = Math.round(fh0 * target); }
+            else { cw = fw0; ch = Math.round(fw0 / target); }
+            android.graphics.Bitmap bm = (cw == fw0 && ch == fh0) ? bm0
+                : android.graphics.Bitmap.createBitmap(bm0, (fw0 - cw) / 2, (fh0 - ch) / 2, cw, ch);
+            int W = bm.getWidth(), H = bm.getHeight();
+            int rb = Math.round(W * 0.16f), rl = Math.round(W * 0.05f);
+            android.graphics.Bitmap ob = android.graphics.Bitmap.createBitmap(W + rl * 2, H + rb * 2, android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas cv = new android.graphics.Canvas(ob);
+            cv.drawColor(0xFF000000);
+            cv.drawBitmap(bm, rl, rb, null);
+            if (bm != bm0) bm.recycle();
+            bm0.recycle();
+            java.io.File out = new java.io.File(wd, "bc_" + name + ".jpg");
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
+            ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo); fo.close(); ob.recycle();
+            return out;
+        } catch (Throwable t) { Engine.dbg("buildBorderCanvas ex " + t); return photo; }
+    }
+
+    /** B2/WB2/WB3: render the LUT-only film edge (via a black photo, so its region stays pure black = screen identity)
+     *  and SCREEN it over the graded canvas — the leak/dust in A's margins then light the base + print, while the
+     *  photo frame is untouched. */
+    private static String screenBorderLayer(java.io.File gradedCanvas, java.io.File src, String film, java.util.Map<String,String> q) {
+        try {
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true; android.graphics.BitmapFactory.decodeFile(src.getAbsolutePath(), o);
+            int w = o.outWidth, h = o.outHeight;
+            if (w <= 0 || h <= 0) return gradedCanvas.getAbsolutePath();
+            android.graphics.Bitmap black = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+            new android.graphics.Canvas(black).drawColor(0xFF000000);
+            java.io.File blackF = new java.io.File(workDir, "blk_" + gradedCanvas.getName());
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(blackF);
+            black.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo); fo.close(); black.recycle();
+            String bp = filmEdge(blackF, src, film);   // border with a BLACK photo region; LUT applied to the base only
+            android.graphics.Bitmap A = android.graphics.BitmapFactory.decodeFile(gradedCanvas.getAbsolutePath());
+            android.graphics.Bitmap B = android.graphics.BitmapFactory.decodeFile(bp);
+            if (A == null || B == null) { if (A != null) A.recycle(); if (B != null) B.recycle(); if (blackF.exists()) blackF.delete(); return gradedCanvas.getAbsolutePath(); }
+            android.graphics.Bitmap ob = A.copy(android.graphics.Bitmap.Config.ARGB_8888, true);
+            android.graphics.Canvas c = new android.graphics.Canvas(ob);
+            android.graphics.Paint p = new android.graphics.Paint();
+            p.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SCREEN));
+            c.drawBitmap(B, 0, 0, p);
+            java.io.FileOutputStream fo2 = new java.io.FileOutputStream(gradedCanvas);
+            ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo2); fo2.close();
+            A.recycle(); B.recycle(); ob.recycle();
+            if (blackF.exists()) blackF.delete();
+            return gradedCanvas.getAbsolutePath();
+        } catch (Throwable t) { Engine.dbg("screenBorderLayer ex " + t); return gradedCanvas.getAbsolutePath(); }
+    }
+
     private static String filmEdge(java.io.File graded, java.io.File src, String film) {
         try {
             android.graphics.Bitmap bm0 = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
@@ -1731,6 +1822,23 @@ java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
     /** output-level extras: white-card frame / 4-film collage / wide crop + wide frames */
     /** post-process: apply the selected categories to a rendered file IN PLACE (screen overlay, randomised).
      *  engine.applyPost returns the posted file; copy it back over {@code f} so callers keep one path. */
+    /** comma-subset of a post spec, keeping only the named categories (order preserved) */
+    private static String postSubset(String post, String... cats) {
+        if (post == null) return "";
+        java.util.HashSet<String> want = new java.util.HashSet<String>(java.util.Arrays.asList(cats));
+        StringBuilder sb = new StringBuilder();
+        for (String c : post.split(",")) {
+            c = c.trim();
+            if (c.length() > 0 && want.contains(c)) { if (sb.length() > 0) sb.append(','); sb.append(c); }
+        }
+        return sb.toString();
+    }
+
+    /** B2 / WB2 / WB3 = film edge (rebate) borders: the overlay reaches the base beyond the photo */
+    private static boolean isFilmBorder(java.util.Map<String,String> q) {
+        return q.get("b2") != null || q.get("wb2") != null || q.get("wb3") != null;
+    }
+
     static java.io.File postApply(java.io.File f, String post) {
         if (post == null || post.trim().isEmpty() || f == null || !f.exists()) return f;
         try {
