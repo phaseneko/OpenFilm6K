@@ -269,7 +269,7 @@ public class Server {
                     galDir.mkdirs();
                     java.io.File out = new java.io.File(galDir, "graded_" + name);
                     String post = q.get("post");
-                    String leakdust = postSubset(post, "leak", "dust");   // exposure overlays: composited BEFORE the pipeline
+                    String leakdust = postSubset(post, "leak", "dust", "veiling");   // exposure overlays: composited BEFORE the pipeline
                     String scratch = postSubset(post, "scratch");         // surface overlay: output-level, before any photo frame
                     boolean isX = q.get("x") != null;
                     boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null);
@@ -867,7 +867,7 @@ public class Server {
             java.io.File pipeIn = textStampOriginal(src, q);
             galDir.mkdirs();
             java.io.File out = new java.io.File(galDir, "graded_" + base + ".jpg");
-            String leakdust = postSubset(post, "leak", "dust");
+            String leakdust = postSubset(post, "leak", "dust", "veiling");
             String scratch = postSubset(post, "scratch");
             boolean isX = q.get("x") != null;
             boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null);

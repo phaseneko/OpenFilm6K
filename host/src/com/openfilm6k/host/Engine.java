@@ -164,13 +164,22 @@ public class Engine {
         } catch (Throwable e) { return ""; }
     }
 
-    /** post-process categories (fixed): leak / scratch / dust — each a gallery under /post/<cat>/ */
-    static final String[] POST_CATS = { "leak", "scratch", "dust" };
+    /** post-process categories (fixed): leak / scratch / dust / veiling */
+    static final String[] POST_CATS = { "leak", "scratch", "dust", "veiling" };
     static String postDir(String cat) { return "/sdcard/OpenFilm6K/post/" + cat; }
-    /** random alpha range per category (the fixed strength is randomised within it) */
+    // ---- official-tuned post defaults (no user parameters) ----
+    // dust: highlight-driven procedural "bubble bokeh" (solid disc + bright rim)
+    //   DUST_SPREAD = highlight-spread radius as a fraction of the frame's long side (gate for which dust cores light)
+    private static final float DUST_GAIN = 0.6f, DUST_TH = 0.85f, DUST_TH2 = 0.95f;
+    //   DUST_RMAX chosen so the largest particle diameter = frame long side / 10
+    private static final float DUST_SPREAD = 0.3333f, DUST_RMIN = 24f, DUST_RMAX = 138f;
+    private static final float DUST_BODY = 0.6f, DUST_PROB = 0.85f, DUST_WARM = 0.4f;
+    // veiling: ultra-light broad lens haze (independent category)
+    private static final float VEIL_GAIN = 0.04f, VEIL_RADIUS = 260f, VEIL_LIFT = 0.0025f, VEIL_WARM = 0.5f;
+    /** random alpha range per gallery category (dust/veiling are procedural, not here) */
     private static float[] postAlphaRange(String cat) {
         if ("leak".equals(cat)) return new float[]{ 1.0f, 1.3f };
-        return new float[]{ 0.7f, 1.0f };   // scratch, dust
+        return new float[]{ 0.7f, 1.0f };   // scratch
     }
 
     /** apply the selected post-process categories to an already-rendered file: each category randomly
@@ -194,6 +203,23 @@ public class Engine {
                 java.util.ArrayList<String> files = new java.util.ArrayList<String>();
                 java.util.Random rnd = new java.util.Random();
                 for (String c : cats) {
+                    if ("dust".equals(c)) {                     // procedural: highlight-driven bubble bokeh
+                        float seed = rnd.nextFloat() * 997f;
+                        float[] P = new float[12];
+                        P[0] = 8; P[1] = DUST_GAIN; P[2] = DUST_TH; P[3] = DUST_TH2;
+                        P[4] = DUST_SPREAD; P[5] = DUST_RMIN; P[6] = DUST_RMAX;
+                        P[7] = DUST_BODY; P[8] = DUST_PROB; P[9] = seed; P[10] = DUST_WARM;
+                        for (float v : P) rows.add(v);
+                        dbg("post dust gain=" + DUST_GAIN + " seed=" + seed);
+                        continue;
+                    }
+                    if ("veiling".equals(c)) {                  // procedural: ultra-light broad haze
+                        float[] P = new float[12];
+                        P[0] = 9; P[1] = VEIL_GAIN; P[2] = VEIL_RADIUS; P[3] = VEIL_LIFT; P[4] = VEIL_WARM;
+                        for (float v : P) rows.add(v);
+                        dbg("post veiling gain=" + VEIL_GAIN);
+                        continue;
+                    }
                     java.io.File[] fs = new java.io.File(postDir(c)).listFiles();
                     java.util.ArrayList<java.io.File> imgs = new java.util.ArrayList<java.io.File>();
                     if (fs != null) for (java.io.File f : fs) {
@@ -223,7 +249,7 @@ public class Engine {
                     files.add(pick.getAbsolutePath());
                     dbg("post " + c + " pick " + pick.getName() + " a=" + al + " s=" + s + " sv=" + sv + " off=" + offx + "," + offy + " flip=" + fx + "," + fy);
                 }
-                if (files.isEmpty()) return inPath;
+                if (rows.isEmpty()) return inPath;
                 float[] nodes = new float[rows.size()];
                 for (int i = 0; i < nodes.length; i++) nodes[i] = rows.get(i);
                 int rc = nProcessFile(inPath, outPath, null, nodes, files.toArray(new String[0]), null, null, 0f, new String[0], new String[0]);

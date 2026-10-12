@@ -117,6 +117,7 @@ public class L {
         {"ppLeak", "漏光", "漏光", "Light leak", "光漏れ", "빛샘", "Lichteinfall", "Fuite de lumière", "Fuga de luz", "Засветка", "Vazamento de luz"},
         {"ppScratch", "划痕", "劃痕", "Scratches", "傷", "스크래치", "Kratzer", "Rayures", "Arañazos", "Царапины", "Riscos"},
         {"ppDust", "蒙尘", "蒙塵", "Dust", "ホコリ", "먼지", "Staub", "Poussière", "Polvo", "Пыль", "Poeira"},
+        {"ppVeiling", "镜雾", "鏡霧", "Veiling", "かすみ", "헤이즈", "Schleier", "Voile", "Velado", "Вуаль", "Véu"},
         // ---- preview labels ----
         {"origLabel", "← 原图", "← 原圖", "← Original", "← 原画", "← 원본", "← Original", "← Original", "← Original", "← Оригинал", "← Original"},
         {"adjLabel", "成图 →", "成圖 →", "Result →", "完成画像 →", "결과 →", "Ergebnis →", "Résultat →", "Resultado →", "Результат →", "Resultado →"},

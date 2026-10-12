@@ -2022,8 +2022,8 @@ public class EditorActivity extends Activity {
         qgi.setOrientation(LinearLayout.HORIZONTAL);
         qgi.setBackground(new Ux.Etched());
         qgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
-        final String[] pvPostCats = { "leak", "scratch", "dust" };
-        final String[] pvPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust") };
+        final String[] pvPostCats = { "leak", "scratch", "dust", "veiling" };
+        final String[] pvPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust"), L.s("ppVeiling") };
         for (int i = 0; i < pvPostCats.length; i++) {
             final String cc = pvPostCats[i];
             final CheckBox cb = new CheckBox(this); cb.setText(pvPostNames[i]);
@@ -2216,8 +2216,8 @@ public class EditorActivity extends Activity {
         qgi.setOrientation(LinearLayout.HORIZONTAL);
         qgi.setBackground(new Ux.Etched());
         qgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
-        final String[] spyPostCats = { "leak", "scratch", "dust" };
-        final String[] spyPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust") };
+        final String[] spyPostCats = { "leak", "scratch", "dust", "veiling" };
+        final String[] spyPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust"), L.s("ppVeiling") };
         for (int i = 0; i < spyPostCats.length; i++) {
             final String cc = spyPostCats[i];
             CheckBox cb = new CheckBox(this); cb.setText(spyPostNames[i]);
@@ -2458,7 +2458,7 @@ public class EditorActivity extends Activity {
                 try {
                     String out2 = "/sdcard/OpenFilm6K/edit_preview.jpg";
                     java.io.File ps2 = Server.pvStampSource(src2, film);
-                    String ldu2 = Server.postSubset(pvPost(), "leak", "dust");
+                    String ldu2 = Server.postSubset(pvPost(), "leak", "dust", "veiling");
                     if (!ldu2.isEmpty()) { java.io.File ov2 = new java.io.File("/sdcard/OpenFilm6K/_pvov.jpg"); String rr2 = Engine.get().applyPost(ps2.getAbsolutePath(), ov2.getAbsolutePath(), ldu2); if (rr2 != null && new java.io.File(rr2).exists()) ps2 = new java.io.File(rr2); }
                     Engine.get().process(ps2.getAbsolutePath(), pvFilm, out2);   // watermark burned BEFORE the pipeline (incl. LUT)
                     String scr2 = Server.postSubset(pvPost(), "scratch"); if (!scr2.isEmpty()) Server.postApply(new java.io.File(out2), scr2);
@@ -2504,7 +2504,7 @@ public class EditorActivity extends Activity {
                 Films.reload("EDITTMP");
                 String out = "/sdcard/OpenFilm6K/edit_preview.jpg";
                 java.io.File ps = Server.pvStampSource(src, film);
-                String ldu = Server.postSubset(pvPost(), "leak", "dust");
+                String ldu = Server.postSubset(pvPost(), "leak", "dust", "veiling");
                 if (!ldu.isEmpty()) { java.io.File ov = new java.io.File("/sdcard/OpenFilm6K/_pvov.jpg"); String rr = Engine.get().applyPost(ps.getAbsolutePath(), ov.getAbsolutePath(), ldu); if (rr != null && new java.io.File(rr).exists()) ps = new java.io.File(rr); }
                 String r = Engine.get().process(ps.getAbsolutePath(), "EDITTMP", out);   // watermark burned BEFORE the pipeline (incl. LUT)
                 String scr = Server.postSubset(pvPost(), "scratch"); if (r != null && !scr.isEmpty()) Server.postApply(new File(out), scr);

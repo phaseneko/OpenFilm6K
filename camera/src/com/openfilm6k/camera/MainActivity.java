@@ -2103,7 +2103,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // ---- dual list: print info / frame (single-select) + post-process (multi-select) ----
     private static final int[] BORDER_MODES = { 0, 4, 5, 10, 11, 12, 13, 14, 8, 9 };
-    private static final String[] POST_CATS = { "leak", "scratch", "dust" };
+    private static final String[] POST_CATS = { "leak", "scratch", "dust", "veiling" };
 
     private int borderCursor() {
         for (int i = 0; i < BORDER_MODES.length; i++) if (BORDER_MODES[i] == stampMode) return i;
@@ -2113,7 +2113,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private int stepGroup(int cur, int grp, int d) {
         if (grp == 0) return (cur + d + 6) % 6;
         if (grp == 1) return 6 + (((cur - 6) + d + 10) % 10);
-        return 16 + (((cur - 16) + d + 3) % 3);
+        return 16 + (((cur - 16) + d + 4) % 4);
     }
     private int groupStart(int grp) {
         if (grp == 0) return printInfo;
@@ -2124,7 +2124,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private void renderStampMenu() {
         String[] pi = { "None", "Date", "Exposure", "Date+Exp", "Film Name", "Film+Exp" };
         String[] bd = { "None", "B1 white-card", "B2 film edge", "X collage", "W wide", "WB1 wide card", "WB2 wide edge", "WB3 wide sprocket", "H half", "2 double" };
-        String[] pp = { "Leak", "Scratch", "Dust" };
+        String[] pp = { "Leak", "Scratch", "Dust", "Veiling" };
         int bc = borderCursor();
         StringBuilder sb = new StringBuilder("Print info / Frame / Post\nwheel=move  L/R=column  center=set  Fn=close\n\nPRINT INFO\n");
         for (int i = 0; i < pi.length; i++) sb.append(stampMenu == i ? "> " : (printInfo == i ? "* " : "  ")).append(pi[i]).append('\n');

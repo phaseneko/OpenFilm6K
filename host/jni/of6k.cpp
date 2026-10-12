@@ -195,12 +195,138 @@ static const char* FS_HUE = FS_HEAD
     " r=mix(vec3(lum2),r,1.0+uSat*g);\n"
     " o=vec4(clamp(mix(c,r,uOn),0.0,1.0),1.0); }\n";
 
+// separable gaussian blur (25 taps, reach +-uRadius px) — generic, used by dust spread + veiling
+static const char* FS_BLUR_H = FS_HEAD
+    "uniform float uRadius;\n"
+    "void main(){ vec3 a=vec3(0.0); float ws=0.0;\n"
+    " for(int i=-12;i<=12;i++){ float w=exp(-float(i*i)/72.0);\n"
+    "  a+=texture(uTex,luv()+vec2(float(i)*uRadius/12.0/uRes.x,0.0)).rgb*w; ws+=w; }\n"
+    " o=vec4(a/ws,1.0); }";
+static const char* FS_BLUR_V = FS_HEAD
+    "uniform float uRadius;\n"
+    "void main(){ vec3 a=vec3(0.0); float ws=0.0;\n"
+    " for(int j=-12;j<=12;j++){ float w=exp(-float(j*j)/72.0);\n"
+    "  a+=texture(uTex,luv()+vec2(0.0,float(j)*uRadius/12.0/uRes.y)).rgb*w; ws+=w; }\n"
+    " o=vec4(a/ws,1.0); }";
+
+// post-process DUST (splat + blur): a tiny core dot per dust particle, blurred into a soft disc;
+// cores are gated by a broad highlight-spread mask with a Gaussian band-pass (rings around the brightest).
+static const char* FS_DUSTCORE = FS_HEAD
+    "uniform sampler2D uMask; uniform float uCell,uRDot,uProb,uSeed; uniform vec2 uHi;\n"
+    "float hash(vec2 p){ vec3 p3=fract(vec3(p.xyx)*0.1031+uSeed); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }\n"
+    "void main(){\n"
+    " vec2 pf=uOrigin+gl_FragCoord.xy; vec2 b=floor(pf/uCell);\n"
+    " float r=uRDot*(0.8+0.4*hash(b+vec2(23.7,7.1)));\n"
+    // per-particle jitter margin: just enough for this particle to fit its own cell, then randomise the rest freely
+    // (keeps particles from being cut at cell borders while making the placement as non-regular as possible)
+    " float jm=clamp(1.07*r/uCell,0.0,0.45);\n"
+    " vec2 jit=vec2(jm+(1.0-2.0*jm)*hash(b+vec2(11.3,3.7)),jm+(1.0-2.0*jm)*hash(b+vec2(5.1,17.9)));\n"
+    " vec2 cp=(b+jit)*uCell;\n"
+    " vec2 rel=pf-cp;\n"
+    // strictly convex nonagon (9 vertices on a circle, 40-deg apart); per-vertex radius drift <=10% keeps
+    // edge lengths within ~10% and the polygon convex; plus a random per-particle rotation
+    " float rot=hash(b+vec2(3.3,9.1))*6.2831853;\n"
+    " float rho=length(rel);\n"
+    " float step=0.6981317;\n"
+    " float th=atan(rel.y,rel.x)-rot;\n"
+    " float k0=floor(th/step);\n"
+    // vertices stay ON the circle (equal radius); only their angles drift -> outline as round as possible for a nonagon
+    " float e0=0.0349*(hash(b+vec2(60.0+k0-1.0,9.0))*2.0-1.0);\n"
+    " float e1=0.0349*(hash(b+vec2(60.0+k0,9.0))*2.0-1.0);\n"
+    " float e2=0.0349*(hash(b+vec2(60.0+k0+1.0,9.0))*2.0-1.0);\n"
+    " float e3=0.0349*(hash(b+vec2(60.0+k0+2.0,9.0))*2.0-1.0);\n"
+    " float a0=(k0-1.0)*step+e0, a1=k0*step+e1, a2=(k0+1.0)*step+e2, a3=(k0+2.0)*step+e3;\n"
+    " float A=a0,B=a1; if(th>=a1){A=a1;B=a2;} if(th>=a2){A=a2;B=a3;}\n"
+    " float rb=r*cos(0.5*(B-A))/max(cos(th-0.5*(A+B)),1e-3);\n"
+    " float rr=rho/max(rb,1.0);\n"
+    // hollow bubble: dim centre ramping up to a bright rim (dark->dark->dark->mid->bright), then a soft outer falloff
+    " float env=1.0-smoothstep(1.00,1.06,rr);\n"
+    " float rim=exp(-pow(abs(rr-0.92)/0.07,4.0));\n"
+    " float prof=env*(0.55+0.12*rim);\n"
+    // directional lighting: the side of the bubble facing the main highlight is brighter than the far side
+    " vec2 dh=uHi-cp; float dl=max(length(dh),1.0);\n"
+    " float facing=(rho>0.5)? (rel.x*dh.x+rel.y*dh.y)/(rho*dl) : 0.0;\n"
+    " prof*=clamp(1.0+0.09*facing,0.0,2.0);\n"
+    " vec3 mm=texture(uMask,clamp(cp/uFull,vec2(0.0),vec2(1.0))).rgb;\n"
+    " float gi=max(mm.r,max(mm.g,mm.b));\n"
+    " float e=(gi-0.75)/0.075; float dg=exp(-0.5*e*e);\n"
+    " vec3 col=mm/max(gi,1e-3);\n"
+    " float on=hash(b+vec2(0.5,0.5))<uProb?1.0:0.0;\n"
+    " o=vec4(prof*dg*on*col,1.0); }\n";
+
+// composite: hollow bubble (from the narrow blur), screened back
+static const char* FS_DUSTCOMP = FS_HEAD
+    "uniform sampler2D uSrc; uniform sampler2D uWide; uniform float uBody,uRim,uGain,uBoost; uniform vec3 uTint;\n"
+    "void main(){ vec3 c=src();\n"
+    " vec3 b1=texture(uSrc,luv()).rgb;\n"
+    " vec3 s=uRim*b1;\n"
+    " vec3 g=clamp(s*uGain,0.0,1.0);\n"
+    " o=vec4(vec3(1.0)-(vec3(1.0)-c)*(vec3(1.0)-g),1.0); }\n";
+
+// dust radial blur: smear the dust field along rays emanating from the main highlight centre (zoom/radial blur)
+static const char* FS_DUSTRAD = FS_HEAD
+    "uniform float uSpread,uMaxOff; uniform vec2 uCenter;\n"
+    "void main(){\n"
+    " vec2 pf=uOrigin+gl_FragCoord.xy; vec2 v=pf-uCenter; float rv=length(v);\n"
+    " float k=(rv>0.5)? min(uSpread, uMaxOff/rv) : 0.0;\n"
+    " vec3 a=vec3(0.0);\n"
+    " for(int i=-10;i<=10;i++){ float f=1.0+float(i)/10.0*k; vec2 tp=(uCenter+v*f-uOrigin)/uRes;\n"
+    "  a+=texture(uTex,clamp(tp,vec2(0.0),vec2(1.0))).rgb; }\n"
+    " o=vec4(a/21.0,1.0); }\n";
+
+// dust core (per-particle quad): each dust grain is an independent quad -> no cell grid, natural scatter
+static const char* VS_DUSTQ =
+    "#version 300 es\n"
+    "layout(location=0) in vec2 aPos;\n"
+    "uniform vec2 uPC,uOrigin,uRes; uniform float uHalf;\n"
+    "out vec2 vRel;\n"
+    "void main(){ vRel=aPos*uHalf; vec2 local=(uPC-uOrigin)+vRel;\n"
+    " gl_Position=vec4(local.x/uRes.x*2.0-1.0, local.y/uRes.y*2.0-1.0,0.0,1.0); }\n";
+static const char* FS_DUSTQ = FS_HEAD
+    "uniform sampler2D uMask; uniform float uR,uSeed; uniform vec2 uPC,uHi;\n"
+    "in vec2 vRel;\n"
+    "float hash(vec2 p){ vec3 p3=fract(vec3(p.xyx)*0.1031+uSeed); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }\n"
+    "void main(){\n"
+    " vec2 rel=vRel; float rho=length(rel); float r=uR;\n"
+    " float rot=hash(vec2(3.3,9.1))*6.2831853;\n"
+    " float step=0.6981317;\n"
+    " float th=atan(rel.y,rel.x)-rot;\n"
+    " float k0=floor(th/step);\n"
+    " float e0=0.0349*(hash(vec2(60.0+k0-1.0,9.0))*2.0-1.0);\n"
+    " float e1=0.0349*(hash(vec2(60.0+k0,9.0))*2.0-1.0);\n"
+    " float e2=0.0349*(hash(vec2(60.0+k0+1.0,9.0))*2.0-1.0);\n"
+    " float e3=0.0349*(hash(vec2(60.0+k0+2.0,9.0))*2.0-1.0);\n"
+    " float a0=(k0-1.0)*step+e0, a1=k0*step+e1, a2=(k0+1.0)*step+e2, a3=(k0+2.0)*step+e3;\n"
+    " float A=a0,B=a1; if(th>=a1){A=a1;B=a2;} if(th>=a2){A=a2;B=a3;}\n"
+    " float rb=r*cos(0.5*(B-A))/max(cos(th-0.5*(A+B)),1e-3);\n"
+    " float rr=rho/max(rb,1.0);\n"
+    " float env=1.0-smoothstep(1.00,1.06,rr);\n"
+    " float rim=exp(-pow(abs(rr-0.92)/0.07,4.0));\n"
+    " float prof=env*(0.55+0.12*rim);\n"
+    " vec2 dh=uHi-uPC; float dl=max(length(dh),1.0);\n"
+    " float facing=(rho>0.5)?(rel.x*dh.x+rel.y*dh.y)/(rho*dl):0.0;\n"
+    " prof*=clamp(1.0+0.09*facing,0.0,2.0);\n"
+    " vec3 mm=texture(uMask,clamp(uPC/uFull,vec2(0.0),vec2(1.0))).rgb;\n"
+    " float gi=max(mm.r,max(mm.g,mm.b));\n"
+    " float e=(gi-0.75)/0.075; float dg=exp(-0.5*e*e);\n"
+    " vec3 col=mm/max(gi,1e-3);\n"
+    " o=vec4(prof*dg*col,1.0); }\n";
+
+// post-process VEILING (lens haze): very light broad low-frequency wash, screened back
+static const char* FS_VEIL = FS_HEAD
+    "uniform sampler2D uVeil; uniform float uGain,uLift; uniform vec3 uTint;\n"
+    "void main(){ vec3 c=src(); vec3 v=texture(uVeil,luv()).rgb*uTint*uGain+uLift;\n"
+    " vec3 g=clamp(v,0.0,1.0);\n"
+    " o=vec4(vec3(1.0)-(vec3(1.0)-c)*(vec3(1.0)-g),1.0); }";
+
 // ---- GL objects (created once, reused across renders) ----
 static EGLDisplay g_dpy = EGL_NO_DISPLAY;
 static EGLContext g_ctx = EGL_NO_CONTEXT;
 static EGLSurface g_surf = EGL_NO_SURFACE;
 static bool g_inited = false;
 static GLuint g_progLut, g_progGrade, g_progGlowH, g_progGlowV, g_progGrain, g_progVig, g_progGlowMask, g_progGlowDil, g_progGlowRing, g_progCopy, g_progSharp, g_progImage, g_progHue;
+static GLuint g_progBlurH, g_progBlurV, g_progDust, g_progDustRad, g_progDustQ, g_progVeil, g_progDustComp;
+static GLuint g_dustVBO = 0;
 static GLuint g_fbo[6] = {0, 0, 0, 0, 0, 0}, g_tex[6] = {0, 0, 0, 0, 0, 0};
 static GLuint g_curTex = 0;
 static std::vector<std::string> g_ovPaths;   // overlay file per image node (chain order)
@@ -209,6 +335,9 @@ struct OvCache { GLuint tex; long mt; int w, h; };
 static std::map<std::string, OvCache> g_ovCache;
 static GLuint g_holdTex = 0;      // day/night blend: holds the day result while night renders
 static int s_holdW = 0, s_holdH = 0;
+static GLuint g_dustMaskTex = 0;  // dust: global low-res highlight-spread gate (whole image, tile-independent)
+static int g_dustMaskW = 0, g_dustMaskH = 0;
+static float g_hlx = 0.0f, g_hly = 0.0f;  // dust: centroid of the main highlight (full-res px), for radial blur + lighting
 static void ensureHold(int w, int h) {
     if (g_holdTex && s_holdW == w && s_holdH == h) return;
     if (g_holdTex) glDeleteTextures(1, &g_holdTex);
@@ -301,6 +430,95 @@ static GLuint loadOverlay(const std::string& path, int& ow, int& oh) {
     return tex;
 }
 
+// ---- dust highlight-spread gate: computed once at low res on the CPU (global, tile-independent) ----
+static void boxBlurH(const float* src, float* dst, int w, int h, int r) {
+    for (int y = 0; y < h; y++) {
+        const float* s = src + (size_t) y * w; float* d = dst + (size_t) y * w;
+        for (int x = 0; x < w; x++) {
+            double sum = 0; int n = 0;
+            for (int i = -r; i <= r; i++) { int xi = x + i; if (xi < 0) xi = 0; else if (xi >= w) xi = w - 1; sum += s[xi]; n++; }
+            d[x] = (float) (sum / n);
+        }
+    }
+}
+static void boxBlurV(const float* src, float* dst, int w, int h, int r) {
+    for (int x = 0; x < w; x++) {
+        for (int y = 0; y < h; y++) {
+            double sum = 0; int n = 0;
+            for (int j = -r; j <= r; j++) { int yj = y + j; if (yj < 0) yj = 0; else if (yj >= h) yj = h - 1; sum += src[(size_t) yj * w + x]; n++; }
+            dst[(size_t) y * w + x] = (float) (sum / n);
+        }
+    }
+}
+static void ensureDustMask(int mw, int mh) {
+    if (g_dustMaskTex && g_dustMaskW == mw && g_dustMaskH == mh) return;
+    if (g_dustMaskTex) glDeleteTextures(1, &g_dustMaskTex);
+    glGenTextures(1, &g_dustMaskTex);
+    glBindTexture(GL_TEXTURE_2D, g_dustMaskTex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mw, mh, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    g_dustMaskW = mw; g_dustMaskH = mh;
+}
+// build the spread-highlight gate: downsample luma -> smoothstep threshold -> broad box blur -> upload
+static void buildDustMask(const unsigned char* img, int W, int H, float th, float th2, float spreadFrac) {
+    int mw, mh;
+    if (W >= H) { mw = 200; mh = (int) lround(200.0 * H / W); } else { mh = 200; mw = (int) lround(200.0 * W / H); }
+    if (mw < 1) mw = 1; if (mh < 1) mh = 1;
+    ensureDustMask(mw, mh);
+    std::vector<float> mR((size_t) mw * mh, 0.0f), mG((size_t) mw * mh, 0.0f), mB((size_t) mw * mh, 0.0f), tmp((size_t) mw * mh, 0.0f);
+    for (int y = 0; y < mh; y++) {
+        int y0 = (int) ((long) y * H / mh), y1 = (int) ((long) (y + 1) * H / mh); if (y1 <= y0) y1 = y0 + 1;
+        for (int x = 0; x < mw; x++) {
+            int x0 = (int) ((long) x * W / mw), x1 = (int) ((long) (x + 1) * W / mw); if (x1 <= x0) x1 = x0 + 1;
+            double sr = 0, sg = 0, sb = 0; int n = 0;
+            for (int yy = y0; yy < y1; yy++) {
+                const unsigned char* row = img + (size_t) yy * W * 4;
+                for (int xx = x0; xx < x1; xx++) { const unsigned char* p = row + (size_t) xx * 4; sr += p[0]; sg += p[1]; sb += p[2]; n++; }
+            }
+            double inv = 1.0 / std::max(1, n) / 255.0;
+            mR[(size_t) y * mw + x] = (float) (sr * inv);
+            mG[(size_t) y * mw + x] = (float) (sg * inv);
+            mB[(size_t) y * mw + x] = (float) (sb * inv);
+        }
+    }
+    float lo = th, hi = (th2 > th ? th2 : th + 0.001f);
+    {   // highlight gate on the per-pixel brightness; keep the colour (scale RGB by the gate, colour ratio intact)
+        double cxs = 0, cys = 0, cws = 0;
+        for (size_t i = 0; i < mR.size(); i++) {
+            float b = fmaxf(mR[i], fmaxf(mG[i], mB[i]));
+            float t = (b - lo) / (hi - lo); t = t < 0 ? 0 : (t > 1 ? 1 : t); float g = t * t * (3.0f - 2.0f * t);
+            mR[i] *= g; mG[i] *= g; mB[i] *= g;
+            double w = (double) g * b; if (w > 1e-4) { cxs += w * (i % mw); cys += w * (i / mw); cws += w; }
+        }
+        if (cws > 1e-6) { g_hlx = (float) (cxs / cws) * W / mw; g_hly = (float) (cys / cws) * H / mh; }
+        else { g_hlx = W * 0.5f; g_hly = H * 0.5f; }
+    }
+    int rs = (int) lroundf(std::max(W, H) * spreadFrac * (float) mw / (float) W);
+    if (rs < 1) rs = 1;
+    for (int pass = 0; pass < 2; pass++) {
+        boxBlurH(mR.data(), tmp.data(), mw, mh, rs); boxBlurV(tmp.data(), mR.data(), mw, mh, rs);
+        boxBlurH(mG.data(), tmp.data(), mw, mh, rs); boxBlurV(tmp.data(), mG.data(), mw, mh, rs);
+        boxBlurH(mB.data(), tmp.data(), mw, mh, rs); boxBlurV(tmp.data(), mB.data(), mw, mh, rs);
+    }
+    // normalize by the peak brightness so a white highlight -> (1,1,1) and coloured highlights keep their hue
+    float mx = 0.0f;
+    for (size_t i = 0; i < mR.size(); i++) { float b = fmaxf(mR[i], fmaxf(mG[i], mB[i])); if (b > mx) mx = b; }
+    float inorm = (mx > 1e-5f) ? (1.0f / mx) : 1.0f;
+    std::vector<unsigned char> bytes((size_t) mw * mh * 4);
+    for (size_t i = 0; i < mR.size(); i++) {
+        int vr = (int) (mR[i] * inorm * 255.0f + 0.5f), vg = (int) (mG[i] * inorm * 255.0f + 0.5f), vb = (int) (mB[i] * inorm * 255.0f + 0.5f);
+        if (vr < 0) vr = 0; if (vr > 255) vr = 255; if (vg < 0) vg = 0; if (vg > 255) vg = 255; if (vb < 0) vb = 0; if (vb > 255) vb = 255;
+        bytes[i * 4] = (unsigned char) vr; bytes[i * 4 + 1] = (unsigned char) vg; bytes[i * 4 + 2] = (unsigned char) vb; bytes[i * 4 + 3] = 255;
+    }
+    glBindTexture(GL_TEXTURE_2D, g_dustMaskTex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mw, mh, GL_RGBA, GL_UNSIGNED_BYTE, bytes.data());
+    LOGI("dust mask %dx%d rs=%d th=%.2f", mw, mh, rs, th);
+}
+
 static GLuint mkProg(const char* fs) {
     const char* srcs[2] = { VS, fs };
     GLenum types[2] = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER };
@@ -319,6 +537,24 @@ static GLuint mkProg(const char* fs) {
     glLinkProgram(p);
     GLint ok = 0; glGetProgramiv(p, GL_LINK_STATUS, &ok);
     if (!ok) LOGE("program link failed");
+    return p;
+}
+
+static GLuint mkProg2(const char* vs, const char* fs) {
+    const char* srcs[2] = { vs, fs };
+    GLenum types[2] = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER };
+    GLuint p = glCreateProgram();
+    for (int i = 0; i < 2; i++) {
+        GLuint s = glCreateShader(types[i]);
+        glShaderSource(s, 1, &srcs[i], nullptr);
+        glCompileShader(s);
+        GLint ok = 0; glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+        if (!ok) { char log[512]; GLsizei l; glGetShaderInfoLog(s, 511, &l, log); LOGE("shader2 compile: %s", log); }
+        glAttachShader(p, s); glDeleteShader(s);
+    }
+    glLinkProgram(p);
+    GLint ok = 0; glGetProgramiv(p, GL_LINK_STATUS, &ok);
+    if (!ok) LOGE("program2 link failed");
     return p;
 }
 
@@ -436,7 +672,7 @@ static bool loadLutBlend(const char* p1, const char* p2, float s) {
 }
 
 // node param row layout (Java packs): [0]=type 0..4, then type-specific floats (see Engine.java)
-enum { N_LUT = 0, N_GRADE = 1, N_GLOW = 2, N_GRAIN = 3, N_VIG = 4, N_SHARP = 5, N_IMAGE = 6, N_HUE = 7 };
+enum { N_LUT = 0, N_GRADE = 1, N_GLOW = 2, N_GRAIN = 3, N_VIG = 4, N_SHARP = 5, N_IMAGE = 6, N_HUE = 7, N_DUST = 8, N_VEIL = 9 };
 
 static void setU(GLuint p, const char* n, float v) { glUniform1f(glGetUniformLocation(p, n), v); }
 
@@ -596,6 +832,127 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             cur = dT; curFbo = dF;
             break;
         }
+        case N_DUST: {
+            if (P[1] <= 0 || g_dustMaskTex == 0) break;
+            float sc = fmaxf(g_fw, g_fh) / 4000.0f;   // scale by long side (max particle diameter = long side/10)
+            float R = P[6] * sc;                 // disc radius (by blur)
+            if (R < 1.0f) break;
+            float rw = R * 0.35f;                // rim width (blur spread)
+            float rdot = fmaxf(3.0f, R * 0.60f); // filled core disc radius (<=0.25*cell so it fits its cell)
+            // core field -> g_tex[2]  (independent per-particle quads: no cell grid)
+            glBindFramebuffer(GL_FRAMEBUFFER, g_fbo[2]);
+            glViewport(0, 0, w, h);
+            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glUseProgram(g_progDustQ);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, g_dustMaskTex);
+            glUniform1i(glGetUniformLocation(g_progDustQ, "uMask"), 0);
+            glUniform2f(glGetUniformLocation(g_progDustQ, "uRes"), (float) w, (float) h);
+            glUniform2f(glGetUniformLocation(g_progDustQ, "uOrigin"), g_ox, g_oy);
+            glUniform2f(glGetUniformLocation(g_progDustQ, "uFull"), (float) g_fw, (float) g_fh);
+            glUniform2f(glGetUniformLocation(g_progDustQ, "uHi"), g_hlx, g_hly);
+            glBindBuffer(GL_ARRAY_BUFFER, g_dustVBO);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (void*) 0);
+            glEnable(GL_BLEND);
+            glBlendEquation(GL_FUNC_ADD);
+            glBlendFunc(GL_ONE, GL_ONE);   // additive: overlapping grains accumulate instead of erasing each other
+            {
+                float cell = R * 2.83f;                 // nominal spacing (density control only, not a lattice)
+                float area = (float) g_fw * (float) g_fh;
+                int N = (int) (area / (cell * cell) * 1.0f + 0.5f);
+                if (N > 8000) N = 8000;
+                unsigned int s = (unsigned int) (P[9] * 65536.0f) ^ 0x9E3779B9u; if (s == 0) s = 12345u;
+                for (int pi = 0; pi < N; pi++) {
+                    s = s * 1664525u + 1013904223u; float rx = (float) ((s >> 8) & 0xFFFF) / 65535.0f;
+                    s = s * 1664525u + 1013904223u; float ry = (float) ((s >> 8) & 0xFFFF) / 65535.0f;
+                    s = s * 1664525u + 1013904223u; float rs = (float) ((s >> 8) & 0xFFFF) / 65535.0f;
+                    float px = rx * (float) g_fw, py = ry * (float) g_fh;
+                    float pr = rdot * (0.8f + 0.4f * rs);   // size range [0.8,1.2]x rdot (max radius = 2/3 of the 1.8x version, min unchanged)
+                    float half = pr * 1.12f;
+                    if (px + half < g_ox || px - half > g_ox + w || py + half < g_oy || py - half > g_oy + h) continue;
+                    glUniform2f(glGetUniformLocation(g_progDustQ, "uPC"), px, py);
+                    glUniform1f(glGetUniformLocation(g_progDustQ, "uHalf"), half);
+                    glUniform1f(glGetUniformLocation(g_progDustQ, "uR"), pr);
+                    glUniform1f(glGetUniformLocation(g_progDustQ, "uSeed"), (float) pi * 0.137f + P[9]);
+                    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                }
+            }
+            glDisableVertexAttribArray(0);
+            glDisable(GL_BLEND);
+            // layer 1: gaussian blur -> g_tex[5]
+            glUseProgram(g_progBlurH); setU(g_progBlurH, "uRadius", R * 0.08f);
+            bindRun(g_progBlurH, g_tex[2], g_fbo[3], w, h, g_ox, g_oy, g_fw, g_fh);
+            glUseProgram(g_progBlurV); setU(g_progBlurV, "uRadius", R * 0.08f);
+            bindRun(g_progBlurV, g_tex[3], g_fbo[5], w, h, g_ox, g_oy, g_fw, g_fh);
+            // layer 2: radial (zoom) blur along rays from the main highlight centre -> g_tex[4]
+            glBindFramebuffer(GL_FRAMEBUFFER, g_fbo[4]);
+            glViewport(0, 0, w, h);
+            glUseProgram(g_progDustRad);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, g_tex[5]);
+            glUniform2f(glGetUniformLocation(g_progDustRad, "uRes"), (float) w, (float) h);
+            glUniform2f(glGetUniformLocation(g_progDustRad, "uOrigin"), g_ox, g_oy);
+            glUniform2f(glGetUniformLocation(g_progDustRad, "uFull"), (float) g_fw, (float) g_fh);
+            glUniform2f(glGetUniformLocation(g_progDustRad, "uCenter"), g_hlx, g_hly);
+            setU(g_progDustRad, "uSpread", 0.015f);
+            setU(g_progDustRad, "uMaxOff", 75.0f);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            // composite over cur -> dF
+            glBindFramebuffer(GL_FRAMEBUFFER, dF);
+            glViewport(0, 0, w, h);
+            glUseProgram(g_progDustComp);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, cur);
+            glUniform1i(glGetUniformLocation(g_progDustComp, "uTex"), 0);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, g_tex[4]);
+            glUniform1i(glGetUniformLocation(g_progDustComp, "uSrc"), 1);
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, g_tex[4]);
+            glUniform1i(glGetUniformLocation(g_progDustComp, "uWide"), 2);
+            glUniform2f(glGetUniformLocation(g_progDustComp, "uRes"), (float) w, (float) h);
+            glUniform2f(glGetUniformLocation(g_progDustComp, "uOrigin"), g_ox, g_oy);
+            glUniform2f(glGetUniformLocation(g_progDustComp, "uFull"), (float) g_fw, (float) g_fh);
+            setU(g_progDustComp, "uBody", 0.0f);
+            setU(g_progDustComp, "uRim", 0.6f);
+            setU(g_progDustComp, "uGain", P[1]);
+            glUniform3f(glGetUniformLocation(g_progDustComp, "uTint"), 1.0f + P[10] * 0.04f, 1.0f, 1.0f - P[10] * 0.04f);
+            glActiveTexture(GL_TEXTURE0);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            cur = dT; curFbo = dF;
+            break;
+        }
+        case N_VEIL: {
+            if (P[1] <= 0) break;
+            float sc = g_fh / 4000.0f;
+            float vr = P[2] * sc;
+            if (vr < 1.0f) break;
+            glUseProgram(g_progBlurH); setU(g_progBlurH, "uRadius", vr);
+            bindRun(g_progBlurH, cur, g_fbo[2], w, h, g_ox, g_oy, g_fw, g_fh);
+            glUseProgram(g_progBlurV); setU(g_progBlurV, "uRadius", vr);
+            bindRun(g_progBlurV, g_tex[2], g_fbo[3], w, h, g_ox, g_oy, g_fw, g_fh);
+            glBindFramebuffer(GL_FRAMEBUFFER, dF);
+            glViewport(0, 0, w, h);
+            glUseProgram(g_progVeil);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, cur);
+            glUniform1i(glGetUniformLocation(g_progVeil, "uTex"), 0);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, g_tex[3]);
+            glUniform1i(glGetUniformLocation(g_progVeil, "uVeil"), 1);
+            glUniform2f(glGetUniformLocation(g_progVeil, "uRes"), (float) w, (float) h);
+            glUniform2f(glGetUniformLocation(g_progVeil, "uOrigin"), g_ox, g_oy);
+            glUniform2f(glGetUniformLocation(g_progVeil, "uFull"), g_fw, g_fh);
+            setU(g_progVeil, "uGain", P[1]);
+            setU(g_progVeil, "uLift", P[3]);
+            glUniform3f(glGetUniformLocation(g_progVeil, "uTint"), 1.0f + P[4] * 0.04f, 1.0f, 1.0f - P[4] * 0.04f);
+            glActiveTexture(GL_TEXTURE0);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            cur = dT; curFbo = dF;
+            break;
+        }
         case N_HUE: {
             if (P[4] <= 0) break;
             glUseProgram(g_progHue);
@@ -670,6 +1027,14 @@ Java_com_openfilm6k_host_Engine_nInit(JNIEnv*, jobject) {
     g_progGlowV = mkProg(FS_GLOW_V);
     g_progGrain = mkProg(FS_GRAIN);
     g_progVig = mkProg(FS_VIG);
+    g_progBlurH = mkProg(FS_BLUR_H);
+    g_progBlurV = mkProg(FS_BLUR_V);
+    g_progDust = mkProg(FS_DUSTCORE);
+    g_progDustRad = mkProg(FS_DUSTRAD);
+    g_progDustQ = mkProg2(VS_DUSTQ, FS_DUSTQ);
+    { float q[8] = { -1, -1, 1, -1, -1, 1, 1, 1 }; glGenBuffers(1, &g_dustVBO); glBindBuffer(GL_ARRAY_BUFFER, g_dustVBO); glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STATIC_DRAW); }
+    g_progDustComp = mkProg(FS_DUSTCOMP);
+    g_progVeil = mkProg(FS_VEIL);
     eglMakeCurrent(g_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     g_inited = true;
     LOGI("native engine init OK");
@@ -832,10 +1197,12 @@ Java_com_openfilm6k_host_Engine_nProcessFile(JNIEnv* env, jobject, jstring inPat
     if (!eglMakeCurrent(g_dpy, g_surf, g_surf, g_ctx)) return -3;
     int rc = 0;
     do {
-        bool needLut = false, needGlow = false;
+        bool needLut = false, needGlow = false, needDust = false, needVeil = false;
         for (int i = 0; i < nNodes; i++) {
             if ((int) nd[i * 12] == N_LUT && nd[i * 12 + 1] > 0) needLut = true;
             if ((int) nd[i * 12] == N_GLOW && nd[i * 12 + 4] > 0) needGlow = true;
+            if ((int) nd[i * 12] == N_DUST && nd[i * 12 + 1] > 0) needDust = true;
+            if ((int) nd[i * 12] == N_VEIL && nd[i * 12 + 1] > 0) needVeil = true;
         }
         bool hasGlow = needGlow;
         if (needLut && lp) loadLut(lp);
@@ -862,15 +1229,32 @@ Java_com_openfilm6k_host_Engine_nProcessFile(JNIEnv* env, jobject, jstring inPat
                 env->ReleaseStringUTFChars(s2, cs);
             }
         }
+        // dust: global highlight-spread gate, computed once at low res (tile-independent; no apron needed)
+        if (needDust) {
+            for (int i = 0; i < nNodes; i++) {
+                if ((int) nd[i * 12] == N_DUST && nd[i * 12 + 1] > 0) {
+                    buildDustMask(img.data(), W, H, nd[i * 12 + 2], nd[i * 12 + 3], nd[i * 12 + 4]);
+                    break;
+                }
+            }
+        }
         int LIMIT = 4096 - 8;
-        // glow apron must cover the widest fetch: blur taps reach +-radius px, dilate +-(0.6*radius)
-        float maxGR = 0.0f;
-        for (int i = 0; i < nNodes; i++)
-            if ((int) nd[i * 12] == N_GLOW && nd[i * 12 + 4] > 0 && nd[i * 12 + 2] * (H / 4000.0f) > maxGR)
-                maxGR = nd[i * 12 + 2] * (H / 4000.0f);
+        // apron must cover the widest spatial fetch: glow blur/dilate, dust disc blur (R+rim), veiling blur
+        float maxGR = 0.0f, maxVR = 0.0f, maxDR = 0.0f;
+        for (int i = 0; i < nNodes; i++) {
+            int ty = (int) nd[i * 12];
+            if (ty == N_GLOW && nd[i * 12 + 4] > 0)
+                maxGR = fmaxf(maxGR, nd[i * 12 + 2] * (H / 4000.0f));
+            if (ty == N_VEIL && nd[i * 12 + 1] > 0)
+                maxVR = fmaxf(maxVR, nd[i * 12 + 2] * (H / 4000.0f));
+            if (ty == N_DUST && nd[i * 12 + 1] > 0)
+                maxDR = fmaxf(maxDR, nd[i * 12 + 6] * (H / 4000.0f) * 1.4f);
+        }
+        if (needDust && maxDR < 210.0f) maxDR = 210.0f;   // dust radial blur can reach far -> keep a floor on the apron
         int O = 0;
-        if (needGlow) {
-            O = (int) ceilf(maxGR * 1.3f) + 8;
+        if (needGlow || needVeil || needDust) {
+            float mf = fmaxf(fmaxf(maxGR, maxVR), maxDR);
+            O = (int) ceilf(mf * 1.3f) + 8;
             if (O < 72) O = 72;
             if (O > 240) O = 240;
         }
