@@ -14,7 +14,9 @@ mkdir -p out/pkgassets/films
 cp -r films/pipelines films/luts out/pkgassets/films/
 mkdir -p out/pkgassets/films/root
 cp films/previews/* out/pkgassets/films/root/
-( cd out/pkgassets && find films/root films/pipelines films/luts -type f | sort > films/index.txt )
+FINDDIRS="films/root films/pipelines films/luts"
+if [ -d films/post ]; then cp -r films/post out/pkgassets/films/; FINDDIRS="$FINDDIRS films/post"; fi
+( cd out/pkgassets && find $FINDDIRS -type f | sort > films/index.txt )
 "$BT/aapt2" link --java out/gen -o out/unaligned.apk --manifest AndroidManifest.xml -I "$AJ" --min-sdk-version 24 --target-sdk-version 27 -A out/pkgassets out/res.zip
 find out/gen src -name "*.java" > out/srcs.txt
 javac -encoding UTF-8 --release 8 -Xlint:-options -nowarn -cp "$AJ" -d out/classes @out/srcs.txt
