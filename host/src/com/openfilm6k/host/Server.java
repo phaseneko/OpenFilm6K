@@ -263,34 +263,43 @@ public class Server {
                     // re-encodes it, then carry it onto the final graded JPEG.
                     byte[] exifApp1 = Exif.app1Of(src);
                     if (exifApp1 == null) Engine.dbg("ingest: source carries no APP1/EXIF: " + name);
-                    // render order: watermark goes onto the ORIGINAL right after capture, BEFORE all our grading passes
-                    java.io.File pipeIn = textStampOriginal(src, q);
                     // render straight into the gallery album: one output file, no second copy
                     galDir.mkdirs();
                     java.io.File out = new java.io.File(galDir, "graded_" + name);
                     String post = q.get("post");
                     String leakdust = postSubset(post, "leak", "dust", "veiling");   // exposure overlays: composited BEFORE the pipeline
                     String scratch = postSubset(post, "scratch");         // surface overlay: output-level, before any photo frame
+                    String photoOnly = postSubset(leakdust, "dust", "veiling");   // lens imaging -> photo only
+                    String leakOnly = postSubset(leakdust, "leak");               // film-base exposure -> whole canvas
                     boolean isX = q.get("x") != null;
                     boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null);
                     boolean filmBorder = isFilmBorder(q);
+                    // dust/veiling are lens imaging: apply them to the clean photo BEFORE the date print, otherwise the
+                    // bright printed digits would themselves be picked up as highlights and grow dust around them
+                    java.io.File dusted = src;
+                    if (!photoOnly.isEmpty()) {
+                        java.io.File dv = new java.io.File(workDir, "dv_" + name);
+                        String rd = Engine.get().applyPost(src.getAbsolutePath(), dv.getAbsolutePath(), photoOnly);
+                        if (rd != null && !rd.equals(src.getAbsolutePath()) && new java.io.File(rd).exists()) dusted = new java.io.File(rd);
+                    }
+                    // render order: watermark goes onto the ORIGINAL right after capture, BEFORE all our grading passes
+                    java.io.File pipeIn = textStampOriginal(dusted, src, q);
+                    if (dusted != src && dusted != pipeIn) dusted.delete();
                     String r = null;
                     if (isX) {   // X collage: each of the 4 films gets its own overlay; the card frame is last
-                        r = collagePost(pipeIn, film, leakdust, scratch, out);
+                        r = collagePost(pipeIn, film, leakOnly, scratch, out);
                         if (pipeIn != src) pipeIn.delete();
                     } else {
-                    String photoOnly = postSubset(leakdust, "dust", "veiling");             // lens imaging -> photo only
-                    String leakOnly = postSubset(leakdust, "leak");                 // film-base exposure -> whole canvas
-                    if (filmBorder) {   // place the photo on the final-res black canvas (dust baked into the photo)
-                        pipeIn = buildBorderCanvas(pipeIn, workDir, name, q, photoOnly);
+                    if (filmBorder) {   // place the (already dusted) photo on the final-res black canvas
+                        pipeIn = buildBorderCanvas(pipeIn, workDir, name, q, null);
                         if (!leakOnly.isEmpty()) {
                             java.io.File ov = new java.io.File(workDir, "ov_" + name);
                             String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakOnly);
                             if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
                         }
-                    } else if (!leakdust.isEmpty()) {   // leak/dust join the film exposure -> graded by the pipeline
+                    } else if (!leakOnly.isEmpty()) {   // leak joins the film exposure -> graded by the pipeline
                         java.io.File ov = new java.io.File(workDir, "ov_" + name);
-                        String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
+                        String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakOnly);
                         if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
                     }
                     r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
@@ -872,29 +881,36 @@ public class Server {
             }
             if (post != null && post.length() > 0) q.put("post", post);
             byte[] exifApp1 = Exif.app1Of(src);
-            java.io.File pipeIn = textStampOriginal(src, q);
             galDir.mkdirs();
             java.io.File out = new java.io.File(galDir, "graded_" + base + ".jpg");
             String leakdust = postSubset(post, "leak", "dust", "veiling");
             String scratch = postSubset(post, "scratch");
+            String photoOnly = postSubset(leakdust, "dust", "veiling");
+            String leakOnly = postSubset(leakdust, "leak");
             boolean isX = q.get("x") != null;
             boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null);
             boolean filmBorder = isFilmBorder(q);
+            java.io.File dusted = src;
+            if (!photoOnly.isEmpty()) {
+                java.io.File dv = new java.io.File(workDir, "dv_" + base + ".jpg");
+                String rd = Engine.get().applyPost(src.getAbsolutePath(), dv.getAbsolutePath(), photoOnly);
+                if (rd != null && !rd.equals(src.getAbsolutePath()) && new java.io.File(rd).exists()) dusted = new java.io.File(rd);
+            }
+            java.io.File pipeIn = textStampOriginal(dusted, src, q);
+            if (dusted != src && dusted != pipeIn) dusted.delete();
             String r = null;
-            if (isX) { r = collagePost(pipeIn, film, leakdust, scratch, out); if (pipeIn != src) pipeIn.delete(); }
+            if (isX) { r = collagePost(pipeIn, film, leakOnly, scratch, out); if (pipeIn != src) pipeIn.delete(); }
             else {
-            String photoOnly = postSubset(leakdust, "dust", "veiling");
-            String leakOnly = postSubset(leakdust, "leak");
             if (filmBorder) {
-                pipeIn = buildBorderCanvas(pipeIn, workDir, base, q, photoOnly);
+                pipeIn = buildBorderCanvas(pipeIn, workDir, base, q, null);
                 if (!leakOnly.isEmpty()) {
                     java.io.File ov = new java.io.File(workDir, "ov_" + base + ".jpg");
                     String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakOnly);
                     if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
                 }
-            } else if (!leakdust.isEmpty()) {
+            } else if (!leakOnly.isEmpty()) {
                 java.io.File ov = new java.io.File(workDir, "ov_" + base + ".jpg");
-                String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
+                String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakOnly);
                 if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
             }
             r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
@@ -2129,31 +2145,32 @@ java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
             tmp.delete();
         }
     }
-    private static java.io.File textStampOriginal(java.io.File src, Map<String,String> q) {
+    private static java.io.File textStampOriginal(java.io.File src, Map<String,String> q) { return textStampOriginal(src, src, q); }
+    private static java.io.File textStampOriginal(java.io.File photo, java.io.File exifSrc, Map<String,String> q) {
         String s1 = q.get("stamp"), s2 = q.get("stamp2");
-        if (s1 == null && s2 == null) return src;
+        if (s1 == null && s2 == null) return photo;
         try {
             android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
             o.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
-            android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(src.getAbsolutePath(), o);
-            if (bm == null) return src;
+            android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(photo.getAbsolutePath(), o);
+            if (bm == null) return photo;
             if (!bm.isMutable()) bm = bm.copy(android.graphics.Bitmap.Config.ARGB_8888, true);   // Canvas needs a mutable bitmap
             android.graphics.Canvas cv = new android.graphics.Canvas(bm);
             float ts = Math.max(17f, bm.getWidth() * 2 / 85f);   // 2/3 * 6/5 of the original
             float m = ts * 0.9f;
             if (s1 != null) {
-                String t = s1.equals("@DATE") ? exifDate(src) : s1;
+                String t = s1.equals("@DATE") ? exifDate(exifSrc) : s1;
                 drawSegTokens(cv, t, m, bm.getHeight() - m, false, ts);
             }
             if (s2 != null) drawSegTokens(cv, s2, bm.getWidth() - m, bm.getHeight() - m, true, ts);
-            java.io.File tmp = new java.io.File(src.getParentFile(), ".stamped_src.jpg");
+            java.io.File tmp = new java.io.File(photo.getParentFile(), ".stamped_src.jpg");
             java.io.FileOutputStream fo = new java.io.FileOutputStream(tmp);
             bm.compress(android.graphics.Bitmap.CompressFormat.JPEG, 97, fo);
             fo.close();
             return tmp;
         } catch (Throwable t) {
             MainActivity.say("stamp pre ex " + t);
-            return src;
+            return photo;
         }
     }
 

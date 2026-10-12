@@ -242,7 +242,7 @@ static const char* FS_DUSTCORE = FS_HEAD
     // hollow bubble: dim centre ramping up to a bright rim (dark->dark->dark->mid->bright), then a soft outer falloff
     " float env=1.0-smoothstep(1.00,1.06,rr);\n"
     " float rim=exp(-pow(abs(rr-0.92)/0.07,4.0));\n"
-    " float prof=env*(0.55+0.12*rim);\n"
+    " float prof=env*(0.55+0.275*rim);\n"
     // directional lighting: the side of the bubble facing the main highlight is brighter than the far side
     " vec2 dh=uHi-cp; float dl=max(length(dh),1.0);\n"
     " float facing=(rho>0.5)? (rel.x*dh.x+rel.y*dh.y)/(rho*dl) : 0.0;\n"
@@ -251,6 +251,7 @@ static const char* FS_DUSTCORE = FS_HEAD
     " float gi=max(mm.r,max(mm.g,mm.b));\n"
     " float e=(gi-0.85)/0.1; float dg=exp(-0.5*e*e);\n"
     " vec3 hicol=mm/max(gi,1e-3);\n"
+    " float hl=dot(hicol,vec3(0.299,0.587,0.114)); hicol=clamp(mix(vec3(hl),hicol,1.5),0.0,1.0);\n"
     " vec3 col=mix(hicol.bgr,hicol,0.5+0.5*facing);\n"
     " float on=hash(b+vec2(0.5,0.5))<uProb?1.0:0.0;\n"
     " o=vec4(prof*dg*on*col,1.0); }\n";
@@ -303,7 +304,7 @@ static const char* FS_DUSTQ = FS_HEAD
     " float rr=rho/max(rb,1.0);\n"
     " float env=1.0-smoothstep(1.00,1.06,rr);\n"
     " float rim=exp(-pow(abs(rr-0.92)/0.07,4.0));\n"
-    " float prof=env*(0.55+0.12*rim);\n"
+    " float prof=env*(0.55+0.275*rim);\n"
     " vec2 dh=uHi-uPC; float dl=max(length(dh),1.0);\n"
     " float facing=(rho>0.5)?(rel.x*dh.x+rel.y*dh.y)/(rho*dl):0.0;\n"
     " prof*=clamp(1.0+0.09*facing,0.0,2.0);\n"
@@ -311,6 +312,7 @@ static const char* FS_DUSTQ = FS_HEAD
     " float gi=max(mm.r,max(mm.g,mm.b));\n"
     " float e=(gi-0.85)/0.1; float dg=exp(-0.5*e*e);\n"
     " vec3 hicol=mm/max(gi,1e-3);\n"
+    " float hl=dot(hicol,vec3(0.299,0.587,0.114)); hicol=clamp(mix(vec3(hl),hicol,1.5),0.0,1.0);\n"
     " vec3 col=mix(hicol.bgr,hicol,0.5+0.5*facing);\n"
     " o=vec4(prof*dg*col,1.0); }\n";
 

@@ -2457,9 +2457,13 @@ public class EditorActivity extends Activity {
                 Bitmap adj2 = null, ref2 = null;
                 try {
                     String out2 = "/sdcard/OpenFilm6K/edit_preview.jpg";
-                    java.io.File ps2 = Server.pvStampSource(src2, film);
                     String ldu2 = Server.postSubset(pvPost(), "leak", "dust", "veiling");
-                    if (!ldu2.isEmpty()) { java.io.File ov2 = new java.io.File("/sdcard/OpenFilm6K/_pvov.jpg"); String rr2 = Engine.get().applyPost(ps2.getAbsolutePath(), ov2.getAbsolutePath(), ldu2); if (rr2 != null && new java.io.File(rr2).exists()) ps2 = new java.io.File(rr2); }
+                    String pvDust2 = Server.postSubset(ldu2, "dust", "veiling");
+                    String pvLeak2 = Server.postSubset(ldu2, "leak");
+                    java.io.File psSrc2 = new java.io.File(src2);
+                    if (!pvDust2.isEmpty()) { java.io.File dv2 = new java.io.File("/sdcard/OpenFilm6K/_pvdv.jpg"); String rd2 = Engine.get().applyPost(src2, dv2.getAbsolutePath(), pvDust2); if (rd2 != null && new java.io.File(rd2).exists()) psSrc2 = new java.io.File(rd2); }
+                    java.io.File ps2 = Server.pvStampSource(psSrc2.getAbsolutePath(), film);
+                    if (!pvLeak2.isEmpty()) { java.io.File ov2 = new java.io.File("/sdcard/OpenFilm6K/_pvov.jpg"); String rr2 = Engine.get().applyPost(ps2.getAbsolutePath(), ov2.getAbsolutePath(), pvLeak2); if (rr2 != null && new java.io.File(rr2).exists()) ps2 = new java.io.File(rr2); }
                     Engine.get().process(ps2.getAbsolutePath(), pvFilm, out2);   // watermark burned BEFORE the pipeline (incl. LUT)
                     String scr2 = Server.postSubset(pvPost(), "scratch"); if (!scr2.isEmpty()) Server.postApply(new java.io.File(out2), scr2);
                     BitmapFactory.Options o = new BitmapFactory.Options();
@@ -2503,9 +2507,13 @@ public class EditorActivity extends Activity {
                 fo.write(props.toString().getBytes()); fo.close();
                 Films.reload("EDITTMP");
                 String out = "/sdcard/OpenFilm6K/edit_preview.jpg";
-                java.io.File ps = Server.pvStampSource(src, film);
                 String ldu = Server.postSubset(pvPost(), "leak", "dust", "veiling");
-                if (!ldu.isEmpty()) { java.io.File ov = new java.io.File("/sdcard/OpenFilm6K/_pvov.jpg"); String rr = Engine.get().applyPost(ps.getAbsolutePath(), ov.getAbsolutePath(), ldu); if (rr != null && new java.io.File(rr).exists()) ps = new java.io.File(rr); }
+                String pvDust = Server.postSubset(ldu, "dust", "veiling");   // lens imaging: apply BEFORE the print
+                String pvLeak = Server.postSubset(ldu, "leak");
+                java.io.File psSrc = new java.io.File(src);
+                if (!pvDust.isEmpty()) { java.io.File dv = new java.io.File("/sdcard/OpenFilm6K/_pvdv.jpg"); String rd = Engine.get().applyPost(src, dv.getAbsolutePath(), pvDust); if (rd != null && new java.io.File(rd).exists()) psSrc = new java.io.File(rd); }
+                java.io.File ps = Server.pvStampSource(psSrc.getAbsolutePath(), film);
+                if (!pvLeak.isEmpty()) { java.io.File ov = new java.io.File("/sdcard/OpenFilm6K/_pvov.jpg"); String rr = Engine.get().applyPost(ps.getAbsolutePath(), ov.getAbsolutePath(), pvLeak); if (rr != null && new java.io.File(rr).exists()) ps = new java.io.File(rr); }
                 String r = Engine.get().process(ps.getAbsolutePath(), "EDITTMP", out);   // watermark burned BEFORE the pipeline (incl. LUT)
                 String scr = Server.postSubset(pvPost(), "scratch"); if (r != null && !scr.isEmpty()) Server.postApply(new File(out), scr);
                 if (r != null) adj = BitmapFactory.decodeFile(out);
