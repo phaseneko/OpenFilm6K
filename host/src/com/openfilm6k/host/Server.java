@@ -279,8 +279,16 @@ public class Server {
                         r = collagePost(pipeIn, film, leakdust, scratch, out);
                         if (pipeIn != src) pipeIn.delete();
                     } else {
-                    if (filmBorder) pipeIn = buildBorderCanvas(pipeIn, workDir, name, q);   // place the photo on the final-res black canvas
-                    if (!leakdust.isEmpty()) {   // leak/dust join the film exposure -> graded by the pipeline
+                    String photoOnly = postSubset(leakdust, "dust", "veiling");             // lens imaging -> photo only
+                    String leakOnly = postSubset(leakdust, "leak");                 // film-base exposure -> whole canvas
+                    if (filmBorder) {   // place the photo on the final-res black canvas (dust baked into the photo)
+                        pipeIn = buildBorderCanvas(pipeIn, workDir, name, q, photoOnly);
+                        if (!leakOnly.isEmpty()) {
+                            java.io.File ov = new java.io.File(workDir, "ov_" + name);
+                            String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakOnly);
+                            if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
+                        }
+                    } else if (!leakdust.isEmpty()) {   // leak/dust join the film exposure -> graded by the pipeline
                         java.io.File ov = new java.io.File(workDir, "ov_" + name);
                         String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
                         if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
@@ -875,8 +883,16 @@ public class Server {
             String r = null;
             if (isX) { r = collagePost(pipeIn, film, leakdust, scratch, out); if (pipeIn != src) pipeIn.delete(); }
             else {
-            if (filmBorder) pipeIn = buildBorderCanvas(pipeIn, workDir, base, q);
-            if (!leakdust.isEmpty()) {
+            String photoOnly = postSubset(leakdust, "dust", "veiling");
+            String leakOnly = postSubset(leakdust, "leak");
+            if (filmBorder) {
+                pipeIn = buildBorderCanvas(pipeIn, workDir, base, q, photoOnly);
+                if (!leakOnly.isEmpty()) {
+                    java.io.File ov = new java.io.File(workDir, "ov_" + base + ".jpg");
+                    String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakOnly);
+                    if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
+                }
+            } else if (!leakdust.isEmpty()) {
                 java.io.File ov = new java.io.File(workDir, "ov_" + base + ".jpg");
                 String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakdust);
                 if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
@@ -1526,7 +1542,7 @@ public class Server {
 
     /** B2/WB2/WB3: place the (stamped) original on the final-resolution black canvas (photo centred, base margins black).
      *  The overlay then composites over the WHOLE canvas, and the pipeline runs on it — so the leak/dust reach the base. */
-    private static java.io.File buildBorderCanvas(java.io.File photo, java.io.File wd, String name, java.util.Map<String,String> q) {
+    private static java.io.File buildBorderCanvas(java.io.File photo, java.io.File wd, String name, java.util.Map<String,String> q, String photoPost) {
         try {
             android.graphics.Bitmap bm0 = android.graphics.BitmapFactory.decodeFile(photo.getAbsolutePath());
             if (bm0 == null) return photo;
@@ -1544,6 +1560,20 @@ public class Server {
             else { cw = fw0; ch = Math.round(fw0 / target); }
             android.graphics.Bitmap bm = (cw == fw0 && ch == fh0) ? bm0
                 : android.graphics.Bitmap.createBitmap(bm0, (fw0 - cw) / 2, (fh0 - ch) / 2, cw, ch);
+            // dust + veiling are lens imaging: bake them into the photo bitmap only, never the film base
+            if (photoPost != null && !photoPost.isEmpty()) {
+                try {
+                    java.io.File tin = new java.io.File(wd, "dcin_" + name + ".jpg");
+                    java.io.FileOutputStream f0 = new java.io.FileOutputStream(tin);
+                    bm.compress(android.graphics.Bitmap.CompressFormat.JPEG, 96, f0); f0.close();
+                    java.io.File tout = new java.io.File(wd, "dcout_" + name + ".jpg");
+                    String rd = Engine.get().applyPost(tin.getAbsolutePath(), tout.getAbsolutePath(), photoPost);
+                    android.graphics.Bitmap bd = android.graphics.BitmapFactory.decodeFile(rd);
+                    if (bd != null) { if (bm != bm0) bm.recycle(); bm = bd; }
+                    if (tin.exists()) tin.delete();
+                    if (tout.exists()) tout.delete();
+                } catch (Throwable tt) { Engine.dbg("dust-on-photo ex " + tt); }
+            }
             int W = bm.getWidth(), H = bm.getHeight();
             int rl, rb, CW, CH, px, py;
             if (wide) {

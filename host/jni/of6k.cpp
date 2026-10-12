@@ -249,8 +249,9 @@ static const char* FS_DUSTCORE = FS_HEAD
     " prof*=clamp(1.0+0.09*facing,0.0,2.0);\n"
     " vec3 mm=texture(uMask,clamp(cp/uFull,vec2(0.0),vec2(1.0))).rgb;\n"
     " float gi=max(mm.r,max(mm.g,mm.b));\n"
-    " float e=(gi-0.75)/0.075; float dg=exp(-0.5*e*e);\n"
-    " vec3 col=mm/max(gi,1e-3);\n"
+    " float e=(gi-0.85)/0.1; float dg=exp(-0.5*e*e);\n"
+    " vec3 hicol=mm/max(gi,1e-3);\n"
+    " vec3 col=mix(hicol.bgr,hicol,0.5+0.5*facing);\n"
     " float on=hash(b+vec2(0.5,0.5))<uProb?1.0:0.0;\n"
     " o=vec4(prof*dg*on*col,1.0); }\n";
 
@@ -308,8 +309,9 @@ static const char* FS_DUSTQ = FS_HEAD
     " prof*=clamp(1.0+0.09*facing,0.0,2.0);\n"
     " vec3 mm=texture(uMask,clamp(uPC/uFull,vec2(0.0),vec2(1.0))).rgb;\n"
     " float gi=max(mm.r,max(mm.g,mm.b));\n"
-    " float e=(gi-0.75)/0.075; float dg=exp(-0.5*e*e);\n"
-    " vec3 col=mm/max(gi,1e-3);\n"
+    " float e=(gi-0.85)/0.1; float dg=exp(-0.5*e*e);\n"
+    " vec3 hicol=mm/max(gi,1e-3);\n"
+    " vec3 col=mix(hicol.bgr,hicol,0.5+0.5*facing);\n"
     " o=vec4(prof*dg*col,1.0); }\n";
 
 // post-process VEILING (lens haze): very light broad low-frequency wash, screened back
@@ -861,7 +863,7 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             {
                 float cell = R * 2.83f;                 // nominal spacing (density control only, not a lattice)
                 float area = (float) g_fw * (float) g_fh;
-                int N = (int) (area / (cell * cell) * 1.0f + 0.5f);
+                int N = (int) (area / (cell * cell) * 1.27f + 0.5f);   // ~100 grains on a 12-megapixel frame
                 if (N > 8000) N = 8000;
                 unsigned int s = (unsigned int) (P[9] * 65536.0f) ^ 0x9E3779B9u; if (s == 0) s = 12345u;
                 for (int pi = 0; pi < N; pi++) {
