@@ -317,11 +317,42 @@ static const char* FS_DUSTQ = FS_HEAD
     " o=vec4(prof*dg*col,1.0); }\n";
 
 // post-process VEILING (lens haze): very light broad low-frequency wash, screened back
+// veiling: highlight glare. Extract the highlights, bloom them with a DIFFERENT blur radius per channel
+// (red spreads furthest, blue least -> a warm halo fringe), then screen the bloom back (contrast drops).
+static const char* FS_VEILPREP = FS_HEAD
+    "uniform float uTh,uTh2,uClust;\n"
+    "vec3 rgb2hsv(vec3 c){ vec4 K=vec4(0.0,-1.0/3.0,2.0/3.0,-1.0);\n"
+    " vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));\n"
+    " vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));\n"
+    " float d=q.x-min(q.w,q.y); float e=1.0e-10;\n"
+    " return vec3(abs(q.z+(q.w-q.y)/(6.0*d+e)),d/(q.x+e),q.x); }\n"
+    // highlight = brightest channel above the dust threshold, split by HUE into 3 colour clusters
+    // (red-orange / yellow-green / blue-violet). Each cluster keeps the FULL colour, so widening a
+    // cluster's blur changes its REACH only, never re-tints the light.
+    "void main(){ vec3 c=src(); float m=max(c.r,max(c.g,c.b));\n"
+    " float gate=smoothstep(uTh,uTh2,m);\n"
+    " float h=rgb2hsv(c).x;\n"
+    " float d0=abs(h-0.04); d0=min(d0,1.0-d0);\n"
+    " float d1=abs(h-0.29); d1=min(d1,1.0-d1);\n"
+    " float d2=abs(h-0.66); d2=min(d2,1.0-d2);\n"
+    " float w0=exp(-(d0*d0)/(2.0*0.10*0.10));\n"
+    " float w1=exp(-(d1*d1)/(2.0*0.10*0.10));\n"
+    " float w2=exp(-(d2*d2)/(2.0*0.11*0.11));\n"
+    " float s=w0+w1+w2+1.0e-4;\n"
+    " float w=(uClust<0.5)?w0:((uClust<1.5)?w1:w2);\n"
+    " o=vec4(c*gate*(w/s),1.0); }";
 static const char* FS_VEIL = FS_HEAD
-    "uniform sampler2D uVeil; uniform float uGain,uLift; uniform vec3 uTint;\n"
-    "void main(){ vec3 c=src(); vec3 v=texture(uVeil,luv()).rgb*uTint*uGain+uLift;\n"
-    " vec3 g=clamp(v,0.0,1.0);\n"
-    " o=vec4(vec3(1.0)-(vec3(1.0)-c)*(vec3(1.0)-g),1.0); }";
+    "uniform sampler2D uGB,uHr,uHg,uHb; uniform float uA,uBb,uC,uD,uE,uGr,uGg,uGb;\n"
+    // per cluster: a SCALAR gain (from that band's own intensity) applied to the whole colour, so the
+    // hue is preserved (a per-channel gain/radius would skew a mixed colour, e.g. cyan toward green)
+    "vec3 band(vec3 b,float G){ float i=max(b.r,max(b.g,b.b)); if(i<1.0e-5) return vec3(0.0); float g=(i*G)/(1.0+i*G); return b*(g/i); }\n"
+    "void main(){ vec3 c=src();\n"
+    // result = a*orig + b*gaussian(orig) + c*red-orange + d*yellow-green + e*blue-violet
+    " vec3 gb=texture(uGB,luv()).rgb;\n"
+    " vec3 h0=band(texture(uHr,luv()).rgb,uGr);\n"
+    " vec3 h1=band(texture(uHg,luv()).rgb,uGg);\n"
+    " vec3 h2=band(texture(uHb,luv()).rgb,uGb);\n"
+    " o=vec4(clamp(uA*c+uBb*gb+uC*h0+uD*h1+uE*h2,0.0,1.0),1.0); }";
 
 // ---- GL objects (created once, reused across renders) ----
 static EGLDisplay g_dpy = EGL_NO_DISPLAY;
@@ -329,9 +360,14 @@ static EGLContext g_ctx = EGL_NO_CONTEXT;
 static EGLSurface g_surf = EGL_NO_SURFACE;
 static bool g_inited = false;
 static GLuint g_progLut, g_progGrade, g_progGlowH, g_progGlowV, g_progGrain, g_progVig, g_progGlowMask, g_progGlowDil, g_progGlowRing, g_progCopy, g_progSharp, g_progImage, g_progHue;
-static GLuint g_progBlurH, g_progBlurV, g_progDust, g_progDustRad, g_progDustQ, g_progVeil, g_progDustComp;
+static GLuint g_progBlurH, g_progBlurV, g_progDust, g_progDustRad, g_progDustQ, g_progVeil, g_progVeilPrep, g_progDustComp;
 static GLuint g_dustVBO = 0;
-static GLuint g_fbo[6] = {0, 0, 0, 0, 0, 0}, g_tex[6] = {0, 0, 0, 0, 0, 0};
+static GLuint g_fbo[7] = {0, 0, 0, 0, 0, 0, 0}, g_tex[7] = {0, 0, 0, 0, 0, 0, 0};
+// veiling uses its own (optionally half-float) targets: the wide, faint glare halos of a small light
+// would otherwise quantise to a couple of 8-bit steps and band
+static GLuint g_vfbo[6] = {0, 0, 0, 0, 0, 0}, g_vtex[6] = {0, 0, 0, 0, 0, 0};
+static int g_vW = 0, g_vH = 0;
+static bool g_half = false;
 static GLuint g_curTex = 0;
 static std::vector<std::string> g_ovPaths;   // overlay file per image node (chain order)
 static int g_ovIdx = 0;
@@ -564,10 +600,10 @@ static GLuint mkProg2(const char* vs, const char* fs) {
 
 static void ensureSize(int w, int h) {
     if (g_fboW == w && g_fboH == h && g_fbo[0]) return;
-    if (g_fbo[0]) { glDeleteFramebuffers(6, g_fbo); glDeleteTextures(6, g_tex); for (int q = 0; q < 6; q++) { g_fbo[q] = 0; } }
-    glGenFramebuffers(6, g_fbo);
-    glGenTextures(6, g_tex);
-    for (int i = 0; i < 6; i++) {
+    if (g_fbo[0]) { glDeleteFramebuffers(7, g_fbo); glDeleteTextures(7, g_tex); for (int q = 0; q < 7; q++) { g_fbo[q] = 0; } }
+    glGenFramebuffers(7, g_fbo);
+    glGenTextures(7, g_tex);
+    for (int i = 0; i < 7; i++) {
         glBindTexture(GL_TEXTURE_2D, g_tex[i]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -579,6 +615,27 @@ static void ensureSize(int w, int h) {
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     g_fboW = w; g_fboH = h;
+}
+
+static void ensureVeil(int w, int h) {
+    if (g_vfbo[0] && g_vW == w && g_vH == h) return;
+    if (g_vfbo[0]) { glDeleteFramebuffers(6, g_vfbo); glDeleteTextures(6, g_vtex); for (int q = 0; q < 6; q++) g_vfbo[q] = 0; }
+    glGenFramebuffers(6, g_vfbo);
+    glGenTextures(6, g_vtex);
+    for (int i = 0; i < 6; i++) {
+        glBindTexture(GL_TEXTURE_2D, g_vtex[i]);
+        if (g_half) glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, w, h, 0, GL_RGBA, GL_HALF_FLOAT, nullptr);
+        else glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_vfbo[i]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_vtex[i], 0);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    g_vW = w; g_vH = h;
+    LOGI("veil fbo %dx%d half=%d", w, h, (int) g_half);
 }
 
 static void ensureInTex(int w, int h) {
@@ -929,14 +986,64 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             break;
         }
         case N_VEIL: {
-            if (P[1] <= 0) break;
             float sc = g_fh / 4000.0f;
-            float vr = P[2] * sc;
-            if (vr < 1.0f) break;
-            glUseProgram(g_progBlurH); setU(g_progBlurH, "uRadius", vr);
-            bindRun(g_progBlurH, cur, g_fbo[2], w, h, g_ox, g_oy, g_fw, g_fh);
-            glUseProgram(g_progBlurV); setU(g_progBlurV, "uRadius", vr);
-            bindRun(g_progBlurV, g_tex[2], g_fbo[3], w, h, g_ox, g_oy, g_fw, g_fh);
+            float rS = P[2] * sc;          // base radius (blue-purple/blue band)
+            if (rS < 1.0f) break;
+            // red-orange spreads furthest (half of the previous reach); yellow-green and blue-purple step down
+            float rW = rS * 6.0f;          // red-orange, wide
+            float rM = rS * 4.0f;          // yellow-green, medium
+            float rB = rS * 2.5f;          // blue-violet, tightest
+            float rG = rS * 1.2f;          // plain gaussian blur of the image
+            ensureVeil((int) g_fw, (int) g_fh);
+            // cascaded blur: a single 25-tap pass this wide would step over a small highlight and streak.
+            // Splitting into stages (variances add: sum r_i^2 = radius^2) keeps every stage dense enough.
+            const int VSCR = 4;
+            auto vblur = [&](GLuint srcTex, int dIdx, float radius) {
+                if (radius <= 120.0f) {
+                    glUseProgram(g_progBlurH); setU(g_progBlurH, "uRadius", radius);
+                    bindRun(g_progBlurH, srcTex, g_vfbo[VSCR], w, h, g_ox, g_oy, g_fw, g_fh);
+                    glUseProgram(g_progBlurV); setU(g_progBlurV, "uRadius", radius);
+                    bindRun(g_progBlurV, g_vtex[VSCR], g_vfbo[dIdx], w, h, g_ox, g_oy, g_fw, g_fh);
+                    return;
+                }
+                float r1 = fminf(radius * 0.65f, 80.0f);
+                float rem2 = radius * radius - r1 * r1;
+                int extra = (rem2 > 1.0f) ? (int) ceilf(sqrtf(rem2) / 150.0f) : 0;
+                float r2 = (extra > 0) ? sqrtf(rem2 / (float) extra) : 0.0f;
+                glUseProgram(g_progBlurH); setU(g_progBlurH, "uRadius", r1);
+                bindRun(g_progBlurH, srcTex, g_vfbo[VSCR], w, h, g_ox, g_oy, g_fw, g_fh);
+                glUseProgram(g_progBlurV); setU(g_progBlurV, "uRadius", r1);
+                bindRun(g_progBlurV, g_vtex[VSCR], g_vfbo[dIdx], w, h, g_ox, g_oy, g_fw, g_fh);
+                for (int k = 0; k < extra; k++) {
+                    glUseProgram(g_progBlurH); setU(g_progBlurH, "uRadius", r2);
+                    bindRun(g_progBlurH, g_vtex[dIdx], g_vfbo[VSCR], w, h, g_ox, g_oy, g_fw, g_fh);
+                    glUseProgram(g_progBlurV); setU(g_progBlurV, "uRadius", r2);
+                    bindRun(g_progBlurV, g_vtex[VSCR], g_vfbo[dIdx], w, h, g_ox, g_oy, g_fw, g_fh);
+                }
+            };
+            // split the highlight by HUE into 3 clusters (each keeps its own colour):
+            //   g_vtex[1]=red-orange  g_vtex[2]=yellow-green  g_vtex[3]=blue-violet
+            glUseProgram(g_progVeilPrep);
+            glUniform2f(glGetUniformLocation(g_progVeilPrep, "uRes"), (float) w, (float) h);
+            glUniform2f(glGetUniformLocation(g_progVeilPrep, "uOrigin"), g_ox, g_oy);
+            glUniform2f(glGetUniformLocation(g_progVeilPrep, "uFull"), (float) g_fw, (float) g_fh);
+            setU(g_progVeilPrep, "uTh", 0.95f); setU(g_progVeilPrep, "uTh2", 1.0f);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, cur);
+            glUniform1i(glGetUniformLocation(g_progVeilPrep, "uTex"), 0);
+            for (int k = 0; k < 3; k++) {
+                glBindFramebuffer(GL_FRAMEBUFFER, g_vfbo[1 + k]);
+                glViewport(0, 0, w, h);
+                setU(g_progVeilPrep, "uClust", (float) k);
+                glDrawArrays(GL_TRIANGLES, 0, 3);
+            }
+            // plain gaussian blur of the image -> g_vtex[5]
+            vblur(cur, 5, rG);
+            // each colour cluster blurred at its own reach, keeping its own colour
+            vblur(g_vtex[1], 1, rW);   // red-orange, widest
+            vblur(g_vtex[2], 2, rM);   // yellow-green, medium
+            vblur(g_vtex[3], 3, rB);   // blue-violet, tightest
+            // composite: a*orig + b*gaussian + c*RO + d*YG + e*BV
             glBindFramebuffer(GL_FRAMEBUFFER, dF);
             glViewport(0, 0, w, h);
             glUseProgram(g_progVeil);
@@ -944,14 +1051,23 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             glBindTexture(GL_TEXTURE_2D, cur);
             glUniform1i(glGetUniformLocation(g_progVeil, "uTex"), 0);
             glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, g_tex[3]);
-            glUniform1i(glGetUniformLocation(g_progVeil, "uVeil"), 1);
+            glBindTexture(GL_TEXTURE_2D, g_vtex[5]);
+            glUniform1i(glGetUniformLocation(g_progVeil, "uGB"), 1);
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, g_vtex[1]);
+            glUniform1i(glGetUniformLocation(g_progVeil, "uHr"), 2);
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_2D, g_vtex[2]);
+            glUniform1i(glGetUniformLocation(g_progVeil, "uHg"), 3);
+            glActiveTexture(GL_TEXTURE4);
+            glBindTexture(GL_TEXTURE_2D, g_vtex[3]);
+            glUniform1i(glGetUniformLocation(g_progVeil, "uHb"), 4);
             glUniform2f(glGetUniformLocation(g_progVeil, "uRes"), (float) w, (float) h);
             glUniform2f(glGetUniformLocation(g_progVeil, "uOrigin"), g_ox, g_oy);
-            glUniform2f(glGetUniformLocation(g_progVeil, "uFull"), g_fw, g_fh);
-            setU(g_progVeil, "uGain", P[1]);
-            setU(g_progVeil, "uLift", P[3]);
-            glUniform3f(glGetUniformLocation(g_progVeil, "uTint"), 1.0f + P[4] * 0.04f, 1.0f, 1.0f - P[4] * 0.04f);
+            glUniform2f(glGetUniformLocation(g_progVeil, "uFull"), (float) g_fw, (float) g_fh);
+            setU(g_progVeil, "uA", 0.30f); setU(g_progVeil, "uBb", 0.625f);
+            setU(g_progVeil, "uC", 0.3375f); setU(g_progVeil, "uD", 0.3375f); setU(g_progVeil, "uE", 0.675f);
+            setU(g_progVeil, "uGr", 13.6f); setU(g_progVeil, "uGg", 6.1f); setU(g_progVeil, "uGb", 2.4f);
             glActiveTexture(GL_TEXTURE0);
             glDrawArrays(GL_TRIANGLES, 0, 3);
             cur = dT; curFbo = dF;
@@ -1018,6 +1134,18 @@ Java_com_openfilm6k_host_Engine_nInit(JNIEnv*, jobject) {
     g_ctx = eglCreateContext(g_dpy, cfg, EGL_NO_CONTEXT, ctxattr);
     if (g_ctx == EGL_NO_CONTEXT) { LOGE("no ctx"); return JNI_FALSE; }
     eglMakeCurrent(g_dpy, g_surf, g_surf, g_ctx);
+    // probe once whether RGBA16F is colour-renderable (needed for the wide veiling halos)
+    {
+        GLuint t = 0, f = 0;
+        glGenTextures(1, &t); glBindTexture(GL_TEXTURE_2D, t);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, 8, 8, 0, GL_RGBA, GL_HALF_FLOAT, nullptr);
+        glGenFramebuffers(1, &f); glBindFramebuffer(GL_FRAMEBUFFER, f);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t, 0);
+        GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        g_half = (st == GL_FRAMEBUFFER_COMPLETE);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0); glDeleteFramebuffers(1, &f); glDeleteTextures(1, &t);
+        LOGI("GL %s | veil half-float fbo=%d (0x%x)", (const char*) glGetString(GL_VERSION), (int) g_half, st);
+    }
     g_progLut = mkProg(FS_LUT);
     g_progImage = mkProg(FS_IMAGE);
     g_progHue = mkProg(FS_HUE);
@@ -1039,6 +1167,7 @@ Java_com_openfilm6k_host_Engine_nInit(JNIEnv*, jobject) {
     { float q[8] = { -1, -1, 1, -1, -1, 1, 1, 1 }; glGenBuffers(1, &g_dustVBO); glBindBuffer(GL_ARRAY_BUFFER, g_dustVBO); glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STATIC_DRAW); }
     g_progDustComp = mkProg(FS_DUSTCOMP);
     g_progVeil = mkProg(FS_VEIL);
+    g_progVeilPrep = mkProg(FS_VEILPREP);
     eglMakeCurrent(g_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     g_inited = true;
     LOGI("native engine init OK");
@@ -1250,7 +1379,7 @@ Java_com_openfilm6k_host_Engine_nProcessFile(JNIEnv* env, jobject, jstring inPat
             if (ty == N_GLOW && nd[i * 12 + 4] > 0)
                 maxGR = fmaxf(maxGR, nd[i * 12 + 2] * (H / 4000.0f));
             if (ty == N_VEIL && nd[i * 12 + 1] > 0)
-                maxVR = fmaxf(maxVR, nd[i * 12 + 2] * (H / 4000.0f));
+                maxVR = fmaxf(maxVR, nd[i * 12 + 2] * (H / 4000.0f) * 6.0f);  // red-orange halo is the widest reach
             if (ty == N_DUST && nd[i * 12 + 1] > 0)
                 maxDR = fmaxf(maxDR, nd[i * 12 + 6] * (H / 4000.0f) * 1.4f);
         }
@@ -1260,7 +1389,7 @@ Java_com_openfilm6k_host_Engine_nProcessFile(JNIEnv* env, jobject, jstring inPat
             float mf = fmaxf(fmaxf(maxGR, maxVR), maxDR);
             O = (int) ceilf(mf * 1.3f) + 8;
             if (O < 72) O = 72;
-            if (O > 240) O = 240;
+            if (O > 1400) O = 1400;
         }
         if (W <= LIMIT && H <= LIMIT) {
             g_fw = W; g_fh = H; g_ox = 0; g_oy = 0;

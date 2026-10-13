@@ -198,6 +198,7 @@ public class L {
         {"night3", "银河", "銀河", "Milky Way", "天の川", "은하수", "Milchstraße", "Voie lactée", "Vía Láctea", "Млечный Путь", "Via Láctea"},
         {"portrait1", "人像", "人像", "Portrait", "ポートレート", "인물", "Porträt", "Portrait", "Retrato", "Портрет", "Retrato"},
         {"portrait2", "特写", "特寫", "Close-up", "クローズアップ", "클로즈업", "Nahaufnahme", "Gros plan", "Primer plano", "Крупный план", "Primeiro plano"},
+        {"lights", "彩灯", "彩燈", "String lights", "イルミネーション", "스트링 라이트", "Lichterkette", "Guirlande lumineuse", "Luces de cadena", "Гирлянда", "Luzes de fio"},
         {"red1", "红", "紅", "Red", "赤", "빨강", "Rot", "Rouge", "Rojo", "Красный", "Vermelho"},
         {"red2", "绯红", "緋紅", "Crimson", "紅", "진홍", "Karmin", "Cramoisi", "Carmesí", "Багровый", "Carmim"},
         {"sky1", "天空", "天空", "Sky", "空", "하늘", "Himmel", "Ciel", "Cielo", "Небо", "Céu"},

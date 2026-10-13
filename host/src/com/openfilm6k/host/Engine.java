@@ -175,7 +175,7 @@ public class Engine {
     private static final float DUST_SPREAD = 0.3333f, DUST_RMIN = 24f, DUST_RMAX = 138f;
     private static final float DUST_BODY = 0.6f, DUST_PROB = 0.85f, DUST_WARM = 0.4f;
     // veiling: ultra-light broad lens haze (independent category)
-    private static final float VEIL_GAIN = 0.04f, VEIL_RADIUS = 260f, VEIL_LIFT = 0.0025f, VEIL_WARM = 0.5f;
+    private static final float VEIL_GAIN = 0.45f, VEIL_RADIUS = 140f, VEIL_LIFT = 0.0f, VEIL_WARM = 0.5f;
     /** random alpha range per gallery category (dust/veiling are procedural, not here) */
     private static float[] postAlphaRange(String cat) {
         if ("leak".equals(cat)) return new float[]{ 1.0f, 1.3f };
