@@ -1065,8 +1065,8 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             glUniform2f(glGetUniformLocation(g_progVeil, "uRes"), (float) w, (float) h);
             glUniform2f(glGetUniformLocation(g_progVeil, "uOrigin"), g_ox, g_oy);
             glUniform2f(glGetUniformLocation(g_progVeil, "uFull"), (float) g_fw, (float) g_fh);
-            setU(g_progVeil, "uA", 0.30f); setU(g_progVeil, "uBb", 0.625f);
-            setU(g_progVeil, "uC", 0.3375f); setU(g_progVeil, "uD", 0.3375f); setU(g_progVeil, "uE", 0.675f);
+            setU(g_progVeil, "uA", 0.55f); setU(g_progVeil, "uBb", 0.40f);
+            setU(g_progVeil, "uC", 0.35f); setU(g_progVeil, "uD", 0.235f); setU(g_progVeil, "uE", 0.47f);
             setU(g_progVeil, "uGr", 13.6f); setU(g_progVeil, "uGg", 6.1f); setU(g_progVeil, "uGb", 2.4f);
             glActiveTexture(GL_TEXTURE0);
             glDrawArrays(GL_TRIANGLES, 0, 3);
