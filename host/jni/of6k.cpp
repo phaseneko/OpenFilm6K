@@ -267,13 +267,14 @@ static const char* FS_DUSTCOMP = FS_HEAD
 
 // dust radial blur: smear the dust field along rays emanating from the main highlight centre (zoom/radial blur)
 static const char* FS_DUSTRAD = FS_HEAD
-    "uniform float uSpread,uMaxOff; uniform vec2 uCenter;\n"
+    "uniform sampler2D uTex2; uniform float uSpread,uMaxOff; uniform vec2 uCenter;\n"
     "void main(){\n"
     " vec2 pf=uOrigin+gl_FragCoord.xy; vec2 v=pf-uCenter; float rv=length(v);\n"
     " float k=(rv>0.5)? min(uSpread, uMaxOff/rv) : 0.0;\n"
     " vec3 a=vec3(0.0);\n"
     " for(int i=-10;i<=10;i++){ float f=1.0+float(i)/10.0*k; vec2 tp=(uCenter+v*f-uOrigin)/uRes;\n"
-    "  a+=texture(uTex,clamp(tp,vec2(0.0),vec2(1.0))).rgb; }\n"
+    "  vec2 tc=clamp(tp,vec2(0.0),vec2(1.0));\n"
+    "  a+=texture(uTex,tc).rgb+texture(uTex2,tc).rgb; }\n"
     " o=vec4(a/21.0,1.0); }\n";
 
 // dust core (per-particle quad): each dust grain is an independent quad -> no cell grid, natural scatter
@@ -900,37 +901,41 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             if (R < 1.0f) break;
             float rw = R * 0.35f;                // rim width (blur spread)
             float rdot = fmaxf(3.0f, R * 0.60f); // filled core disc radius (<=0.25*cell so it fits its cell)
-            // core field -> g_tex[2]  (independent per-particle quads: no cell grid)
-            glBindFramebuffer(GL_FRAMEBUFFER, g_fbo[2]);
-            glViewport(0, 0, w, h);
-            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
-            glUseProgram(g_progDustQ);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, g_dustMaskTex);
-            glUniform1i(glGetUniformLocation(g_progDustQ, "uMask"), 0);
-            glUniform2f(glGetUniformLocation(g_progDustQ, "uRes"), (float) w, (float) h);
-            glUniform2f(glGetUniformLocation(g_progDustQ, "uOrigin"), g_ox, g_oy);
-            glUniform2f(glGetUniformLocation(g_progDustQ, "uFull"), (float) g_fw, (float) g_fh);
-            glUniform2f(glGetUniformLocation(g_progDustQ, "uHi"), g_hlx, g_hly);
-            glBindBuffer(GL_ARRAY_BUFFER, g_dustVBO);
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (void*) 0);
-            glEnable(GL_BLEND);
-            glBlendEquation(GL_FUNC_ADD);
-            glBlendFunc(GL_ONE, GL_ONE);   // additive: overlapping grains accumulate instead of erasing each other
-            {
+            // two random batches of grains, each drawn into its own core field:
+            //   batch A -> g_tex[2] (one gaussian)   batch B -> g_tex[3] (two gaussians)
+            auto drawDust = [&](int wantBatch, int dstIdx) {
+                glBindFramebuffer(GL_FRAMEBUFFER, g_fbo[dstIdx]);
+                glViewport(0, 0, w, h);
+                glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+                glClear(GL_COLOR_BUFFER_BIT);
+                glUseProgram(g_progDustQ);
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, g_dustMaskTex);
+                glUniform1i(glGetUniformLocation(g_progDustQ, "uMask"), 0);
+                glUniform2f(glGetUniformLocation(g_progDustQ, "uRes"), (float) w, (float) h);
+                glUniform2f(glGetUniformLocation(g_progDustQ, "uOrigin"), g_ox, g_oy);
+                glUniform2f(glGetUniformLocation(g_progDustQ, "uFull"), (float) g_fw, (float) g_fh);
+                glUniform2f(glGetUniformLocation(g_progDustQ, "uHi"), g_hlx, g_hly);
+                glBindBuffer(GL_ARRAY_BUFFER, g_dustVBO);
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (void*) 0);
+                glEnable(GL_BLEND);
+                glBlendEquation(GL_FUNC_ADD);
+                glBlendFunc(GL_ONE, GL_ONE);   // additive: overlapping grains accumulate instead of erasing each other
                 float cell = R * 2.83f;                 // nominal spacing (density control only, not a lattice)
                 float area = (float) g_fw * (float) g_fh;
                 int N = (int) (area / (cell * cell) * 1.27f + 0.5f);   // ~100 grains on a 12-megapixel frame
                 if (N > 8000) N = 8000;
                 unsigned int s = (unsigned int) (P[9] * 65536.0f) ^ 0x9E3779B9u; if (s == 0) s = 12345u;
+                unsigned int bseed = (unsigned int) (P[9] * 65536.0f) ^ 0x85EBCA6Bu;
                 for (int pi = 0; pi < N; pi++) {
                     s = s * 1664525u + 1013904223u; float rx = (float) ((s >> 8) & 0xFFFF) / 65535.0f;
                     s = s * 1664525u + 1013904223u; float ry = (float) ((s >> 8) & 0xFFFF) / 65535.0f;
                     s = s * 1664525u + 1013904223u; float rs = (float) ((s >> 8) & 0xFFFF) / 65535.0f;
+                    int batch = (int) (((unsigned int) pi * 2654435761u ^ bseed) >> 15) & 1;
+                    if (batch != wantBatch) continue;
                     float px = rx * (float) g_fw, py = ry * (float) g_fh;
-                    float pr = rdot * (0.8f + 0.4f * rs);   // size range [0.8,1.2]x rdot (max radius = 2/3 of the 1.8x version, min unchanged)
+                    float pr = rdot * (0.8f + 0.4f * rs);   // size range [0.8,1.2]x rdot
                     float half = pr * 1.12f;
                     if (px + half < g_ox || px - half > g_ox + w || py + half < g_oy || py - half > g_oy + h) continue;
                     glUniform2f(glGetUniformLocation(g_progDustQ, "uPC"), px, py);
@@ -939,26 +944,44 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
                     glUniform1f(glGetUniformLocation(g_progDustQ, "uSeed"), (float) pi * 0.137f + P[9]);
                     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
                 }
-            }
-            glDisableVertexAttribArray(0);
-            glDisable(GL_BLEND);
-            // layer 1: gaussian blur -> g_tex[5]
-            glUseProgram(g_progBlurH); setU(g_progBlurH, "uRadius", R * 0.08f);
-            bindRun(g_progBlurH, g_tex[2], g_fbo[3], w, h, g_ox, g_oy, g_fw, g_fh);
-            glUseProgram(g_progBlurV); setU(g_progBlurV, "uRadius", R * 0.08f);
-            bindRun(g_progBlurV, g_tex[3], g_fbo[5], w, h, g_ox, g_oy, g_fw, g_fh);
-            // layer 2: radial (zoom) blur along rays from the main highlight centre -> g_tex[4]
+                glDisableVertexAttribArray(0);
+                glDisable(GL_BLEND);
+            };
+            float rBlurA = R * 0.12f;   // batch A: one gaussian -> the sharper half
+            float rBlurB = R * 0.24f;   // batch B: two larger gaussians -> clearly out of focus
+            // batch A: one gaussian -> g_tex[5]
+            drawDust(0, 2);
+            glUseProgram(g_progBlurH); setU(g_progBlurH, "uRadius", rBlurA);
+            bindRun(g_progBlurH, g_tex[2], g_fbo[6], w, h, g_ox, g_oy, g_fw, g_fh);
+            glUseProgram(g_progBlurV); setU(g_progBlurV, "uRadius", rBlurA);
+            bindRun(g_progBlurV, g_tex[6], g_fbo[5], w, h, g_ox, g_oy, g_fw, g_fh);
+            // batch B: two gaussians -> g_tex[2]
+            drawDust(1, 3);
+            glUseProgram(g_progBlurH); setU(g_progBlurH, "uRadius", rBlurB);
+            bindRun(g_progBlurH, g_tex[3], g_fbo[6], w, h, g_ox, g_oy, g_fw, g_fh);
+            glUseProgram(g_progBlurV); setU(g_progBlurV, "uRadius", rBlurB);
+            bindRun(g_progBlurV, g_tex[6], g_fbo[2], w, h, g_ox, g_oy, g_fw, g_fh);
+            glUseProgram(g_progBlurH); setU(g_progBlurH, "uRadius", rBlurB);
+            bindRun(g_progBlurH, g_tex[2], g_fbo[6], w, h, g_ox, g_oy, g_fw, g_fh);
+            glUseProgram(g_progBlurV); setU(g_progBlurV, "uRadius", rBlurB);
+            bindRun(g_progBlurV, g_tex[6], g_fbo[2], w, h, g_ox, g_oy, g_fw, g_fh);
+            // layer 2: radial (zoom) blur of A (g_tex[5]) + B (g_tex[2]) along rays from the highlight centre -> g_tex[4]
             glBindFramebuffer(GL_FRAMEBUFFER, g_fbo[4]);
             glViewport(0, 0, w, h);
             glUseProgram(g_progDustRad);
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, g_tex[5]);
+            glUniform1i(glGetUniformLocation(g_progDustRad, "uTex"), 0);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, g_tex[2]);
+            glUniform1i(glGetUniformLocation(g_progDustRad, "uTex2"), 1);
             glUniform2f(glGetUniformLocation(g_progDustRad, "uRes"), (float) w, (float) h);
             glUniform2f(glGetUniformLocation(g_progDustRad, "uOrigin"), g_ox, g_oy);
             glUniform2f(glGetUniformLocation(g_progDustRad, "uFull"), (float) g_fw, (float) g_fh);
             glUniform2f(glGetUniformLocation(g_progDustRad, "uCenter"), g_hlx, g_hly);
             setU(g_progDustRad, "uSpread", 0.015f);
             setU(g_progDustRad, "uMaxOff", 75.0f);
+            glActiveTexture(GL_TEXTURE0);
             glDrawArrays(GL_TRIANGLES, 0, 3);
             // composite over cur -> dF
             glBindFramebuffer(GL_FRAMEBUFFER, dF);
