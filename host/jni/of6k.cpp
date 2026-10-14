@@ -1175,7 +1175,7 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             glBindFramebuffer(GL_FRAMEBUFFER, g_vfbo[1]);
             glViewport(0, 0, w, h);
             glDrawArrays(GL_TRIANGLES, 0, 3);
-            veilBlur(g_vtex[1], 1, rS * 2.5f, w, h);   // reach kept (was the tightest haze band); one blur for all channels
+            veilBlur(g_vtex[1], 1, rS * 1.25f, w, h);   // half the previous reach; one blur for all channels
             glBindFramebuffer(GL_FRAMEBUFFER, dF);
             glViewport(0, 0, w, h);
             glUseProgram(g_progHdf);
@@ -1189,7 +1189,7 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             glUniform2f(glGetUniformLocation(g_progHdf, "uOrigin"), g_ox, g_oy);
             glUniform2f(glGetUniformLocation(g_progHdf, "uFull"), (float) g_fw, (float) g_fh);
             setU(g_progHdf, "uK", P[3] > 0.0f ? P[3] : 1.0f);
-            setU(g_progHdf, "uG", P[4] > 0.0f ? P[4] : 13.6f);    // same soft gain curve as the haze's widest band
+            setU(g_progHdf, "uG", P[4] > 0.0f ? P[4] : 5.0f);     // gentler curve -> even softer falloff
             glActiveTexture(GL_TEXTURE0);
             glDrawArrays(GL_TRIANGLES, 0, 3);
             cur = dT; curFbo = dF;
@@ -1505,8 +1505,8 @@ Java_com_openfilm6k_host_Engine_nProcessFile(JNIEnv* env, jobject, jstring inPat
                 maxGR = fmaxf(maxGR, nd[i * 12 + 2] * (H / 4000.0f));
             if (ty == N_VEIL && nd[i * 12 + 1] > 0)
                 maxVR = fmaxf(maxVR, nd[i * 12 + 2] * (H / 4000.0f) * 6.0f);  // red-orange halo is the widest reach
-            if (ty == N_HDF && nd[i * 12 + 1] > 0)   // single diffusion, reach rS*2.5
-                maxVR = fmaxf(maxVR, nd[i * 12 + 2] * (H / 4000.0f) * 2.5f);
+            if (ty == N_HDF && nd[i * 12 + 1] > 0)   // single diffusion, reach rS*1.25
+                maxVR = fmaxf(maxVR, nd[i * 12 + 2] * (H / 4000.0f) * 1.25f);
             if (ty == N_SOFT && nd[i * 12 + 1] > 0)  // plain gaussian
                 maxVR = fmaxf(maxVR, nd[i * 12 + 2] * (H / 4000.0f) * 1.2f);
             if (ty == N_DUST && nd[i * 12 + 1] > 0)
