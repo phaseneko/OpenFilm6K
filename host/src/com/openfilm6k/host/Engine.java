@@ -306,13 +306,18 @@ public class Engine {
         }
     }
 
-    private float[] buildNodes(String film, java.util.List<String> nodeLuts) {
+    private float[] buildNodes(String film, java.util.List<String> nodeLuts) { return buildNodes(film, nodeLuts, false); }
+    /** colorOnly: keep only the per-pixel colour steps (lut / grade / hue) and drop the spatial ones
+     *  (glow / grain / vignette / sharpen). Used for the scratch layer, which is film imaging but must
+     *  take only the film's colour response. */
+    private float[] buildNodes(String film, java.util.List<String> nodeLuts, boolean colorOnly) {
         java.util.List<Float> out = new java.util.ArrayList<Float>();
         for (String step : Films.s(film, "chain", "lut,grade,glow,grain,vig").split(",")) {
             step = step.trim();
             if (step.isEmpty()) continue;
             String[] pr = step.split(":", 2);
             String ty = pr[0], nid = pr.length > 1 ? pr[1] : "";
+            if (colorOnly && !(ty.equals("lut") || ty.equals("grade") || ty.equals("hue"))) continue;
             float al;
             if (ty.equals("lut")) al = alF(film, ty, nid, "on", 1f);
             else if (ty.equals("glow")) al = alF(film, ty, nid, "amount", 1f);
@@ -600,6 +605,27 @@ public class Engine {
     static volatile Float scoreOverride = null;
 
     /** render img through film pipeline, write jpeg to out. returns out path or null */
+    /** Apply ONLY the per-pixel colour pipeline (lut / grade / hue) of a film to an image.
+     *  Used to colour the scratch layer (film imaging must take the film's colour response but not
+     *  its grain / vignette / glow / sharpen). Returns outPath, or null on failure. */
+    public String processColor(String imgPath, String film, String outPath) {
+        synchronized (lock) {
+            try {
+                if (!NATIVE) return null;
+                if (!nInited) nInited = nInit();
+                if (!nInited) return null;
+                String dayKey = Films.isSplit(film) ? film + ".day" : film;
+                java.util.List<String> nl = new java.util.ArrayList<String>();
+                float[] nd = buildNodes(dayKey, nl, true);
+                java.io.File lf = Films.lutFile(dayKey);
+                int rc = nProcessFile(imgPath, outPath, lf != null ? lf.getAbsolutePath() : null, nd,
+                                      new String[0], null, null, 0f, nl.toArray(new String[0]), new String[0]);
+                dbg("processColor rc=" + rc + " nodes=" + (nd.length / 12));
+                return rc == 0 ? outPath : null;
+            } catch (Throwable t) { dbg("processColor ex " + t); return null; }
+        }
+    }
+
     public String process(String imgPath, String film, String outPath) {
         synchronized (lock) {
             try {

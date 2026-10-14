@@ -305,14 +305,14 @@ public class Server {
                     r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
                     if (pipeIn != src) pipeIn.delete();
                     if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
-                        if (filmBorder) r = screenBorderLayer(out, src, film, q);   // screen the LUT-only border over the graded canvas
+                        if (filmBorder) { r = screenBorderLayer(out, src, film, q); if (!scratch.isEmpty()) r = scratchColorized(new java.io.File(r), film, scratch); }   // border screen, then the film scratch over it
                         else if (photoFrame) {                                       // B1/WB1: scratch first, then the frame on top
-                            if (!scratch.isEmpty()) r = postApply(out, scratch).getAbsolutePath();
+                            if (!scratch.isEmpty()) r = scratchColorized(out, film, scratch);
                             r = stamped(out, src, film, q);
                         } else {                                                     // borderless / W: output-level scratch after everything
                             r = stamped(out, src, film, q);
                             if (!scratch.isEmpty() && r != null && !r.startsWith("ERR"))
-                                r = postApply(new java.io.File(r), scratch).getAbsolutePath();
+                                r = scratchColorized(new java.io.File(r), film, scratch);
                         }
                     }
                     }
@@ -916,9 +916,9 @@ public class Server {
             r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
             if (pipeIn != src) pipeIn.delete();
             if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
-                if (filmBorder) r = screenBorderLayer(out, src, film, q);
-                else if (photoFrame) { if (!scratch.isEmpty()) r = postApply(out, scratch).getAbsolutePath(); r = stamped(out, src, film, q); }
-                else { r = stamped(out, src, film, q); if (!scratch.isEmpty()) r = postApply(new java.io.File(r), scratch).getAbsolutePath(); }
+                if (filmBorder) { r = screenBorderLayer(out, src, film, q); if (!scratch.isEmpty()) r = scratchColorized(new java.io.File(r), film, scratch); }
+                else if (photoFrame) { if (!scratch.isEmpty()) r = scratchColorized(out, film, scratch); r = stamped(out, src, film, q); }
+                else { r = stamped(out, src, film, q); if (!scratch.isEmpty()) r = scratchColorized(new java.io.File(r), film, scratch); }
             }
             }
             if (exifApp1 != null && r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
@@ -1533,11 +1533,7 @@ public class Server {
             }
             layer.recycle(); layer = null;
             if (!fills) {                                     // WB2: the film's LUT conditions the border only
-                try {
-                    java.io.File lf = Films.lutFile(film);
-                    if (lf != null && lf.getName().endsWith(".cube"))
-                        lutRegion(ob, CubeLib.parseCube(lf), rl, rb, rl + W, rb + H);
-                } catch (Throwable lutEx) { Engine.dbg("WB lut ex " + lutEx); }
+                // border colour (lut + grade + hue) now applied by Engine.processColor in screenBorderLayer
             }
             java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
             ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
@@ -1617,6 +1613,48 @@ public class Server {
     /** B2/WB2/WB3: render the LUT-only film edge (via a black photo, so its region stays pure black = screen identity)
      *  and SCREEN it over the graded canvas — the leak/dust in A's margins then light the base + print, while the
      *  photo frame is untouched. */
+    /** Scratch is film imaging: render the scratch layer on a black canvas, run it through the film's
+     *  per-pixel COLOUR pipeline (lut / grade / hue), then screen the result onto the graded canvas.
+     *  (No grain / vignette / glow / sharpen -- only the steps that change a single pixel's colour.) */
+    private static String scratchColorized(java.io.File graded, String film, String scratch) {
+        try {
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath(), o);
+            int w = o.outWidth, h = o.outHeight;
+            if (w <= 0 || h <= 0) return graded.getAbsolutePath();
+            android.graphics.Bitmap black = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+            new android.graphics.Canvas(black).drawColor(0xFF000000);
+            java.io.File blackF = new java.io.File(workDir, "scrblk_" + graded.getName());
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(blackF);
+            black.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo); fo.close(); black.recycle();
+            // layer = scratch composited onto black
+            java.io.File layer = new java.io.File(workDir, "scrlay_" + graded.getName());
+            String l1 = Engine.get().applyPost(blackF.getAbsolutePath(), layer.getAbsolutePath(), scratch);
+            blackF.delete();
+            if (l1 == null || !new java.io.File(l1).exists()) return graded.getAbsolutePath();
+            // film colour response (lut + grade + hue) on the layer only
+            java.io.File layer2 = new java.io.File(workDir, "scrlay2_" + graded.getName());
+            String l2 = Engine.get().processColor(l1, film, layer2.getAbsolutePath());
+            java.io.File use = (l2 != null && new java.io.File(l2).exists()) ? layer2 : new java.io.File(l1);
+            // screen onto the graded canvas
+            android.graphics.Bitmap A = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
+            android.graphics.Bitmap B = android.graphics.BitmapFactory.decodeFile(use.getAbsolutePath());
+            if (A == null || B == null) { if (A != null) A.recycle(); if (B != null) B.recycle(); return graded.getAbsolutePath(); }
+            android.graphics.Bitmap ob = A.copy(android.graphics.Bitmap.Config.ARGB_8888, true);
+            android.graphics.Canvas c = new android.graphics.Canvas(ob);
+            android.graphics.Paint p = new android.graphics.Paint();
+            p.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SCREEN));
+            c.drawBitmap(B, 0, 0, p);
+            java.io.FileOutputStream fo2 = new java.io.FileOutputStream(graded);
+            ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo2); fo2.close();
+            A.recycle(); B.recycle(); ob.recycle();
+            if (layer.exists()) layer.delete();
+            if (layer2.exists()) layer2.delete();
+            return graded.getAbsolutePath();
+        } catch (Throwable t) { Engine.dbg("scratchColorized ex " + t); return graded.getAbsolutePath(); }
+    }
+
     private static String screenBorderLayer(java.io.File gradedCanvas, java.io.File src, String film, java.util.Map<String,String> q) {
         try {
             android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
@@ -1634,6 +1672,12 @@ public class Server {
                 bp = filmEdgeWide(blackF, film, q.get("wb3") != null);
             } else {
                 bp = filmEdge(blackF, src, film);   // B2: border with a BLACK photo region; LUT applied to the base only
+            }
+            // the border print is film imaging: give it the film's per-pixel colour response (lut+grade+hue)
+            {
+                java.io.File bpg = new java.io.File(workDir, "bpg_" + gradedCanvas.getName());
+                String bp2 = Engine.get().processColor(bp, film, bpg.getAbsolutePath());
+                if (bp2 != null && new java.io.File(bp2).exists()) bp = bp2;
             }
             android.graphics.Bitmap A = android.graphics.BitmapFactory.decodeFile(gradedCanvas.getAbsolutePath());
             android.graphics.Bitmap B = android.graphics.BitmapFactory.decodeFile(bp);
@@ -1877,12 +1921,7 @@ public class Server {
             grainLayer(layer, 45.0f, 3.0f);
             cv.drawBitmap(layer, -rl, 0, null);
             layer.recycle();
-            // ---- the whole B2 border takes the film's LUT (LUT node only); the graded photo is left as-is ----
-            try {
-                java.io.File lf = Films.lutFile(film);
-                if (lf != null && lf.getName().endsWith(".cube"))
-                    lutRegion(ob, CubeLib.parseCube(lf), rl, rb, rl + W, rb + H);
-            } catch (Throwable lutEx) { Engine.dbg("B2 lut ex " + lutEx); }
+            // ---- the border colour (lut + grade + hue) is applied by Engine.processColor in screenBorderLayer ----
 java.io.FileOutputStream fo = new java.io.FileOutputStream(graded);
             ob.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo);
             fo.close();
