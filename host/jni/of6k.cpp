@@ -373,17 +373,18 @@ static const char* FS_SOFT = FS_HEAD
     "uniform sampler2D uGB; uniform float uA,uBb;\n"
     "void main(){ vec3 c=src(); vec3 gb=texture(uGB,luv()).rgb;\n"
     " o=vec4(clamp(uA*c+uBb*gb,0.0,1.0),1.0); }";
-// HDF (highlight diffusion): only the veiling's highlight-spill half (original + the 3 hue halos).
-// Unlike veiling's soft saturation this uses a NARROW threshold band, so a blurred highlight grows a
-// large, hard-edged SOLID disc (a real HDF filter's look) instead of an endlessly soft glow.
+// HDF (highlight diffusion): ONE highlight diffusion for ALL channels, with uniform parameters — no
+// per-hue radius/gain split like the lens haze. The blurred highlight is thresholded over a WIDE band
+// so it grows a large disc with a soft edge (a real HDF filter's look).
+static const char* FS_HDFPREP = FS_HEAD
+    "uniform float uTh,uTh2;\n"
+    "void main(){ vec3 c=src(); float m=max(c.r,max(c.g,c.b));\n"
+    " o=vec4(c*smoothstep(uTh,uTh2,m),1.0); }";
 static const char* FS_HDF = FS_HEAD
-    "uniform sampler2D uHr,uHg,uHb; uniform float uC,uD,uE,uLo,uHi;\n"
-    "vec3 band(vec3 b,float lo,float hi){ float i=max(b.r,max(b.g,b.b)); if(i<1.0e-5) return vec3(0.0); return b*(smoothstep(lo,hi,i)/i); }\n"
-    "void main(){ vec3 c=src();\n"
-    " vec3 h0=band(texture(uHr,luv()).rgb,uLo,uHi);\n"
-    " vec3 h1=band(texture(uHg,luv()).rgb,uLo,uHi);\n"
-    " vec3 h2=band(texture(uHb,luv()).rgb,uLo,uHi);\n"
-    " o=vec4(clamp(c+uC*h0+uD*h1+uE*h2,0.0,1.0),1.0); }";
+    "uniform sampler2D uH; uniform float uK,uG;\n"
+    "vec3 band(vec3 b,float G){ float i=max(b.r,max(b.g,b.b)); if(i<1.0e-5) return vec3(0.0); float g=(i*G)/(1.0+i*G); return b*(g/i); }\n"
+    "void main(){ vec3 c=src(); vec3 b=texture(uH,luv()).rgb;\n"
+    " o=vec4(clamp(c+uK*band(b,uG),0.0,1.0),1.0); }";
 
 // ---- GL objects (created once, reused across renders) ----
 static EGLDisplay g_dpy = EGL_NO_DISPLAY;
@@ -391,7 +392,7 @@ static EGLContext g_ctx = EGL_NO_CONTEXT;
 static EGLSurface g_surf = EGL_NO_SURFACE;
 static bool g_inited = false;
 static GLuint g_progLut, g_progGrade, g_progGlowH, g_progGlowV, g_progGrain, g_progVig, g_progGlowMask, g_progGlowDil, g_progGlowRing, g_progCopy, g_progSharp, g_progImage, g_progHue;
-static GLuint g_progBlurH, g_progBlurV, g_progDust, g_progDustRad, g_progDustQ, g_progVeil, g_progVeilPrep, g_progDustComp, g_progSoft, g_progHdf;
+static GLuint g_progBlurH, g_progBlurV, g_progDust, g_progDustRad, g_progDustQ, g_progVeil, g_progVeilPrep, g_progDustComp, g_progSoft, g_progHdf, g_progHdfPrep;
 static GLuint g_dustVBO = 0;
 static GLuint g_fbo[7] = {0, 0, 0, 0, 0, 0, 0}, g_tex[7] = {0, 0, 0, 0, 0, 0, 0};
 // veiling uses its own (optionally half-float) targets: the wide, faint glare halos of a small light
@@ -1159,27 +1160,22 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             cur = dT; curFbo = dF;
             break;
         }
-        case N_HDF: {    // HDF: the veiling's highlight-spill half only
+        case N_HDF: {    // HDF: one channel-agnostic highlight diffusion
             float rS = P[2] * (g_fh / 4000.0f);
             if (rS < 1.0f) break;
             ensureVeil(w, h);
-            glUseProgram(g_progVeilPrep);
-            glUniform2f(glGetUniformLocation(g_progVeilPrep, "uRes"), (float) w, (float) h);
-            glUniform2f(glGetUniformLocation(g_progVeilPrep, "uOrigin"), g_ox, g_oy);
-            glUniform2f(glGetUniformLocation(g_progVeilPrep, "uFull"), (float) g_fw, (float) g_fh);
-            setU(g_progVeilPrep, "uTh", 0.95f); setU(g_progVeilPrep, "uTh2", 1.0f);
+            glUseProgram(g_progHdfPrep);
+            glUniform2f(glGetUniformLocation(g_progHdfPrep, "uRes"), (float) w, (float) h);
+            glUniform2f(glGetUniformLocation(g_progHdfPrep, "uOrigin"), g_ox, g_oy);
+            glUniform2f(glGetUniformLocation(g_progHdfPrep, "uFull"), (float) g_fw, (float) g_fh);
+            setU(g_progHdfPrep, "uTh", 0.95f); setU(g_progHdfPrep, "uTh2", 1.0f);
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, cur);
-            glUniform1i(glGetUniformLocation(g_progVeilPrep, "uTex"), 0);
-            for (int k = 0; k < 3; k++) {
-                glBindFramebuffer(GL_FRAMEBUFFER, g_vfbo[1 + k]);
-                glViewport(0, 0, w, h);
-                setU(g_progVeilPrep, "uClust", (float) k);
-                glDrawArrays(GL_TRIANGLES, 0, 3);
-            }
-            veilBlur(g_vtex[1], 1, rS * 6.0f, w, h);   // red-orange, widest
-            veilBlur(g_vtex[2], 2, rS * 4.0f, w, h);   // yellow-green, medium
-            veilBlur(g_vtex[3], 3, rS * 2.5f, w, h);   // blue-violet, tightest
+            glUniform1i(glGetUniformLocation(g_progHdfPrep, "uTex"), 0);
+            glBindFramebuffer(GL_FRAMEBUFFER, g_vfbo[1]);
+            glViewport(0, 0, w, h);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            veilBlur(g_vtex[1], 1, rS * 2.5f, w, h);   // reach kept (was the tightest haze band); one blur for all channels
             glBindFramebuffer(GL_FRAMEBUFFER, dF);
             glViewport(0, 0, w, h);
             glUseProgram(g_progHdf);
@@ -1188,19 +1184,12 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             glUniform1i(glGetUniformLocation(g_progHdf, "uTex"), 0);
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, g_vtex[1]);
-            glUniform1i(glGetUniformLocation(g_progHdf, "uHr"), 1);
-            glActiveTexture(GL_TEXTURE2);
-            glBindTexture(GL_TEXTURE_2D, g_vtex[2]);
-            glUniform1i(glGetUniformLocation(g_progHdf, "uHg"), 2);
-            glActiveTexture(GL_TEXTURE3);
-            glBindTexture(GL_TEXTURE_2D, g_vtex[3]);
-            glUniform1i(glGetUniformLocation(g_progHdf, "uHb"), 3);
+            glUniform1i(glGetUniformLocation(g_progHdf, "uH"), 1);
             glUniform2f(glGetUniformLocation(g_progHdf, "uRes"), (float) w, (float) h);
             glUniform2f(glGetUniformLocation(g_progHdf, "uOrigin"), g_ox, g_oy);
             glUniform2f(glGetUniformLocation(g_progHdf, "uFull"), (float) g_fw, (float) g_fh);
-            setU(g_progHdf, "uC", 0.35f); setU(g_progHdf, "uD", 0.235f); setU(g_progHdf, "uE", 0.47f);
-            setU(g_progHdf, "uLo", P[3] > 0.0f ? P[3] : 0.05f);   // narrow band -> hard edge
-            setU(g_progHdf, "uHi", P[4] > P[3] ? P[4] : 0.09f);
+            setU(g_progHdf, "uK", P[3] > 0.0f ? P[3] : 1.0f);
+            setU(g_progHdf, "uG", P[4] > 0.0f ? P[4] : 13.6f);    // same soft gain curve as the haze's widest band
             glActiveTexture(GL_TEXTURE0);
             glDrawArrays(GL_TRIANGLES, 0, 3);
             cur = dT; curFbo = dF;
@@ -1303,6 +1292,7 @@ Java_com_openfilm6k_host_Engine_nInit(JNIEnv*, jobject) {
     g_progVeilPrep = mkProg(FS_VEILPREP);
     g_progSoft = mkProg(FS_SOFT);
     g_progHdf = mkProg(FS_HDF);
+    g_progHdfPrep = mkProg(FS_HDFPREP);
     eglMakeCurrent(g_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     g_inited = true;
     LOGI("native engine init OK");
@@ -1515,8 +1505,8 @@ Java_com_openfilm6k_host_Engine_nProcessFile(JNIEnv* env, jobject, jstring inPat
                 maxGR = fmaxf(maxGR, nd[i * 12 + 2] * (H / 4000.0f));
             if (ty == N_VEIL && nd[i * 12 + 1] > 0)
                 maxVR = fmaxf(maxVR, nd[i * 12 + 2] * (H / 4000.0f) * 6.0f);  // red-orange halo is the widest reach
-            if (ty == N_HDF && nd[i * 12 + 1] > 0)   // same red-orange reach as veiling
-                maxVR = fmaxf(maxVR, nd[i * 12 + 2] * (H / 4000.0f) * 6.0f);
+            if (ty == N_HDF && nd[i * 12 + 1] > 0)   // single diffusion, reach rS*2.5
+                maxVR = fmaxf(maxVR, nd[i * 12 + 2] * (H / 4000.0f) * 2.5f);
             if (ty == N_SOFT && nd[i * 12 + 1] > 0)  // plain gaussian
                 maxVR = fmaxf(maxVR, nd[i * 12 + 2] * (H / 4000.0f) * 1.2f);
             if (ty == N_DUST && nd[i * 12 + 1] > 0)
