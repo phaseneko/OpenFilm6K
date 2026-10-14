@@ -2018,30 +2018,16 @@ public class EditorActivity extends Activity {
         body.addView(pg, pgp);
         // post-process group (漏光/划痕/蒙尘): multi-select; each category is randomised in the preview
         android.widget.FrameLayout qg = new android.widget.FrameLayout(this);
-        android.widget.LinearLayout qgi = new android.widget.LinearLayout(this);
-        qgi.setOrientation(LinearLayout.HORIZONTAL);
-        qgi.setBackground(new Ux.Etched());
-        qgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
-        final String[] pvPostCats = { "leak", "scratch", "dust", "veiling", "softfocus", "hdf" };
-        final String[] pvPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust"), L.s("ppVeiling"), L.s("ppSoftFocus"), L.s("ppHdf") };
-        for (int i = 0; i < pvPostCats.length; i++) {
-            final String cc = pvPostCats[i];
-            final CheckBox cb = new CheckBox(this); cb.setText(pvPostNames[i]);
-            cb.setChecked(pvPostSel().contains(cc));
-            cb.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
-                public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
-                    java.util.HashSet<String> s3 = pvPostSel();
-                    if (v) s3.add(cc); else s3.remove(cc);
-                    java.util.ArrayList<String> l2 = new java.util.ArrayList<String>(s3);
-                    java.util.Collections.sort(l2);
-                    StringBuilder sb2 = new StringBuilder();
-                    for (String c : l2) { if (sb2.length() > 0) sb2.append(','); sb2.append(c); }
-                    getSharedPreferences("of6k", 0).edit().putString("pvpost", sb2.toString()).commit();
-                    renderPreview();
-                }
-            });
-            qgi.addView(cb, new LinearLayout.LayoutParams(0, -2, 1f));
-        }
+        android.widget.LinearLayout qgi = postSelector(pvPostSel(), new PostSel() {
+            public void changed(java.util.LinkedHashSet<String> s3) {
+                java.util.ArrayList<String> l2 = new java.util.ArrayList<String>(s3);
+                java.util.Collections.sort(l2);
+                StringBuilder sb2 = new StringBuilder();
+                for (String c : l2) { if (sb2.length() > 0) sb2.append(','); sb2.append(c); }
+                getSharedPreferences("of6k", 0).edit().putString("pvpost", sb2.toString()).commit();
+                renderPreview();
+            }
+        });
         TextView qgl = new TextView(this); qgl.setText(L.s("ppLabel")); Ux.styleHeader(qgl);
         qg.setClipChildren(false);
         android.widget.FrameLayout.LayoutParams qil = new android.widget.FrameLayout.LayoutParams(-1, -2);
@@ -2212,32 +2198,17 @@ public class EditorActivity extends Activity {
         body.addView(sg, new LinearLayout.LayoutParams(-1, -2));
         // group: post-process (漏光/划痕/蒙尘), multi-select — applies to every arrived file (same pipeline as capture)
         android.widget.FrameLayout qg = new android.widget.FrameLayout(this);
-        LinearLayout qgi = new LinearLayout(this);
-        qgi.setOrientation(LinearLayout.HORIZONTAL);
-        qgi.setBackground(new Ux.Etched());
-        qgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
-        final String[] spyPostCats = { "leak", "scratch", "dust", "veiling", "softfocus", "hdf" };
-        final String[] spyPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust"), L.s("ppVeiling"), L.s("ppSoftFocus"), L.s("ppHdf") };
-        for (int i = 0; i < spyPostCats.length; i++) {
-            final String cc = spyPostCats[i];
-            CheckBox cb = new CheckBox(this); cb.setText(spyPostNames[i]);
-            java.util.HashSet<String> sel0 = new java.util.HashSet<String>();
-            for (String c : pf.getString("spy_post", "").split(",")) if (c.trim().length() > 0) sel0.add(c.trim());
-            cb.setChecked(sel0.contains(cc));
-            cb.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
-                public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
-                    java.util.HashSet<String> s3 = new java.util.HashSet<String>();
-                    for (String c : pf.getString("spy_post", "").split(",")) if (c.trim().length() > 0) s3.add(c.trim());
-                    if (v) s3.add(cc); else s3.remove(cc);
-                    java.util.ArrayList<String> l2 = new java.util.ArrayList<String>(s3);
-                    java.util.Collections.sort(l2);
-                    StringBuilder sb2 = new StringBuilder();
-                    for (String c : l2) { if (sb2.length() > 0) sb2.append(','); sb2.append(c); }
-                    pf.edit().putString("spy_post", sb2.toString()).commit();
-                }
-            });
-            qgi.addView(cb, new LinearLayout.LayoutParams(0, -2, 1f));
-        }
+        java.util.HashSet<String> spySel0 = new java.util.HashSet<String>();
+        for (String c : pf.getString("spy_post", "").split(",")) if (c.trim().length() > 0) spySel0.add(c.trim());
+        LinearLayout qgi = postSelector(spySel0, new PostSel() {
+            public void changed(java.util.LinkedHashSet<String> s3) {
+                java.util.ArrayList<String> l2 = new java.util.ArrayList<String>(s3);
+                java.util.Collections.sort(l2);
+                StringBuilder sb2 = new StringBuilder();
+                for (String c : l2) { if (sb2.length() > 0) sb2.append(','); sb2.append(c); }
+                pf.edit().putString("spy_post", sb2.toString()).commit();
+            }
+        });
         TextView qgl = new TextView(this); qgl.setText(L.s("ppLabel")); Ux.styleHeader(qgl);
         qg.setClipChildren(false);
         android.widget.FrameLayout.LayoutParams qil = new android.widget.FrameLayout.LayoutParams(-1, -2);
@@ -2430,6 +2401,60 @@ public class EditorActivity extends Activity {
         java.util.HashSet<String> s = new java.util.HashSet<String>();
         for (String c : pvPost().split(",")) if (c.trim().length() > 0) s.add(c.trim());
         return s;
+    }
+
+    private interface PostSel { void changed(java.util.LinkedHashSet<String> sel); }
+
+    /** post-process selector, 3 per row: leak / scratch / dust are free checkboxes; veiling, soft focus
+     *  and HDF form ONE mutually exclusive radio set (tapping the selected one turns it back off). */
+    private android.widget.LinearLayout postSelector(java.util.HashSet<String> sel0, final PostSel cb) {
+        final java.util.LinkedHashSet<String> cur = new java.util.LinkedHashSet<String>(sel0);
+        final String[] FREE = { "leak", "scratch", "dust" };
+        final String[] ONE = { "veiling", "softfocus", "hdf" };
+        final String[] freeN = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust") };
+        final String[] oneN = { L.s("ppVeiling"), L.s("ppSoftFocus"), L.s("ppHdf") };
+        android.widget.LinearLayout col = new android.widget.LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setBackground(new Ux.Etched());
+        col.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        android.widget.LinearLayout r1 = new android.widget.LinearLayout(this);
+        r1.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < FREE.length; i++) {
+            final String cc = FREE[i];
+            android.widget.CheckBox bx = new android.widget.CheckBox(this); bx.setText(freeN[i]);
+            bx.setChecked(cur.contains(cc));
+            bx.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+                public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
+                    if (v) cur.add(cc); else cur.remove(cc);
+                    cb.changed(cur);
+                }
+            });
+            r1.addView(bx, new LinearLayout.LayoutParams(0, -2, 1f));
+        }
+        android.widget.LinearLayout r2 = new android.widget.LinearLayout(this);
+        r2.setOrientation(LinearLayout.HORIZONTAL);
+        final java.util.ArrayList<android.widget.RadioButton> rbs = new java.util.ArrayList<android.widget.RadioButton>();
+        for (int i = 0; i < ONE.length; i++) {
+            final String cc = ONE[i];
+            final android.widget.RadioButton rb = new android.widget.RadioButton(this); rb.setText(oneN[i]);
+            rb.setChecked(cur.contains(cc));
+            rb.setOnClickListener(new android.view.View.OnClickListener() {
+                public void onClick(android.view.View v) {
+                    boolean was = cur.contains(cc);
+                    for (String c2 : ONE) cur.remove(c2);
+                    if (!was) cur.add(cc);
+                    for (int k = 0; k < ONE.length; k++) rbs.get(k).setChecked(cur.contains(ONE[k]));
+                    cb.changed(cur);
+                }
+            });
+            rbs.add(rb);
+            r2.addView(rb, new LinearLayout.LayoutParams(0, -2, (i == ONE.length - 1) ? 1.35f : 1f));   // the last label is the longest
+        }
+        col.addView(r1, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams r2p = new LinearLayout.LayoutParams(-1, -2);
+        r2p.topMargin = Ux.dp(4);
+        col.addView(r2, r2p);
+        return col;
     }
 
     private void renderPreview() {

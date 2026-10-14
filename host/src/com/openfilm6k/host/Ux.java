@@ -367,8 +367,9 @@ public class Ux {
 
     /** apply the theme to a whole tree; idempotent, call after any rebuild */
     static void themeTree(View root) {
-        if (root instanceof android.widget.RadioButton) {   // radio: flat control — NO button bevel background
+        if (root instanceof android.widget.RadioButton) {   // radio: 98.css pixel-art indicator (replaces the Material circle)
             ((android.widget.RadioButton) root).setBackground(null);
+            ((android.widget.RadioButton) root).setButtonDrawable(radio98(root.getContext()));
             ((android.widget.RadioButton) root).setTextColor(TXT);
             ((android.widget.RadioButton) root).setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, ts(BODY));
             ((android.widget.RadioButton) root).setAllCaps(false);
