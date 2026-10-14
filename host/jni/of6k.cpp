@@ -169,7 +169,7 @@ static const char* FS_IMAGE = FS_HEAD
     "   acc2+=texture(uOv,clamp(ouv+vec2(off,sy),vec2(0.0),vec2(1.0))).rgb*w; ws+=w; }\n"
     "  b=acc/ws;\n"
     "  if(uShiftY>0.0){ float mg=(uMulGain>0.0)?uMulGain:1.0; b=clamp(b*(acc2/ws)*mg,0.0,1.0); }   // multiply w/ shifted copy, x gain\n"
-    "  if(uTh1>uTh0+0.001){ float thi=max(b.r,max(b.g,b.b)); float ff=smoothstep(uTh0,uTh1,thi); b=(thi>1.0e-5)? b*(ff/thi) : vec3(0.0); }   // hard edge\n"
+    "  if(uTh1>uTh0+0.001){ float thi=max(b.r,max(b.g,b.b)); float ff=smoothstep(uTh0,uTh1,thi); b=(thi>1.0e-5)? vec3(0.22,0.52,1.0)*ff : vec3(0.0); }   // light-blue line\n"
     " } else b=texture(uOv,ouv).rgb;\n"
     " vec3 r=c;\n"
     " if(uBlend==0) r=b;\n"
