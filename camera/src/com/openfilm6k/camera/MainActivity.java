@@ -2159,6 +2159,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final String[] POST_NAMES = { "Leak", "Scratch", "Dust", "Veiling", "Soft focus", "HDF" };
     // veiling / soft focus / HDF are three takes on the same lens glare: at most ONE at a time
     private static final String[] POST_ONE_OF = { "veiling", "softfocus", "hdf" };
+    private static boolean isGlare(String c) { for (String o : POST_ONE_OF) if (o.equals(c)) return true; return false; }
 
     /** the camera's stampMode + printInfo folded into the app's ONE mutually exclusive code space */
     private int stampCode() {
@@ -2218,7 +2219,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 String c = POST_CATS[stampMenu - STAMP_CODES.length];
                 if (postSel.remove(c)) { /* toggled off */ }
                 else {
-                    for (String o : POST_ONE_OF) postSel.remove(o);   // glare trio is one-of-three
+                    if (isGlare(c)) for (String o : POST_ONE_OF) postSel.remove(o);   // only the glare trio is one-of-three
                     postSel.add(c);
                 }
             }
