@@ -270,6 +270,15 @@ public class Ux {
         sld.addState(new int[]{}, off);
         return sld;
     }
+    /** radio98 as a checked/unchecked state list for RadioButton widgets — same indicator size AND
+     *  sideways inset as checkbox98States, so the checkboxes and radios line up in a grid */
+    static android.graphics.drawable.Drawable radio98States(android.content.Context c) {
+        int px = dp(18);
+        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
+        sld.addState(new int[]{android.R.attr.state_checked}, pixelRadio(c, R.drawable.radio98_on, px));
+        sld.addState(new int[]{}, pixelRadio(c, R.drawable.radio98_off, px));
+        return new android.graphics.drawable.InsetDrawable(sld, dp(2), 0, dp(2), 0);
+    }
     private static android.graphics.drawable.BitmapDrawable pixelRadio(android.content.Context c, int res, int px) {
         android.graphics.Bitmap src = android.graphics.BitmapFactory.decodeResource(c.getResources(), res);
         android.graphics.Bitmap bm = android.graphics.Bitmap.createScaledBitmap(src, px, px, false);   // nearest: keep pixel-art crisp
@@ -369,7 +378,7 @@ public class Ux {
     static void themeTree(View root) {
         if (root instanceof android.widget.RadioButton) {   // radio: 98.css pixel-art indicator (replaces the Material circle)
             ((android.widget.RadioButton) root).setBackground(null);
-            ((android.widget.RadioButton) root).setButtonDrawable(radio98(root.getContext()));
+            ((android.widget.RadioButton) root).setButtonDrawable(radio98States(root.getContext()));
             ((android.widget.RadioButton) root).setTextColor(TXT);
             ((android.widget.RadioButton) root).setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, ts(BODY));
             ((android.widget.RadioButton) root).setAllCaps(false);

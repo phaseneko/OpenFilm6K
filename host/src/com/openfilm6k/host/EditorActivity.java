@@ -2448,7 +2448,7 @@ public class EditorActivity extends Activity {
                 }
             });
             rbs.add(rb);
-            r2.addView(rb, new LinearLayout.LayoutParams(0, -2, (i == ONE.length - 1) ? 1.35f : 1f));   // the last label is the longest
+            r2.addView(rb, new LinearLayout.LayoutParams(0, -2, 1f));   // same 3 equal columns as the checkbox row, so they line up
         }
         col.addView(r1, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout.LayoutParams r2p = new LinearLayout.LayoutParams(-1, -2);

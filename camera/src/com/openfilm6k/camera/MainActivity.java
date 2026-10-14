@@ -2183,16 +2183,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private void renderStampMenu() {
         if (fbox == null) return;
-        StringBuilder L = new StringBuilder();
+        StringBuilder L = new StringBuilder();   // single-select -> radio marks
         int sc = stampCursor();
         for (int i = 0; i < STAMP_CODES.length; i++) {
             if (i > 0) L.append('\n');
-            L.append(i == sc ? "* " : "").append(STAMP_NAMES[i]);
+            L.append(i == sc ? "(x) " : "( ) ").append(STAMP_NAMES[i]);
         }
-        StringBuilder R = new StringBuilder();
+        StringBuilder R = new StringBuilder();   // multi-select -> checkbox marks
         for (int i = 0; i < POST_CATS.length; i++) {
             if (i > 0) R.append('\n');
-            R.append(postSel.contains(POST_CATS[i]) ? "* " : "").append(POST_NAMES[i]);
+            R.append(postSel.contains(POST_CATS[i]) ? "[x] " : "[ ] ").append(POST_NAMES[i]);
         }
         int col = colOf(stampMenu);
         fbox.setMenu2(L.toString(), col == 0 ? stampMenu : -1, col == 0 ? stampMenu : sc,          // left: focus, else keep the applied stamp in view
