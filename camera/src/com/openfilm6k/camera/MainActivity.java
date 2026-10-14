@@ -2174,12 +2174,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         for (int i = 0; i < STAMP_CODES.length; i++) if (STAMP_CODES[i] == c) return i;
         return 0;
     }
-    private int colOf(int cur) { return cur >= 15 ? 1 : 0; }   // 0 = left (stamp), 1 = right (post)
+    private int colOf(int cur) { return cur >= STAMP_CODES.length ? 1 : 0; }   // 0 = left (stamp), 1 = right (post)
     private int stepCol(int cur, int col, int d) {
-        if (col == 0) return (cur + d + 15) % 15;
-        return 15 + (((cur - 15) + d + 4) % 4);
+        if (col == 0) return (cur + d + STAMP_CODES.length) % STAMP_CODES.length;
+        return STAMP_CODES.length + (((cur - STAMP_CODES.length) + d + POST_CATS.length) % POST_CATS.length);
     }
-    private int colStart(int col) { return col == 0 ? stampCursor() : 15 + lastPost; }
+    private int colStart(int col) { return col == 0 ? stampCursor() : STAMP_CODES.length + lastPost; }
 
     private void renderStampMenu() {
         if (fbox == null) return;
@@ -2198,7 +2198,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
         int col = colOf(stampMenu);
         fbox.setMenu2(L.toString(), col == 0 ? stampMenu : -1, col == 0 ? stampMenu : sc,          // left: focus, else keep the applied stamp in view
-                      R.toString(), col == 1 ? stampMenu - 15 : -1, col == 1 ? stampMenu - 15 : lastPost);
+                      R.toString(), col == 1 ? stampMenu - STAMP_CODES.length : -1, col == 1 ? stampMenu - STAMP_CODES.length : lastPost);
         overlay.setVisibility(View.INVISIBLE);
     }
 
@@ -2207,16 +2207,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (scan == K_UP || dir < 0)       stampMenu = stepCol(stampMenu, col, -1);
         else if (scan == K_DOWN || dir > 0) stampMenu = stepCol(stampMenu, col, +1);
         else if (scan == K_LEFT)            stampMenu = colStart(0);           // jump to the left (stamp) column
-        else if (scan == K_RIGHT)           stampMenu = 15 + lastPost;         // jump to the right (post) column
+        else if (scan == K_RIGHT)           stampMenu = STAMP_CODES.length + lastPost;   // jump to the right (post) column
         else if (scan == K_ENTER) {
             if (col == 0) setStampCode(STAMP_CODES[stampMenu]);
-            else { String c = POST_CATS[stampMenu - 15]; if (!postSel.remove(c)) postSel.add(c); }
-            if (stampMenu >= 15) lastPost = stampMenu - 15;
+            else { String c = POST_CATS[stampMenu - STAMP_CODES.length]; if (!postSel.remove(c)) postSel.add(c); }
+            if (col == 1) lastPost = stampMenu - STAMP_CODES.length;
             savePrefs(); renderOverlay(); renderHud(); return true;
         }
         else if (scan == K_FN || scan == K_MENU) { stampMenu = -1; renderOverlay(); renderHud(); return true; }
         else return true;   // consume every key while the menu is open
-        if (stampMenu >= 15) lastPost = stampMenu - 15;
+        if (colOf(stampMenu) == 1) lastPost = stampMenu - STAMP_CODES.length;
         renderOverlay();
         return true;
     }
