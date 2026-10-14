@@ -2156,7 +2156,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // full names, WITHOUT the mode code (the HUD keeps showing the short code)
     private static final String[] STAMP_NAMES = { "None", "Date", "Exposure", "Date + exposure", "White-card frame", "Film edge", "Film name", "Film + exposure", "Half-frame", "Double exposure", "4-shot collage", "Wide", "Wide white-card", "Wide film edge", "Wide sprocket" };
     private static final String[] POST_CATS = { "leak", "scratch", "dust", "veiling", "softfocus", "hdf" };
-    private static final String[] POST_NAMES = { "Leak", "Scratch", "Dust", "Veiling", "Soft focus", "HDF" };
+    private static final String[] POST_NAMES = { "Light leak", "Scratches", "Dust", "Veiling", "Soft focus", "HDF" };   // same wording as the app
     // veiling / soft focus / HDF are three takes on the same lens glare: at most ONE at a time
     private static final String[] POST_ONE_OF = { "veiling", "softfocus", "hdf" };
     private static boolean isGlare(String c) { for (String o : POST_ONE_OF) if (o.equals(c)) return true; return false; }
