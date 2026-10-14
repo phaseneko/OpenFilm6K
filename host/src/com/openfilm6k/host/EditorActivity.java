@@ -1901,11 +1901,11 @@ public class EditorActivity extends Activity {
             spyChkView.setImageDrawable(Ux.checkbox98(this, getSharedPreferences("of6k", 0).getBoolean("spy_on", false)));
     }
 
-    /** one group of the settings / spy dialogs — every group gets the SAME top gap so the
-     *  vertical spacing between groups is identical in both dialogs. */
+    /** one group of the settings / spy dialogs — the FIRST group sits flush with the top of the body
+     *  and the rest get the SAME small gap, so the vertical rhythm is identical in both dialogs. */
     private void addGroup(LinearLayout body, View g) {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
-        p.topMargin = Ux.dp(14);
+        if (body.getChildCount() > 0) p.topMargin = Ux.dp(8);
         body.addView(g, p);
     }
 
