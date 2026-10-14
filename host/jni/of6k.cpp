@@ -1036,7 +1036,9 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             float rM = rS * 4.0f;          // yellow-green, medium
             float rB = rS * 2.5f;          // blue-violet, tightest
             float rG = rS * 1.2f;          // plain gaussian blur of the image
-            ensureVeil((int) g_fw, (int) g_fh);
+            // the veil targets must match the WORKING size (the tile + its apron when tiled), not the full
+            // frame: the shaders address textures with uRes = w,h, so a mismatched size shifts/crops the veil
+            ensureVeil(w, h);
             // cascaded blur: a single 25-tap pass this wide would step over a small highlight and streak.
             // Splitting into stages (variances add: sum r_i^2 = radius^2) keeps every stage dense enough.
             const int VSCR = 4;

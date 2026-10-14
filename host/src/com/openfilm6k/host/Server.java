@@ -305,7 +305,7 @@ public class Server {
                     r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
                     if (pipeIn != src) pipeIn.delete();
                     if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
-                        if (filmBorder) { r = screenBorderLayer(out, src, film, q); if (!scratch.isEmpty()) r = scratchColorized(new java.io.File(r), film, scratch); }   // border screen, then the film scratch over it
+                        if (filmBorder) { r = screenBorderLayer(out, src, film, q); if (!scratch.isEmpty()) r = scratchOverBorder(new java.io.File(r), film, scratch); }   // border screen, then the film scratch (kept out of the sprocket holes)
                         else if (photoFrame) {                                       // B1/WB1: scratch first, then the frame on top
                             if (!scratch.isEmpty()) r = scratchColorized(out, film, scratch);
                             r = stamped(out, src, film, q);
@@ -916,7 +916,7 @@ public class Server {
             r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
             if (pipeIn != src) pipeIn.delete();
             if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
-                if (filmBorder) { r = screenBorderLayer(out, src, film, q); if (!scratch.isEmpty()) r = scratchColorized(new java.io.File(r), film, scratch); }
+                if (filmBorder) { r = screenBorderLayer(out, src, film, q); if (!scratch.isEmpty()) r = scratchOverBorder(new java.io.File(r), film, scratch); }
                 else if (photoFrame) { if (!scratch.isEmpty()) r = scratchColorized(out, film, scratch); r = stamped(out, src, film, q); }
                 else { r = stamped(out, src, film, q); if (!scratch.isEmpty()) r = scratchColorized(new java.io.File(r), film, scratch); }
             }
@@ -1311,6 +1311,43 @@ public class Server {
         }
     }
 
+    // perforation rects of the LAST film-edge render, so the surface post (scratch) can be masked out of the
+    // sprocket holes — the holes are punched through the film, so no post-process may appear inside them.
+    private static final java.util.List<android.graphics.RectF> g_holeRects = new java.util.ArrayList<android.graphics.RectF>();
+    private static int g_holeW = 0, g_holeH = 0;
+    private static void recordHoles(int oW, int oH, int count, float x0, float pitch, float hw, float hh, float inset, float top, float bot, int dx) {
+        g_holeRects.clear(); g_holeW = oW; g_holeH = oH;
+        for (int i = 0; i < count; i++) {
+            float hx = x0 + i * pitch;
+            g_holeRects.add(new android.graphics.RectF(hx + dx, top - inset, hx + hw + dx, top + hh - inset));
+            g_holeRects.add(new android.graphics.RectF(hx + dx, bot - inset, hx + hw + dx, bot + hh - inset));
+        }
+    }
+
+    /** screen the film scratch over a finished border image, then put the sprocket holes back so no scratch
+     *  shows inside them (the holes are holes — the scratch is on the film surface around them). */
+    private static String scratchOverBorder(java.io.File graded, String film, String scratch) {
+        try {
+            android.graphics.Bitmap pre = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
+            String sc = scratchColorized(graded, film, scratch);
+            java.util.List<android.graphics.RectF> holes = new java.util.ArrayList<android.graphics.RectF>(g_holeRects);
+            if (pre == null || holes.isEmpty()) { if (pre != null) pre.recycle(); return sc; }
+            android.graphics.Bitmap post = android.graphics.BitmapFactory.decodeFile(sc);
+            if (post == null || post.getWidth() != pre.getWidth() || post.getHeight() != pre.getHeight()) { pre.recycle(); if (post != null) post.recycle(); return sc; }
+            android.graphics.Bitmap mut = post.copy(android.graphics.Bitmap.Config.ARGB_8888, true);
+            android.graphics.Path path = new android.graphics.Path();
+            for (android.graphics.RectF rf : holes) path.addRoundRect(rf, Math.max(1f, rf.width() * 0.2f), Math.max(1f, rf.height() * 0.2f), android.graphics.Path.Direction.CW);
+            android.graphics.Canvas c = new android.graphics.Canvas(mut);
+            c.save(); c.clipPath(path);
+            c.drawBitmap(pre, 0, 0, new android.graphics.Paint());
+            c.restore();
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(sc);
+            mut.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, fo); fo.close();
+            pre.recycle(); post.recycle(); mut.recycle();
+            return sc;
+        } catch (Throwable t) { Engine.dbg("scratchOverBorder ex " + t); return graded.getAbsolutePath(); }
+    }
+
     private static String filmEdgeWide(java.io.File graded, String film, boolean fills) {
         android.graphics.Bitmap src = null, ob = null, layer = null;
         try {
@@ -1366,6 +1403,7 @@ public class Server {
             float hBotTop = fills ? (H - rb + gap + inset) : (rb + H + gap + inset);   // WB3: bottom band sits 2rb higher
             if (fills) {                                      // WB3: black hole, soft edge bled OUTWARD onto the photo
                 float ht = rb - gap - hh, hb = H - rb + gap; // nominal hole rects (no inset)
+                recordHoles(CW, CH, n, x0, pitch, hw, hh, 0f, ht, hb, 0);   // for the post-process hole mask
                 float hr = feather * 2.25f;                  // red-brown halo: radius x2.25
                 float hblur = hr * 1.8f;                     // halo blur radius
                 float gr = hblur / 3f;                       // glow radius = 1/3 the halo radius
@@ -1412,6 +1450,7 @@ public class Server {
                     cv.drawRoundRect(new android.graphics.RectF(hx, hb, hx + hw, hb + hh), rad, rad, oh);
                 }
             } else {                                         // WB2: B2's cream holes + red-brown halo
+                recordHoles(CW, CH, n, x0, pitch, hw, hh, inset, hTopTop, hBotTop, 0);   // for the post-process hole mask
                 android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
                 p.setColor(0xFFE8E4DC);                                  // cream hole (sharp)
                 p.setMaskFilter(null);
@@ -1656,6 +1695,7 @@ public class Server {
     }
 
     private static String screenBorderLayer(java.io.File gradedCanvas, java.io.File src, String film, java.util.Map<String,String> q) {
+        g_holeRects.clear();   // filled by the edge renderer below; empty on failure = no masking
         try {
             android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
             o.inJustDecodeBounds = true; android.graphics.BitmapFactory.decodeFile(src.getAbsolutePath(), o);
@@ -1761,6 +1801,7 @@ public class Server {
             float inset = feather * 0.4f;                         // keep the perceived hole size after feathering
             float hTopTop = rb - gap - hh + inset;                // top strip: holes sit just above the photo
             float hBotTop = rb + H + gap + inset;                 // bottom strip: holes just below the photo
+            recordHoles(ob.getWidth(), ob.getHeight(), 8, x0, pitch, hw, hh, inset, hTopTop, hBotTop, rl);   // for the post-process hole mask
             // red-brown film-base halo bleeding around each perforation (drawn under the white hole)
             p.setColor(0xFFE8E4DC);                                  // cream hole (sharp)
             p.setMaskFilter(null);

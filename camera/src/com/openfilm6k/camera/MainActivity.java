@@ -334,7 +334,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             for (int i = 0; i < items.size(); i++) { if (i > 0) sb.append((char) 10); sb.append(items.get(i)); }
             menuLines = sb.toString(); menuSel = selIdx; menuFav = favs; postInvalidate();
         }
-        void clearMenu() { if (menuLines != null) { menuLines = null; postInvalidate(); } }
+        volatile String menuLines2 = null;   // two-column menu: right column (null = the single-column film menu)
+        volatile int menuSel2 = -1, menuAnchor = -1, menuAnchor2 = -1;   // anchor = line to keep in view when this column is not focused
+        void setMenu2(String left, int lsel, int lanch, String right, int rsel, int ranch) {
+            menuLines = left; menuSel = lsel; menuAnchor = lanch;
+            menuLines2 = right; menuSel2 = rsel; menuAnchor2 = ranch; menuFav = null; postInvalidate();
+        }
+        void clearMenu() { if (menuLines != null || menuLines2 != null) { menuLines = null; menuLines2 = null; postInvalidate(); } }
         static final String PSEP = "|";
         volatile int hl = -1;
         volatile int spotX = 0, spotY = 0;
@@ -475,6 +481,47 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             cv.restoreToCount(msave);
         }
 
+        /** one column of the two-column menu — identical paint/geometry to drawMenu, scrolled around its cursor */
+        void drawColumn(android.graphics.Canvas cv, android.graphics.Paint mp, String text, int sel, int anchor, float x0, float x1, float y0, float lh, int maxLines) {
+            String[] lines = text.split("\n");
+            int a = (sel >= 0) ? sel : (anchor >= 0 ? anchor : 0);   // keep the focused line, else the current selection, in view
+            int start = 0;
+            if (a >= maxLines / 2) start = a - maxLines / 2;
+            if (start + maxLines > lines.length) start = Math.max(0, lines.length - maxLines);
+            for (int i = start; i < Math.min(lines.length, start + maxLines); i++) {
+                mp.setColor(i == sel ? 0xFFFF9500 : 0xFFFFFFFF);
+                float tw = measureMixed(mp, lines[i]);
+                drawMixed(cv, mp, lines[i], x0 + (x1 - x0 - tw) / 2f, y0 + (i - start) * lh);
+            }
+        }
+
+        /** two-column menu (left stamp / right post) — same font, size, colour and layout as drawMenu */
+        void drawMenu2(android.graphics.Canvas cv) {
+            if (menuLines == null || menuLines2 == null) return;
+            int w = uiW(), h = getHeight();
+            int msave = cv.save();
+            if (uiX() != 0) cv.translate(uiX(), 0f);
+            android.graphics.Paint mp = new android.graphics.Paint();
+            mp.setAntiAlias(true); mp.setShadowLayer(3, 1, 2, 0xFF000000);
+            if (tf != null) mp.setTypeface(tf);
+            float mch = h / 22f;
+            float mid = w * 0.60f;
+            mp.setTextSize(mch);
+            float wl = 0f, wr = 0f;                              // shrink only as much as the longest label needs (per column)
+            for (String ln : menuLines.split("\n")) if (ln.length() > 0) wl = Math.max(wl, measureMixed(mp, ln));
+            for (String ln : menuLines2.split("\n")) if (ln.length() > 0) wr = Math.max(wr, measureMixed(mp, ln));
+            float sc = 1f;
+            if (wl > mid * 0.94f && wl > 0f) sc = Math.min(sc, mid * 0.94f / wl);
+            if (wr > (w - mid) * 0.94f && wr > 0f) sc = Math.min(sc, (w - mid) * 0.94f / wr);
+            if (sc < 1f) { mch *= sc; mp.setTextSize(mch); }
+            float lh = mch * 1.35f;
+            int maxLines = Math.max(3, (int) ((h * 0.62f) / lh));
+            float y0 = h * 0.20f;
+            drawColumn(cv, mp, menuLines, menuSel, menuAnchor, 0f, mid, y0, lh, maxLines);
+            drawColumn(cv, mp, menuLines2, menuSel2, menuAnchor2, mid, (float) w, y0, lh, maxLines);
+            cv.restoreToCount(msave);
+        }
+
         void drawBoot(android.graphics.Canvas cv) {
             int w = uiW(), h = getHeight();
             cv.drawColor(0xFF000000);
@@ -538,7 +585,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 android.graphics.Paint mask = new android.graphics.Paint();
                 mask.setColor(0xB0000000);
                 cv.drawRect(0, 0, getWidth(), getHeight(), mask);
-                drawMenu(cv);
+                if (menuLines2 != null) drawMenu2(cv); else drawMenu(cv);
                 return;
             }
             if (hideAf) return;   // countdown on screen: no focus area / grid
@@ -1846,7 +1893,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (fbox != null) {
             String pi = printInfo == 1 ? "D" : printInfo == 2 ? "E" : printInfo == 3 ? "DE" : printInfo == 4 ? "F" : printInfo == 5 ? "FE" : "";
             String bd = stampMode == 4 ? "B1" : stampMode == 5 ? "B2" : stampMode == 8 ? "H" : stampMode == 9 ? "2" : stampMode == 10 ? "X" : stampMode == 11 ? "W" : stampMode == 12 ? "WB1" : stampMode == 13 ? "WB2" : stampMode == 14 ? "WB3" : "";
-            String pp = postSel.isEmpty() ? "" : "[PP]";
+            String pp = postSel.isEmpty() ? "" : "+";
             fbox.stampMark = (pi + (pi.length() > 0 && bd.length() > 0 ? "+" : "") + bd + (pp.length() > 0 ? " " + pp : "")).trim();
         }
         if (fbox != null) { fbox.pairDisp = isPairMode() ? pairSlot : -1; fbox.pairBlink = pairBlinkOn; fbox.halfMask = (stampMode == 8); fbox.wideMask = (stampMode >= 11 && stampMode <= 14); fbox.ghostFinder = ghostFinder; }
@@ -2101,56 +2148,75 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         } catch (Throwable t) { return false; }
     }
 
-    // ---- dual list: print info / frame (single-select) + post-process (multi-select) ----
-    private static final int[] BORDER_MODES = { 0, 4, 5, 10, 11, 12, 13, 14, 8, 9 };
+    // ---- two-column menu: LEFT = stamp (print info + frame, ONE mutually exclusive list) | RIGHT = post (multi) ----
+    // the stamp codes 0..14 are the phone app's single stamp/border list, so both UIs agree
+    private static final int[] STAMP_CODES = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
+    // full names, WITHOUT the mode code (the HUD keeps showing the short code)
+    private static final String[] STAMP_NAMES = { "None", "Date", "Exposure", "Date + exposure", "White-card frame", "Film edge", "Film name", "Film + exposure", "Half-frame", "Double exposure", "4-shot collage", "Wide", "Wide white-card", "Wide film edge", "Wide sprocket" };
     private static final String[] POST_CATS = { "leak", "scratch", "dust", "veiling" };
+    private static final String[] POST_NAMES = { "Leak", "Scratch", "Dust", "Veiling" };
 
-    private int borderCursor() {
-        for (int i = 0; i < BORDER_MODES.length; i++) if (BORDER_MODES[i] == stampMode) return i;
+    /** the camera's stampMode + printInfo folded into the app's ONE mutually exclusive code space */
+    private int stampCode() {
+        if (stampMode != 0) return stampMode;               // frame codes already match the app's list
+        switch (printInfo) { case 1: return 1; case 2: return 2; case 3: return 3; case 4: return 6; case 5: return 7; default: return 0; }
+    }
+    private void setStampCode(int c) {                      // picking one clears the other: print info and frame are exclusive
+        printInfo = 0; stampMode = 0;
+        if (c == 1 || c == 2 || c == 3) printInfo = c;
+        else if (c == 6) printInfo = 4;
+        else if (c == 7) printInfo = 5;
+        else if (c != 0) stampMode = c;
+        onStampModeChanged();
+    }
+    private int stampCursor() {
+        int c = stampCode();
+        for (int i = 0; i < STAMP_CODES.length; i++) if (STAMP_CODES[i] == c) return i;
         return 0;
     }
-    private int groupOf(int cur) { return cur <= 5 ? 0 : (cur <= 15 ? 1 : 2); }
-    private int stepGroup(int cur, int grp, int d) {
-        if (grp == 0) return (cur + d + 6) % 6;
-        if (grp == 1) return 6 + (((cur - 6) + d + 10) % 10);
-        return 16 + (((cur - 16) + d + 4) % 4);
+    private int colOf(int cur) { return cur >= 15 ? 1 : 0; }   // 0 = left (stamp), 1 = right (post)
+    private int stepCol(int cur, int col, int d) {
+        if (col == 0) return (cur + d + 15) % 15;
+        return 15 + (((cur - 15) + d + 4) % 4);
     }
-    private int groupStart(int grp) {
-        if (grp == 0) return printInfo;
-        if (grp == 1) return 6 + borderCursor();
-        return 16;
-    }
+    private int colStart(int col) { return col == 0 ? stampCursor() : 15 + lastPost; }
 
     private void renderStampMenu() {
-        String[] pi = { "None", "Date", "Exposure", "Date+Exp", "Film Name", "Film+Exp" };
-        String[] bd = { "None", "B1 white-card", "B2 film edge", "X collage", "W wide", "WB1 wide card", "WB2 wide edge", "WB3 wide sprocket", "H half", "2 double" };
-        String[] pp = { "Leak", "Scratch", "Dust", "Veiling" };
-        int bc = borderCursor();
-        StringBuilder sb = new StringBuilder("Print info / Frame / Post\nwheel=move  L/R=column  center=set  Fn=close\n\nPRINT INFO\n");
-        for (int i = 0; i < pi.length; i++) sb.append(stampMenu == i ? "> " : (printInfo == i ? "* " : "  ")).append(pi[i]).append('\n');
-        sb.append("\nFRAME\n");
-        for (int i = 0; i < bd.length; i++) sb.append(stampMenu == 6 + i ? "> " : (bc == i ? "* " : "  ")).append(bd[i]).append('\n');
-        sb.append("\nPOST (multi)\n");
-        for (int i = 0; i < pp.length; i++) sb.append(stampMenu == 16 + i ? "> " : "  ").append(postSel.contains(POST_CATS[i]) ? "[x] " : "[ ] ").append(pp[i]).append('\n');
-        overlay.setText(sb);
-        overlay.setVisibility(View.VISIBLE);
-        if (fbox != null) fbox.clearMenu();
+        if (fbox == null) return;
+        StringBuilder L = new StringBuilder();
+        int sc = stampCursor();
+        for (int i = 0; i < STAMP_CODES.length; i++) {
+            if (i > 0) L.append('\n');
+            L.append(i == sc ? "* " : "").append(STAMP_NAMES[i]);
+        }
+        StringBuilder R = new StringBuilder();
+        for (int i = 0; i < POST_CATS.length; i++) {
+            if (i > 0) R.append('\n');
+            R.append(postSel.contains(POST_CATS[i]) ? "* " : "").append(POST_NAMES[i]);
+        }
+        int col = colOf(stampMenu);
+        fbox.setMenu2(L.toString(), col == 0 ? stampMenu : -1, col == 0 ? stampMenu : sc,          // left: focus, else keep the applied stamp in view
+                      R.toString(), col == 1 ? stampMenu - 15 : -1, col == 1 ? stampMenu - 15 : lastPost);
+        overlay.setVisibility(View.INVISIBLE);
     }
 
     private boolean stampMenuKey(int scan, int dir) {
-        int grp = groupOf(stampMenu);
-        if (scan == K_UP || dir < 0)    { stampMenu = stepGroup(stampMenu, grp, -1); renderOverlay(); return true; }
-        if (scan == K_DOWN || dir > 0)  { stampMenu = stepGroup(stampMenu, grp, +1); renderOverlay(); return true; }
-        if (scan == K_LEFT)             { stampMenu = groupStart((grp + 2) % 3); renderOverlay(); return true; }
-        if (scan == K_RIGHT)            { stampMenu = groupStart((grp + 1) % 3); renderOverlay(); return true; }
-        if (scan == K_ENTER) {
-            if (grp == 0) printInfo = stampMenu;
-            else if (grp == 1) { stampMode = BORDER_MODES[stampMenu - 6]; onStampModeChanged(); }
-            else { String c = POST_CATS[stampMenu - 16]; if (!postSel.remove(c)) postSel.add(c); }
+        int col = colOf(stampMenu);
+        if (scan == K_UP || dir < 0)       stampMenu = stepCol(stampMenu, col, -1);
+        else if (scan == K_DOWN || dir > 0) stampMenu = stepCol(stampMenu, col, +1);
+        else if (scan == K_LEFT)            stampMenu = colStart(0);           // jump to the left (stamp) column
+        else if (scan == K_RIGHT)           stampMenu = 15 + lastPost;         // jump to the right (post) column
+        else if (scan == K_ENTER) {
+            if (col == 0) setStampCode(STAMP_CODES[stampMenu]);
+            else { String c = POST_CATS[stampMenu - 15]; if (!postSel.remove(c)) postSel.add(c); }
+            if (stampMenu >= 15) lastPost = stampMenu - 15;
             savePrefs(); renderOverlay(); renderHud(); return true;
         }
-        if (scan == K_FN || scan == K_MENU) { stampMenu = -1; renderOverlay(); renderHud(); return true; }
-        return true;   // consume every key while the menu is open
+        else if (scan == K_FN || scan == K_MENU) { stampMenu = -1; renderOverlay(); renderHud(); return true; }
+        else return true;   // consume every key while the menu is open
+        if (stampMenu >= 15) lastPost = stampMenu - 15;
+        renderOverlay();
+        return true;
     }
 
     private void renderOverlay() {
@@ -2224,8 +2290,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (e.getAction() == KeyEvent.ACTION_UP && (scan == K_C2 || (K_C4 != 0 && scan == K_C4))) {
             c2Held = false;
             handler.removeCallbacks(c2LongAction);
-            if (!c2Fired) {                                             // short press: toggle the dual-list (print info / frame + post)
-                stampMenu = (stampMenu >= 0) ? -1 : 0;
+            if (!c2Fired) {                                             // short press: toggle the two-column menu (left stamp / right post)
+                stampMenu = (stampMenu >= 0) ? -1 : stampCursor();
                 renderOverlay(); renderHud();
             }
         }
@@ -2301,7 +2367,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             hlIdx = 0;
             renderHud(); return true;
         }
-        if (scan == K_C2 || (K_C4 != 0 && scan == K_C4)) {   // long-press = toggle ghost ratio; short-press = stamp cycle (on UP)
+        if (scan == K_C2 || (K_C4 != 0 && scan == K_C4)) {   // long-press = toggle LCD/EVF view; short-press = open the two-column menu (on UP)
             c2Held = true; c2Fired = false;
             handler.removeCallbacks(c2LongAction);
             handler.postDelayed(c2LongAction, 600);
@@ -2368,8 +2434,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private boolean c1Held = false;
     private int stampMode = 0;   // BORDER/special only: 0 none, 4 B1(white-card), 5 B2(film edge), 8 H(half), 9 2(double), 10 X(collage), 11 W(wide), 12 WB1, 13 WB2, 14 WB3
     private int printInfo = 0;   // PRINT INFO (independent of the frame): 0 none, 1 D(date), 2 E(exposure), 3 DE, 4 F(film name), 5 FE
-    private final java.util.LinkedHashSet<String> postSel = new java.util.LinkedHashSet<String>();   // post-process categories: leak / scratch / dust (multi-select)
-    private int stampMenu = -1;  // >=0: dual-list open, cursor over print(0..5) / border(6..15) / post(16..18)
+    private final java.util.LinkedHashSet<String> postSel = new java.util.LinkedHashSet<String>();   // post-process categories: leak / scratch / dust / veiling (multi-select)
+    private int stampMenu = -1;   // >=0: two-column menu open; cursor 0..14 = stamp, 15..18 = post
+    private int lastPost = 0;     // remembered right-column cursor (post), for L/R column switching
     private boolean spotMode = false;
     private boolean aelHeld = false, aelFired = false;
     private final Runnable aelLongAction = new Runnable() { public void run() {
