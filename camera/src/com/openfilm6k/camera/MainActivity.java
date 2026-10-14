@@ -1007,6 +1007,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         printInfo = pf.getInt("printinfo", 0);
         postSel.clear();
         { String ps0 = pf.getString("post", ""); if (ps0.length() > 0) for (String c : ps0.split(",")) if (c.trim().length() > 0) postSel.add(c.trim()); }
+        { boolean kept = false;   // at most one of the glare trio survives a stored spec
+          for (String o : POST_ONE_OF) { if (!postSel.contains(o)) continue; if (kept) postSel.remove(o); else kept = true; } }
         ghostFinder = pf.getInt("gfinder", 0);
         wantFilm = pf.getString("selfilm", "");
         favs.clear();
@@ -2155,6 +2157,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final String[] STAMP_NAMES = { "None", "Date", "Exposure", "Date + exposure", "White-card frame", "Film edge", "Film name", "Film + exposure", "Half-frame", "Double exposure", "4-shot collage", "Wide", "Wide white-card", "Wide film edge", "Wide sprocket" };
     private static final String[] POST_CATS = { "leak", "scratch", "dust", "veiling", "softfocus", "hdf" };
     private static final String[] POST_NAMES = { "Leak", "Scratch", "Dust", "Veiling", "Soft focus", "HDF" };
+    // veiling / soft focus / HDF are three takes on the same lens glare: at most ONE at a time
+    private static final String[] POST_ONE_OF = { "veiling", "softfocus", "hdf" };
 
     /** the camera's stampMode + printInfo folded into the app's ONE mutually exclusive code space */
     private int stampCode() {
@@ -2210,7 +2214,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         else if (scan == K_RIGHT)           stampMenu = STAMP_CODES.length + lastPost;   // jump to the right (post) column
         else if (scan == K_ENTER) {
             if (col == 0) setStampCode(STAMP_CODES[stampMenu]);
-            else { String c = POST_CATS[stampMenu - STAMP_CODES.length]; if (!postSel.remove(c)) postSel.add(c); }
+            else {
+                String c = POST_CATS[stampMenu - STAMP_CODES.length];
+                if (postSel.remove(c)) { /* toggled off */ }
+                else {
+                    for (String o : POST_ONE_OF) postSel.remove(o);   // glare trio is one-of-three
+                    postSel.add(c);
+                }
+            }
             if (col == 1) lastPost = stampMenu - STAMP_CODES.length;
             savePrefs(); renderOverlay(); renderHud(); return true;
         }
