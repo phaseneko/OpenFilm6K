@@ -176,6 +176,9 @@ public class Engine {
     private static final float DUST_BODY = 0.6f, DUST_PROB = 0.85f, DUST_WARM = 0.4f;
     // veiling: ultra-light broad lens haze (independent category)
     private static final float VEIL_GAIN = 0.45f, VEIL_RADIUS = 140f, VEIL_LIFT = 0.0f, VEIL_WARM = 0.5f;
+    // scratch: gallery overlay renders (bright scratches, screened). stretch H>=4x, V 1..3x,
+    // random in-frame offset, then a horizontal blur of 1/4 the frame width
+    private static final float SCR_HMIN = 2.0f, SCR_HMAX = 3.0f, SCR_VMIN = 1.0f, SCR_VMAX = 3.0f, SCR_BLUR = 0.125f, SCR_SHIFT = 2.0f, SCR_MULGAIN = 3.0f, SCR_ALPHA = 3.0f, SCR_TH0 = 0.28f, SCR_TH1 = 0.33f;
     /** random alpha range per gallery category (dust/veiling are procedural, not here) */
     private static float[] postAlphaRange(String cat) {
         if ("leak".equals(cat)) return new float[]{ 1.0f, 1.3f };
@@ -218,6 +221,49 @@ public class Engine {
                         P[0] = 9; P[1] = VEIL_GAIN; P[2] = VEIL_RADIUS; P[3] = VEIL_LIFT; P[4] = VEIL_WARM;
                         for (float v : P) rows.add(v);
                         dbg("post veiling gain=" + VEIL_GAIN);
+                        continue;
+                    }
+                    if ("scratch".equals(c)) {   // gallery scratches: stretch + offset + horizontal blur, screened
+                        java.io.File[] sf = new java.io.File(postDir(c)).listFiles();
+                        java.util.ArrayList<java.io.File> simgs = new java.util.ArrayList<java.io.File>();
+                        if (sf != null) for (java.io.File f : sf) {
+                            String n = f.getName().toLowerCase(java.util.Locale.US);
+                            if (n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png")) simgs.add(f);
+                        }
+                        if (simgs.isEmpty()) continue;
+                        java.io.File pick = simgs.get(rnd.nextInt(simgs.size()));
+                        android.graphics.BitmapFactory.Options o2 = new android.graphics.BitmapFactory.Options();
+                        o2.inJustDecodeBounds = true;
+                        android.graphics.BitmapFactory.decodeFile(pick.getAbsolutePath(), o2);
+                        int ow = o2.outWidth > 0 ? o2.outWidth : 1, oh = o2.outHeight > 0 ? o2.outHeight : 1;
+                        float rr = (fw / (float) fh) / (ow / (float) oh);
+                        float rx = Math.min(1f, rr), ry = Math.min(1f, 1f / rr);
+                        float s  = SCR_HMIN + rnd.nextFloat() * (SCR_HMAX - SCR_HMIN);   // horizontal stretch 2..3x
+                        float sv = SCR_VMIN + rnd.nextFloat() * (SCR_VMAX - SCR_VMIN);   // vertical stretch 1..3x
+                        float offmax  = Math.max(0f, (1f - rx / s)) / 2f;
+                        float offymax = Math.max(0f, (1f - ry / sv)) / 2f;
+                        float offx = (rnd.nextFloat() * 2f - 1f) * offmax;               // random in-frame offset
+                        float offy = (rnd.nextFloat() * 2f - 1f) * offymax;
+                        float[] P = new float[12];
+                        P[0] = 6; P[1] = SCR_ALPHA; P[2] = 1f; P[3] = s;
+                        P[4] = SCR_TH0; P[5] = SCR_TH1; P[6] = offx; P[7] = offy; P[8] = sv; P[9] = SCR_BLUR; P[10] = SCR_MULGAIN; P[11] = SCR_SHIFT;
+                        for (float v : P) rows.add(v);
+                        files.add(pick.getAbsolutePath());
+                        // second, lighter copy of the SAME scratch: ~half strength/alpha, shifted 10px up or
+                        // down (random) with a +-5px horizontal jitter
+                        float dx = (rnd.nextFloat() * 2f - 1f) * 5f;
+                        float dy = (rnd.nextBoolean() ? 1f : -1f) * 15f;
+                        float dux = dx / (float) fw * (rx / s);
+                        float duy = dy / (float) fh * (ry / sv);
+                        float[] Q = new float[12];
+                        Q[0] = 6; Q[1] = SCR_ALPHA * 0.5f; Q[2] = 1f; Q[3] = s;
+                        Q[4] = SCR_TH0; Q[5] = SCR_TH1;
+                        Q[6] = Math.max(-offmax, Math.min(offmax, offx - dux));
+                        Q[7] = Math.max(-offymax, Math.min(offymax, offy - duy));
+                        Q[8] = sv; Q[9] = SCR_BLUR; Q[10] = SCR_MULGAIN * 0.5f; Q[11] = SCR_SHIFT;
+                        for (float v : Q) rows.add(v);
+                        files.add(pick.getAbsolutePath());
+                        dbg("post scratch x2 " + pick.getName() + " h=" + s + " v=" + sv + " dy=" + dy);
                         continue;
                     }
                     java.io.File[] fs = new java.io.File(postDir(c)).listFiles();

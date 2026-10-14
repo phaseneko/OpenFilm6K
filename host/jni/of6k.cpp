@@ -150,7 +150,7 @@ static const char* FS_SHARP = FS_HEAD
 // cover-fit + user scale, selectable blend mode, JPEG source decoded on demand
 static const char* FS_IMAGE = FS_HEAD
     "uniform sampler2D uOv; uniform float uAmt, uScale, uScaleY; uniform vec2 uOvRes; uniform int uBlend;\n"
-    "uniform float uFlipX, uFlipY; uniform vec2 uOff;\n"
+    "uniform float uFlipX, uFlipY; uniform vec2 uOff; uniform float uBlurW; uniform float uShiftY; uniform float uMulGain; uniform float uTh0; uniform float uTh1;\n"
     " void main(){ vec3 c=src();\n"
     " float rr=(uFull.x/uFull.y)/(uOvRes.x/uOvRes.y);\n"
     " vec2 region=vec2(min(1.0,rr), min(1.0,1.0/rr));\n"
@@ -159,7 +159,19 @@ static const char* FS_IMAGE = FS_HEAD
     " if(uFlipX>0.5) ouv.x=1.0-ouv.x;        // random mirror (post-process)\n"
     " if(uFlipY>0.5) ouv.y=1.0-ouv.y;\n"
     " if(ouv.x<0.0||ouv.x>1.0||ouv.y<0.0||ouv.y>1.0){ o=vec4(c,1.0); return; }\n"
-    " vec3 b=texture(uOv,ouv).rgb; vec3 r=c;\n"
+    " vec3 b;\n"
+    " if(uBlurW>0.0001){   // horizontal blur of the overlay, then multiply by its N-px-shifted self\n"
+    "  vec3 acc=vec3(0.0), acc2=vec3(0.0); float ws=0.0;\n"
+    "  float halfw=uBlurW*0.5*region.x/uScale;\n"
+    "  float sy=uShiftY*region.y/uScaleY/max(uFull.y,1.0);\n"
+    "  for(int i=-12;i<=12;i++){ float w=exp(-float(i*i)/72.0); float off=float(i)/12.0*halfw;\n"
+    "   acc +=texture(uOv,clamp(ouv+vec2(off,0.0),vec2(0.0),vec2(1.0))).rgb*w;\n"
+    "   acc2+=texture(uOv,clamp(ouv+vec2(off,sy),vec2(0.0),vec2(1.0))).rgb*w; ws+=w; }\n"
+    "  b=acc/ws;\n"
+    "  if(uShiftY>0.0){ float mg=(uMulGain>0.0)?uMulGain:1.0; b=clamp(b*(acc2/ws)*mg,0.0,1.0); }   // multiply w/ shifted copy, x gain\n"
+    "  if(uTh1>uTh0+0.001){ float thi=max(b.r,max(b.g,b.b)); float ff=smoothstep(uTh0,uTh1,thi); b=(thi>1.0e-5)? b*(ff/thi) : vec3(0.0); }   // hard edge\n"
+    " } else b=texture(uOv,ouv).rgb;\n"
+    " vec3 r=c;\n"
     " if(uBlend==0) r=b;\n"
     " else if(uBlend==1) r=vec3(1.0)-(vec3(1.0)-c)*(vec3(1.0)-b);\n"
     " else if(uBlend==2) r=c*b;\n"
@@ -317,6 +329,35 @@ static const char* FS_DUSTQ = FS_HEAD
     " vec3 col=mix(hicol.bgr,hicol,0.5+0.5*facing);\n"
     " o=vec4(prof*dg*col,1.0); }\n";
 
+// scratch: each segment drawn as a quad; the fragment shader gives a thin gaussian cross-section,
+// a fade at the path ends and a per-piece opacity wobble. Bright (negative) scratches only.
+static const char* VS_SCR =
+    "#version 300 es\n"
+    "layout(location=0) in vec2 aPos;\n"
+    "uniform vec2 uP0,uP1,uOrigin,uRes; uniform float uHalfW;\n"
+    "out vec2 vUV;\n"
+    "void main(){ vec2 d=uP1-uP0; float L=max(length(d),1.0); vec2 dir=d/L; vec2 nrm=vec2(-dir.y,dir.x);\n"
+    " float t=(aPos.x+1.0)*0.5; float over=uHalfW*5.0;\n"
+    " vec2 pf=uP0+d*t+nrm*(aPos.y*(uHalfW+over));\n"
+    " vUV=vec2(t,aPos.y); vec2 local=pf-uOrigin;\n"
+    " gl_Position=vec4(local.x/uRes.x*2.0-1.0, local.y/uRes.y*2.0-1.0,0.0,1.0); }\n";
+static const char* FS_SCR = FS_HEAD
+    "in vec2 vUV; uniform float uHalfW,uHalfV,uGain,uSeed,uCapA,uCapB;\n"
+    "float h11(float p){ p=fract(p*0.1031); p*=p+33.33; p*=p+p; return fract(p); }\n"
+    "void main(){\n"
+    " float d=abs(vUV.y)*uHalfV; float sig=max(uHalfW*0.5,0.7);\n"
+    " float prof=exp(-(d*d)/(2.0*sig*sig));\n"
+    " float t=vUV.x;\n"
+    " float ta=(uCapA>0.5)? smoothstep(0.0,0.06,t) : 1.0;\n"
+    " float tb=(uCapB>0.5)? smoothstep(1.0,0.94,t) : 1.0;\n"
+    " float n=0.75+0.25*h11(floor(t*8.0)+uSeed);\n"
+    " o=vec4(vec3(clamp(prof*ta*tb*n*uGain,0.0,1.0)),1.0); }\n";
+// screen the bright scratches back over the image
+static const char* FS_SCRCOMP = FS_HEAD
+    "uniform sampler2D uScr;\n"
+    "void main(){ vec3 c=src(); vec3 g=clamp(texture(uScr,luv()).rgb,0.0,1.0);\n"
+    " o=vec4(vec3(1.0)-(vec3(1.0)-c)*(vec3(1.0)-g),1.0); }\n";
+
 // post-process VEILING (lens haze): very light broad low-frequency wash, screened back
 // veiling: highlight glare. Extract the highlights, bloom them with a DIFFERENT blur radius per channel
 // (red spreads furthest, blue least -> a warm halo fringe), then screen the bloom back (contrast drops).
@@ -361,7 +402,7 @@ static EGLContext g_ctx = EGL_NO_CONTEXT;
 static EGLSurface g_surf = EGL_NO_SURFACE;
 static bool g_inited = false;
 static GLuint g_progLut, g_progGrade, g_progGlowH, g_progGlowV, g_progGrain, g_progVig, g_progGlowMask, g_progGlowDil, g_progGlowRing, g_progCopy, g_progSharp, g_progImage, g_progHue;
-static GLuint g_progBlurH, g_progBlurV, g_progDust, g_progDustRad, g_progDustQ, g_progVeil, g_progVeilPrep, g_progDustComp;
+static GLuint g_progBlurH, g_progBlurV, g_progDust, g_progDustRad, g_progDustQ, g_progVeil, g_progVeilPrep, g_progDustComp, g_progScr, g_progScrComp;
 static GLuint g_dustVBO = 0;
 static GLuint g_fbo[7] = {0, 0, 0, 0, 0, 0, 0}, g_tex[7] = {0, 0, 0, 0, 0, 0, 0};
 // veiling uses its own (optionally half-float) targets: the wide, faint glare halos of a small light
@@ -734,7 +775,7 @@ static bool loadLutBlend(const char* p1, const char* p2, float s) {
 }
 
 // node param row layout (Java packs): [0]=type 0..4, then type-specific floats (see Engine.java)
-enum { N_LUT = 0, N_GRADE = 1, N_GLOW = 2, N_GRAIN = 3, N_VIG = 4, N_SHARP = 5, N_IMAGE = 6, N_HUE = 7, N_DUST = 8, N_VEIL = 9 };
+enum { N_LUT = 0, N_GRADE = 1, N_GLOW = 2, N_GRAIN = 3, N_VIG = 4, N_SHARP = 5, N_IMAGE = 6, N_HUE = 7, N_DUST = 8, N_VEIL = 9, N_SCRATCH = 10 };
 
 static void setU(GLuint p, const char* n, float v) { glUniform1f(glGetUniformLocation(p, n), v); }
 
@@ -889,6 +930,11 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             glUniform1f(glGetUniformLocation(g_progImage, "uFlipX"), P[4]);
             glUniform1f(glGetUniformLocation(g_progImage, "uFlipY"), P[5]);
             glUniform2f(glGetUniformLocation(g_progImage, "uOff"), P[6], P[7]);
+            glUniform1f(glGetUniformLocation(g_progImage, "uBlurW"), P[9]);
+            glUniform1f(glGetUniformLocation(g_progImage, "uShiftY"), P[11]);
+            glUniform1f(glGetUniformLocation(g_progImage, "uMulGain"), P[10]);
+            glUniform1f(glGetUniformLocation(g_progImage, "uTh0"), P[4]);
+            glUniform1f(glGetUniformLocation(g_progImage, "uTh1"), P[5]);
             glActiveTexture(GL_TEXTURE0);
             bindRun(g_progImage, cur, dF, w, h, g_ox, g_oy, g_fw, g_fh);
             cur = dT; curFbo = dF;
@@ -1096,6 +1142,97 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             cur = dT; curFbo = dF;
             break;
         }
+        case N_SCRATCH: {
+            if (P[1] <= 0.0f) break;
+            float FW = (float) g_fw, FH = (float) g_fh;
+            float halfW = fmaxf(0.5f, P[5] * fmaxf(FW, FH));
+            // scratch field -> g_tex[2]
+            glBindFramebuffer(GL_FRAMEBUFFER, g_fbo[2]);
+            glViewport(0, 0, w, h);
+            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glUseProgram(g_progScr);
+            glUniform2f(glGetUniformLocation(g_progScr, "uRes"), (float) w, (float) h);
+            glUniform2f(glGetUniformLocation(g_progScr, "uOrigin"), g_ox, g_oy);
+            glUniform1f(glGetUniformLocation(g_progScr, "uHalfW"), halfW);
+            glUniform1f(glGetUniformLocation(g_progScr, "uHalfV"), halfW * 6.0f);
+            glUniform1f(glGetUniformLocation(g_progScr, "uGain"), P[1]);
+            glBindBuffer(GL_ARRAY_BUFFER, g_dustVBO);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (void*) 0);
+            glEnable(GL_BLEND);
+            glBlendEquation(GL_FUNC_ADD);
+            glBlendFunc(GL_ONE, GL_ONE);
+            unsigned int s = (unsigned int) (P[2] * 65536.0f) ^ 0x9E3779B9u; if (s == 0) s = 12345u;
+            auto rnd01 = [&]() { s = s * 1664525u + 1013904223u; return (float) ((s >> 8) & 0xFFFF) / 65535.0f; };
+            auto drawPath = [&](const float* pp, int n) {
+                for (int k = 0; k + 1 < n; k++) {
+                    float x0 = pp[k*2], y0 = pp[k*2+1], x1 = pp[(k+1)*2], y1 = pp[(k+1)*2+1];
+                    if (fminf(x0,x1) > g_ox + w + halfW*6.0f || fmaxf(x0,x1) < g_ox - halfW*6.0f) continue;
+                    if (fminf(y0,y1) > g_oy + h + halfW*6.0f || fmaxf(y0,y1) < g_oy - halfW*6.0f) continue;
+                    glUniform2f(glGetUniformLocation(g_progScr, "uP0"), x0, y0);
+                    glUniform2f(glGetUniformLocation(g_progScr, "uP1"), x1, y1);
+                    glUniform1f(glGetUniformLocation(g_progScr, "uSeed"), (float) k * 0.37f + P[2]);
+                    glUniform1f(glGetUniformLocation(g_progScr, "uCapA"), (k == 0) ? 1.0f : 0.0f);
+                    glUniform1f(glGetUniformLocation(g_progScr, "uCapB"), (k == n - 2) ? 1.0f : 0.0f);
+                    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                }
+            };
+            float pts[16];
+            // type 1: horizontal scratches (travel / re-scan): long, near level, slight wobble
+            int n1 = (int) (P[3] + 0.5f);
+            for (int i = 0; i < n1 && i < 8; i++) {
+                float yy = (0.15f + 0.70f * rnd01()) * FH;
+                float len = P[6] * FW * (0.7f + 0.6f * rnd01());
+                float x0 = rnd01() * fmaxf(1.0f, FW - len);
+                float amp = 0.006f * FH;
+                int K = 6;
+                for (int k = 0; k < K; k++) {
+                    float t = (float) k / (float) (K - 1);
+                    pts[k*2] = x0 + len * t;
+                    pts[k*2+1] = yy + (rnd01() * 2.0f - 1.0f) * amp;
+                }
+                drawPath(pts, K);
+            }
+            // type 2: foreign-object scratches: short zigzag
+            int n2 = (int) (P[4] + 0.5f);
+            for (int i = 0; i < n2 && i < 10; i++) {
+                int K = 3 + (int) (rnd01() * 3.0f);
+                if (K > 8) K = 8;
+                float px = 0.12f * FW + rnd01() * 0.76f * FW;
+                float py = 0.12f * FH + rnd01() * 0.76f * FH;
+                float ang = rnd01() * 6.2831853f;
+                float turn = (rnd01() < 0.5f) ? 1.0f : -1.0f;
+                float step = (0.02f + 0.03f * rnd01()) * FW;
+                pts[0] = px; pts[1] = py;
+                for (int k = 1; k < K; k++) {
+                    ang += turn * (0.5f + 0.7f * rnd01());
+                    turn = -turn;
+                    px += cosf(ang) * step; py += sinf(ang) * step;
+                    pts[k*2] = px; pts[k*2+1] = py;
+                }
+                drawPath(pts, K);
+            }
+            glDisableVertexAttribArray(0);
+            glDisable(GL_BLEND);
+            // screen the scratches back over cur -> dF
+            glBindFramebuffer(GL_FRAMEBUFFER, dF);
+            glViewport(0, 0, w, h);
+            glUseProgram(g_progScrComp);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, cur);
+            glUniform1i(glGetUniformLocation(g_progScrComp, "uTex"), 0);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, g_tex[2]);
+            glUniform1i(glGetUniformLocation(g_progScrComp, "uScr"), 1);
+            glUniform2f(glGetUniformLocation(g_progScrComp, "uRes"), (float) w, (float) h);
+            glUniform2f(glGetUniformLocation(g_progScrComp, "uOrigin"), g_ox, g_oy);
+            glUniform2f(glGetUniformLocation(g_progScrComp, "uFull"), (float) g_fw, (float) g_fh);
+            glActiveTexture(GL_TEXTURE0);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            cur = dT; curFbo = dF;
+            break;
+        }
         case N_HUE: {
             if (P[4] <= 0) break;
             glUseProgram(g_progHue);
@@ -1189,6 +1326,8 @@ Java_com_openfilm6k_host_Engine_nInit(JNIEnv*, jobject) {
     g_progDustQ = mkProg2(VS_DUSTQ, FS_DUSTQ);
     { float q[8] = { -1, -1, 1, -1, -1, 1, 1, 1 }; glGenBuffers(1, &g_dustVBO); glBindBuffer(GL_ARRAY_BUFFER, g_dustVBO); glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STATIC_DRAW); }
     g_progDustComp = mkProg(FS_DUSTCOMP);
+    g_progScr = mkProg2(VS_SCR, FS_SCR);
+    g_progScrComp = mkProg(FS_SCRCOMP);
     g_progVeil = mkProg(FS_VEIL);
     g_progVeilPrep = mkProg(FS_VEILPREP);
     eglMakeCurrent(g_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
