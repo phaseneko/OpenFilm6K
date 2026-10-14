@@ -114,6 +114,7 @@ public class L {
         {"cViolet", "蓝紫", "藍紫", "Violet", "青紫", "청보라", "Violett", "Bleu-violet", "Violeta", "Сине-фиолетовый", "Violeta"},
         // ---- post-process (漏光/划痕/蒙尘) ----
         {"ppLabel", "后期处理", "後期處理", "Post-process", "後処理", "후처리", "Nachbearbeitung", "Post-traitement", "Posprocesado", "Постобработка", "Pós-processamento"},
+        {"ppPvLabel", "预览后期处理", "預覽後期處理", "Preview post-process", "プレビュー後処理", "미리보기 후처리", "Vorschau-Nachbearbeitung", "Post-traitement d'aperçu", "Posprocesado de vista previa", "Постобработка предпросмотра", "Pós-processamento de pré-visualização"},
         {"ppLeak", "漏光", "漏光", "Light leak", "光漏れ", "빛샘", "Lichteinfall", "Fuite de lumière", "Fuga de luz", "Засветка", "Vazamento de luz"},
         {"ppScratch", "划痕", "劃痕", "Scratches", "傷", "스크래치", "Kratzer", "Rayures", "Arañazos", "Царапины", "Riscos"},
         {"ppDust", "蒙尘", "蒙塵", "Dust", "ホコリ", "먼지", "Staub", "Poussière", "Polvo", "Пыль", "Poeira"},

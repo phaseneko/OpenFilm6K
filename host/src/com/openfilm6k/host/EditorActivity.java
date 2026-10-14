@@ -1901,6 +1901,14 @@ public class EditorActivity extends Activity {
             spyChkView.setImageDrawable(Ux.checkbox98(this, getSharedPreferences("of6k", 0).getBoolean("spy_on", false)));
     }
 
+    /** one group of the settings / spy dialogs — every group gets the SAME top gap so the
+     *  vertical spacing between groups is identical in both dialogs. */
+    private void addGroup(LinearLayout body, View g) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
+        p.topMargin = Ux.dp(14);
+        body.addView(g, p);
+    }
+
     private void showSettings() {
         final android.app.Dialog dlg = new android.app.Dialog(this);
         settingsDlg = dlg;
@@ -1951,7 +1959,7 @@ public class EditorActivity extends Activity {
         ll3.leftMargin = Ux.dp(10);
         ll3.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         lg.addView(lgl, ll3);
-        body.addView(lg, new LinearLayout.LayoutParams(-1, -2));
+        addGroup(body, lg);
         // data group: incremental reinstall of the bundled film library (never clears anything)
         android.widget.FrameLayout rg = new android.widget.FrameLayout(this);
         android.widget.LinearLayout rgi = new android.widget.LinearLayout(this);
@@ -1977,7 +1985,7 @@ public class EditorActivity extends Activity {
         rll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         rg.addView(rgl, rll);
         rg.setClipChildren(false);
-        body.addView(rg, new LinearLayout.LayoutParams(-1, -2));
+        addGroup(body, rg);
         // preview watermark group (editor-only; the camera's own stamp choice is unaffected)
         android.widget.FrameLayout pg = new android.widget.FrameLayout(this);
         android.widget.LinearLayout pgi = new android.widget.LinearLayout(this);
@@ -2013,9 +2021,7 @@ public class EditorActivity extends Activity {
         pll.leftMargin = Ux.dp(10);
         pll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         pg.addView(pgl, pll);
-        android.widget.LinearLayout.LayoutParams pgp = new LinearLayout.LayoutParams(-1, -2);
-        pgp.topMargin = Ux.dp(14);
-        body.addView(pg, pgp);
+        addGroup(body, pg);
         // post-process group (漏光/划痕/蒙尘): multi-select; each category is randomised in the preview
         android.widget.FrameLayout qg = new android.widget.FrameLayout(this);
         android.widget.LinearLayout qgi = postSelector(pvPostSel(), new PostSel() {
@@ -2028,7 +2034,7 @@ public class EditorActivity extends Activity {
                 renderPreview();
             }
         });
-        TextView qgl = new TextView(this); qgl.setText(L.s("ppLabel")); Ux.styleHeader(qgl);
+        TextView qgl = new TextView(this); qgl.setText(L.s("ppPvLabel")); Ux.styleHeader(qgl);   // 预览后期处理
         qg.setClipChildren(false);
         android.widget.FrameLayout.LayoutParams qil = new android.widget.FrameLayout.LayoutParams(-1, -2);
         qil.topMargin = Ux.dp(10);
@@ -2037,15 +2043,9 @@ public class EditorActivity extends Activity {
         qll.leftMargin = Ux.dp(10);
         qll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         qg.addView(qgl, qll);
-        android.widget.LinearLayout.LayoutParams qgp = new LinearLayout.LayoutParams(-1, -2);
-        qgp.topMargin = Ux.dp(14);
-        body.addView(qg, qgp);
-        android.widget.LinearLayout.LayoutParams glp1 = new LinearLayout.LayoutParams(-1, -2);
-        glp1.topMargin = Ux.dp(14);
-        body.addView(settingsGroup(L.s("customScene"), CUSTOM_SCENES, ".jpg", 1001, dlg), glp1);
-        android.widget.LinearLayout.LayoutParams glp2 = new LinearLayout.LayoutParams(-1, -2);
-        glp2.topMargin = Ux.dp(14);   // room for group 2's title rising above its frame, clear of group 1
-        body.addView(settingsGroup(L.s("customLut"), CUSTOM_LUTS, ".cube", 1002, dlg), glp2);
+        addGroup(body, qg);
+        addGroup(body, settingsGroup(L.s("customScene"), CUSTOM_SCENES, ".jpg", 1001, dlg));
+        addGroup(body, settingsGroup(L.s("customLut"), CUSTOM_LUTS, ".cube", 1002, dlg));
         Ux.themeTree(body);   // theme BEFORE mounting the title bar: themeTree would recolor the white title text
         box.addView(body, new LinearLayout.LayoutParams(-1, -2));
         // win98 tool-dialog title bar: narrow, recessed navy bar, close button flush with bar height
@@ -2125,7 +2125,7 @@ public class EditorActivity extends Activity {
         egll.leftMargin = Ux.dp(10);
         egll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         eg.addView(egl, egll);
-        body.addView(eg, new LinearLayout.LayoutParams(-1, -2));
+        addGroup(body, eg);
         // group: film combobox — same choices as the main list, independent selection
         android.widget.FrameLayout fg = new android.widget.FrameLayout(this);
         LinearLayout fgi = new LinearLayout(this);
@@ -2161,7 +2161,7 @@ public class EditorActivity extends Activity {
         fgll.leftMargin = Ux.dp(10);
         fgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         fg.addView(fgl, fgll);
-        body.addView(fg, new LinearLayout.LayoutParams(-1, -2));
+        addGroup(body, fg);
         // group: stamp/border mode — the camera's full C2 set (settings dialog hides white-card/collage)
         android.widget.FrameLayout sg = new android.widget.FrameLayout(this);
         LinearLayout sgi = new LinearLayout(this);
@@ -2195,7 +2195,7 @@ public class EditorActivity extends Activity {
         sgll.leftMargin = Ux.dp(10);
         sgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         sg.addView(sgl, sgll);
-        body.addView(sg, new LinearLayout.LayoutParams(-1, -2));
+        addGroup(body, sg);
         // group: post-process (漏光/划痕/蒙尘), multi-select — applies to every arrived file (same pipeline as capture)
         android.widget.FrameLayout qg = new android.widget.FrameLayout(this);
         java.util.HashSet<String> spySel0 = new java.util.HashSet<String>();
@@ -2218,9 +2218,7 @@ public class EditorActivity extends Activity {
         qll2.leftMargin = Ux.dp(10);
         qll2.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         qg.addView(qgl, qll2);
-        android.widget.LinearLayout.LayoutParams qgp2 = new LinearLayout.LayoutParams(-1, -2);
-        qgp2.topMargin = Ux.dp(14);
-        body.addView(qg, qgp2);
+        addGroup(body, qg);
         // group: watched dirs — the same [+|spinner|✕] row as the settings import groups; + opens the system folder picker
         android.widget.FrameLayout dg = new android.widget.FrameLayout(this);
         LinearLayout dgi = new LinearLayout(this);
@@ -2273,7 +2271,7 @@ public class EditorActivity extends Activity {
         dgll.leftMargin = Ux.dp(10);
         dgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         dg.addView(dgl2, dgll);
-        body.addView(dg, new LinearLayout.LayoutParams(-1, -2));
+        addGroup(body, dg);
         Ux.themeTree(body);   // theme BEFORE mounting the title bar: themeTree would recolor the white title text
         box.addView(body, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout tb = new LinearLayout(this);
