@@ -373,14 +373,16 @@ static const char* FS_SOFT = FS_HEAD
     "uniform sampler2D uGB; uniform float uA,uBb;\n"
     "void main(){ vec3 c=src(); vec3 gb=texture(uGB,luv()).rgb;\n"
     " o=vec4(clamp(uA*c+uBb*gb,0.0,1.0),1.0); }";
-// HDF (highlight diffusion): only the veiling's highlight-spill half (original + the 3 hue halos)
+// HDF (highlight diffusion): only the veiling's highlight-spill half (original + the 3 hue halos).
+// Unlike veiling's soft saturation this uses a NARROW threshold band, so a blurred highlight grows a
+// large, hard-edged SOLID disc (a real HDF filter's look) instead of an endlessly soft glow.
 static const char* FS_HDF = FS_HEAD
-    "uniform sampler2D uHr,uHg,uHb; uniform float uC,uD,uE,uGr,uGg,uGb;\n"
-    "vec3 band(vec3 b,float G){ float i=max(b.r,max(b.g,b.b)); if(i<1.0e-5) return vec3(0.0); float g=(i*G)/(1.0+i*G); return b*(g/i); }\n"
+    "uniform sampler2D uHr,uHg,uHb; uniform float uC,uD,uE,uLo,uHi;\n"
+    "vec3 band(vec3 b,float lo,float hi){ float i=max(b.r,max(b.g,b.b)); if(i<1.0e-5) return vec3(0.0); return b*(smoothstep(lo,hi,i)/i); }\n"
     "void main(){ vec3 c=src();\n"
-    " vec3 h0=band(texture(uHr,luv()).rgb,uGr);\n"
-    " vec3 h1=band(texture(uHg,luv()).rgb,uGg);\n"
-    " vec3 h2=band(texture(uHb,luv()).rgb,uGb);\n"
+    " vec3 h0=band(texture(uHr,luv()).rgb,uLo,uHi);\n"
+    " vec3 h1=band(texture(uHg,luv()).rgb,uLo,uHi);\n"
+    " vec3 h2=band(texture(uHb,luv()).rgb,uLo,uHi);\n"
     " o=vec4(clamp(c+uC*h0+uD*h1+uE*h2,0.0,1.0),1.0); }";
 
 // ---- GL objects (created once, reused across renders) ----
@@ -1197,7 +1199,8 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             glUniform2f(glGetUniformLocation(g_progHdf, "uOrigin"), g_ox, g_oy);
             glUniform2f(glGetUniformLocation(g_progHdf, "uFull"), (float) g_fw, (float) g_fh);
             setU(g_progHdf, "uC", 0.35f); setU(g_progHdf, "uD", 0.235f); setU(g_progHdf, "uE", 0.47f);
-            setU(g_progHdf, "uGr", 13.6f); setU(g_progHdf, "uGg", 6.1f); setU(g_progHdf, "uGb", 2.4f);
+            setU(g_progHdf, "uLo", P[3] > 0.0f ? P[3] : 0.05f);   // narrow band -> hard edge
+            setU(g_progHdf, "uHi", P[4] > P[3] ? P[4] : 0.09f);
             glActiveTexture(GL_TEXTURE0);
             glDrawArrays(GL_TRIANGLES, 0, 3);
             cur = dT; curFbo = dF;
