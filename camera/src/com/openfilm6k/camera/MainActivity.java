@@ -2153,8 +2153,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final int[] STAMP_CODES = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
     // full names, WITHOUT the mode code (the HUD keeps showing the short code)
     private static final String[] STAMP_NAMES = { "None", "Date", "Exposure", "Date + exposure", "White-card frame", "Film edge", "Film name", "Film + exposure", "Half-frame", "Double exposure", "4-shot collage", "Wide", "Wide white-card", "Wide film edge", "Wide sprocket" };
-    private static final String[] POST_CATS = { "leak", "scratch", "dust", "veiling" };
-    private static final String[] POST_NAMES = { "Leak", "Scratch", "Dust", "Veiling" };
+    private static final String[] POST_CATS = { "leak", "scratch", "dust", "veiling", "softfocus", "hdf" };
+    private static final String[] POST_NAMES = { "Leak", "Scratch", "Dust", "Veiling", "Soft focus", "HDF" };
 
     /** the camera's stampMode + printInfo folded into the app's ONE mutually exclusive code space */
     private int stampCode() {

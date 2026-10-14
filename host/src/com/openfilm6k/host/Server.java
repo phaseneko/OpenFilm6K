@@ -267,9 +267,9 @@ public class Server {
                     galDir.mkdirs();
                     java.io.File out = new java.io.File(galDir, "graded_" + name);
                     String post = q.get("post");
-                    String leakdust = postSubset(post, "leak", "dust", "veiling");   // exposure overlays: composited BEFORE the pipeline
+                    String leakdust = postSubset(post, "leak", "dust", "veiling", "softfocus", "hdf");   // exposure overlays: composited BEFORE the pipeline
                     String scratch = postSubset(post, "scratch");         // surface overlay: output-level, before any photo frame
-                    String photoOnly = postSubset(leakdust, "dust", "veiling");   // lens imaging -> photo only
+                    String photoOnly = postSubset(leakdust, "dust", "veiling", "softfocus", "hdf");   // lens imaging -> photo only
                     String leakOnly = postSubset(leakdust, "leak");               // film-base exposure -> whole canvas
                     boolean isX = q.get("x") != null;
                     boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null);
@@ -883,9 +883,9 @@ public class Server {
             byte[] exifApp1 = Exif.app1Of(src);
             galDir.mkdirs();
             java.io.File out = new java.io.File(galDir, "graded_" + base + ".jpg");
-            String leakdust = postSubset(post, "leak", "dust", "veiling");
+            String leakdust = postSubset(post, "leak", "dust", "veiling", "softfocus", "hdf");
             String scratch = postSubset(post, "scratch");
-            String photoOnly = postSubset(leakdust, "dust", "veiling");
+            String photoOnly = postSubset(leakdust, "dust", "veiling", "softfocus", "hdf");
             String leakOnly = postSubset(leakdust, "leak");
             boolean isX = q.get("x") != null;
             boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null);

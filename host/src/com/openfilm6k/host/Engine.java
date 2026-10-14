@@ -164,8 +164,8 @@ public class Engine {
         } catch (Throwable e) { return ""; }
     }
 
-    /** post-process categories (fixed): leak / scratch / dust / veiling */
-    static final String[] POST_CATS = { "leak", "scratch", "dust", "veiling" };
+    /** post-process categories (fixed): leak / scratch / dust / veiling / softfocus / hdf */
+    static final String[] POST_CATS = { "leak", "scratch", "dust", "veiling", "softfocus", "hdf" };
     static String postDir(String cat) { return "/sdcard/OpenFilm6K/post/" + cat; }
     // ---- official-tuned post defaults (no user parameters) ----
     // dust: highlight-driven procedural "bubble bokeh" (solid disc + bright rim)
@@ -227,6 +227,13 @@ public class Engine {
                         P[0] = 9; P[1] = VEIL_GAIN; P[2] = VEIL_RADIUS; P[3] = VEIL_LIFT; P[4] = VEIL_WARM;
                         for (float v : P) rows.add(v);
                         dbg("post veiling gain=" + VEIL_GAIN);
+                        continue;
+                    }
+                    if ("softfocus".equals(c) || "hdf".equals(c)) {   // veiling split in two: gaussian overlay / highlight spill
+                        float[] P = new float[12];
+                        P[0] = "hdf".equals(c) ? 11 : 10; P[1] = VEIL_GAIN; P[2] = VEIL_RADIUS;
+                        for (float v : P) rows.add(v);
+                        dbg("post " + c + " gain=" + VEIL_GAIN);
                         continue;
                     }
                     if ("scratch".equals(c)) {   // gallery scratches: long (stretched + blurred) AND foreign-object (unblurred) lines, screened

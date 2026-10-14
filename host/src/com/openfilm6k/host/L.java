@@ -118,6 +118,8 @@ public class L {
         {"ppScratch", "划痕", "劃痕", "Scratches", "傷", "스크래치", "Kratzer", "Rayures", "Arañazos", "Царапины", "Riscos"},
         {"ppDust", "蒙尘", "蒙塵", "Dust", "ホコリ", "먼지", "Staub", "Poussière", "Polvo", "Пыль", "Poeira"},
         {"ppVeiling", "镜雾", "鏡霧", "Veiling", "かすみ", "헤이즈", "Schleier", "Voile", "Velado", "Вуаль", "Véu"},
+        {"ppSoftFocus", "柔焦", "柔焦", "Soft focus", "ソフトフォーカス", "소프트 포커스", "Weichzeichner", "Flou artistique", "Enfoque suave", "Мягкий фокус", "Foco suave"},
+        {"ppHdf", "高光扩散", "高光擴散", "Highlight diffusion", "ハイライト拡散", "하이라이트 확산", "Lichtdiffusion", "Diffusion des hautes lumières", "Difusión de luces", "Диффузия светов", "Difusão de luzes"},
         // ---- preview labels ----
         {"origLabel", "← 原图", "← 原圖", "← Original", "← 原画", "← 원본", "← Original", "← Original", "← Original", "← Оригинал", "← Original"},
         {"adjLabel", "成图 →", "成圖 →", "Result →", "完成画像 →", "결과 →", "Ergebnis →", "Résultat →", "Resultado →", "Результат →", "Resultado →"},

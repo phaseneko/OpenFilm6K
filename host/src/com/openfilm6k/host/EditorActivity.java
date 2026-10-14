@@ -2022,8 +2022,8 @@ public class EditorActivity extends Activity {
         qgi.setOrientation(LinearLayout.HORIZONTAL);
         qgi.setBackground(new Ux.Etched());
         qgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
-        final String[] pvPostCats = { "leak", "scratch", "dust", "veiling" };
-        final String[] pvPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust"), L.s("ppVeiling") };
+        final String[] pvPostCats = { "leak", "scratch", "dust", "veiling", "softfocus", "hdf" };
+        final String[] pvPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust"), L.s("ppVeiling"), L.s("ppSoftFocus"), L.s("ppHdf") };
         for (int i = 0; i < pvPostCats.length; i++) {
             final String cc = pvPostCats[i];
             final CheckBox cb = new CheckBox(this); cb.setText(pvPostNames[i]);
@@ -2216,8 +2216,8 @@ public class EditorActivity extends Activity {
         qgi.setOrientation(LinearLayout.HORIZONTAL);
         qgi.setBackground(new Ux.Etched());
         qgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
-        final String[] spyPostCats = { "leak", "scratch", "dust", "veiling" };
-        final String[] spyPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust"), L.s("ppVeiling") };
+        final String[] spyPostCats = { "leak", "scratch", "dust", "veiling", "softfocus", "hdf" };
+        final String[] spyPostNames = { L.s("ppLeak"), L.s("ppScratch"), L.s("ppDust"), L.s("ppVeiling"), L.s("ppSoftFocus"), L.s("ppHdf") };
         for (int i = 0; i < spyPostCats.length; i++) {
             final String cc = spyPostCats[i];
             CheckBox cb = new CheckBox(this); cb.setText(spyPostNames[i]);
@@ -2457,8 +2457,8 @@ public class EditorActivity extends Activity {
                 Bitmap adj2 = null, ref2 = null;
                 try {
                     String out2 = "/sdcard/OpenFilm6K/edit_preview.jpg";
-                    String ldu2 = Server.postSubset(pvPost(), "leak", "dust", "veiling");
-                    String pvDust2 = Server.postSubset(ldu2, "dust", "veiling");
+                    String ldu2 = Server.postSubset(pvPost(), "leak", "dust", "veiling", "softfocus", "hdf");
+                    String pvDust2 = Server.postSubset(ldu2, "dust", "veiling", "softfocus", "hdf");
                     String pvLeak2 = Server.postSubset(ldu2, "leak");
                     java.io.File psSrc2 = new java.io.File(src2);
                     if (!pvDust2.isEmpty()) { java.io.File dv2 = new java.io.File("/sdcard/OpenFilm6K/_pvdv.jpg"); String rd2 = Engine.get().applyPost(src2, dv2.getAbsolutePath(), pvDust2); if (rd2 != null && new java.io.File(rd2).exists()) psSrc2 = new java.io.File(rd2); }
@@ -2507,8 +2507,8 @@ public class EditorActivity extends Activity {
                 fo.write(props.toString().getBytes()); fo.close();
                 Films.reload("EDITTMP");
                 String out = "/sdcard/OpenFilm6K/edit_preview.jpg";
-                String ldu = Server.postSubset(pvPost(), "leak", "dust", "veiling");
-                String pvDust = Server.postSubset(ldu, "dust", "veiling");   // lens imaging: apply BEFORE the print
+                String ldu = Server.postSubset(pvPost(), "leak", "dust", "veiling", "softfocus", "hdf");
+                String pvDust = Server.postSubset(ldu, "dust", "veiling", "softfocus", "hdf");   // lens imaging: apply BEFORE the print
                 String pvLeak = Server.postSubset(ldu, "leak");
                 java.io.File psSrc = new java.io.File(src);
                 if (!pvDust.isEmpty()) { java.io.File dv = new java.io.File("/sdcard/OpenFilm6K/_pvdv.jpg"); String rd = Engine.get().applyPost(src, dv.getAbsolutePath(), pvDust); if (rd != null && new java.io.File(rd).exists()) psSrc = new java.io.File(rd); }
