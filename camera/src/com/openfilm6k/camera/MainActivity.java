@@ -2154,7 +2154,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // the stamp codes 0..14 are the phone app's single stamp/border list, so both UIs agree
     private static final int[] STAMP_CODES = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
     // full names, WITHOUT the mode code (the HUD keeps showing the short code)
-    private static final String[] STAMP_NAMES = { "None", "Date", "Exposure", "Date + exposure", "White-card frame", "Film edge", "Film name", "Film + exposure", "Half-frame", "Double exposure", "4-shot collage", "Wide", "Wide white-card", "Wide film edge", "Wide sprocket" };
+    private static final String[] STAMP_NAMES = { "None", "Date", "Exposure", "Date + exposure", "White border", "Film edge", "Film name", "Film + exposure", "Half-frame", "Double exposure", "4-shot collage", "Wide", "Wide white border", "Wide film edge", "Wide sprocket" };
     private static final String[] POST_CATS = { "leak", "scratch", "dust", "veiling", "softfocus", "hdf" };
     private static final String[] POST_NAMES = { "Light leak", "Scratches", "Dust", "Veiling", "Soft focus", "HDF" };   // same wording as the app
     // veiling / soft focus / HDF are three takes on the same lens glare: at most ONE at a time
