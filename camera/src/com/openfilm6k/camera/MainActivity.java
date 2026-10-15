@@ -891,7 +891,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private volatile int pairStaged = 0;             // file-staging counter (0: expect frame1, 1: expect frame2)
     private File pair0File;                          // frame 1 staged for the batch
     private int pair0Film = -1;                      // film locked when frame 1 was pressed
-    private final LinkedList<Integer> shotFilms = new LinkedList<Integer>();   // per-shot film FIFO
+    /** one shutter press: the film AND the stamp mode as they were at that instant. The watcher must use
+     *  THESE, never the live selection, otherwise a film/mode change before the file is picked up (or a
+     *  foreign jpg landing in DCIM) misattributes the film and the H/2 pair. */
+    private static final class Shot { final int film, mode; final long at; Shot(int f, int m) { film = f; mode = m; at = System.currentTimeMillis(); } }
+    private final LinkedList<Shot> shots = new LinkedList<Shot>();
     private volatile boolean pairBlinkOn = true;
     private int pairOwner = -1;                      // the pair mode (8/9) the in-memory pair belongs to, -1 = none
     // the pending pair is PERSISTED per mode, so it survives a restart and shots taken in other modes in
@@ -1278,7 +1282,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         shooting = true;
         // film locked at shutter press; a FIFO keeps per-shot films even if the user
         // changes the film before the watcher picks the file up (needed for H/2 pairs)
-        synchronized (shotFilms) { shotFilms.add(resolveSel(sel)); }
+        synchronized (shots) { shots.add(new Shot(resolveSel(sel), stampMode)); }
         if (isPairMode()) {
             boolean firstOfPair = (pairSlot == PAIR_FRAME1);
             if (stampMode == 9) {
@@ -1292,9 +1296,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         setStatus("capturing…");
     }
 
-    private int takeShotFilm() {
-        synchronized (shotFilms) {
-            return shotFilms.isEmpty() ? resolveSel(sel) : shotFilms.removeFirst();
+    private Shot takeShot() {
+        synchronized (shots) {
+            while (!shots.isEmpty()) {
+                Shot s = shots.removeFirst();
+                if (System.currentTimeMillis() - s.at < 90000L) return s;   // drop entries whose file never landed
+            }
+            return null;
         }
     }
 
@@ -1373,8 +1381,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     /** C2 changed the stamp mode: park the previous mode's pending pair and resume this mode's one */
     private void onStampModeChanged() {
         if (pairOwner >= 0) savePairState(pairOwner);       // park the pair that belonged to the old mode
-        synchronized (shotFilms) { shotFilms.clear(); }
-        clearGhost();
+        clearGhost();                                       // (the per-shot queue is NOT cleared: an un-uploaded
+                                                            //  shot keeps the film/mode it was taken with)
         if (isPairMode()) {
             loadPairState(stampMode);                       // resume a pending pair for THIS mode
             pairSlot = (pairStaged == 1) ? PAIR_FRAME2 : PAIR_FRAME1;
@@ -1473,25 +1481,33 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         String p = f.getAbsolutePath();
                         if (size > 0 && p.equals(pendPath) && size == pendSize) {
                             sentPaths.add(p);
-                            int film = takeShotFilm();
+                            Shot sh = takeShot();
+                            if (sh == null) {                           // no pending shutter press: not our capture
+                                Logger.log("watcher: no pending shot, ignore " + f.getName());
+                                pendPath = null; pendSize = -1;
+                                watchUntil = System.currentTimeMillis() + 8000;
+                                continue;
+                            }
+                            int film = sh.film;
                             applyKeymap();                             // a fresh card: resolve the keymap from the first shot's EXIF now
-                            if (isPairMode()) {
+                            if (sh.mode == 8 || sh.mode == 9) {
                                 if (pairStaged == 0) {                      // stage frame 1, wait for frame 2
                                     pair0File = f; pair0Film = film;
-                                    pairStaged = 1; pairOwner = stampMode;
-                                    savePairState(stampMode);                // survives restart / shots in other modes
-                                    Logger.log("watcher: pair frame1 " + f.getName() + " film#" + film);
-                                    if (stampMode == 9 && pairSlot == PAIR_FRAME2) loadGhost(f);   // double: show 1st exposure as a ghost
+                                    pairStaged = 1; pairOwner = sh.mode;
+                                    savePairState(sh.mode);                  // survives restart / shots in other modes
+                                    Logger.log("watcher: pair frame1 " + f.getName() + " film#" + film + " mode#" + sh.mode);
+                                    if (sh.mode == 9 && pairSlot == PAIR_FRAME2) loadGhost(f);   // double: show 1st exposure as a ghost
                                 } else {                                    // frame 2 -> atomic batch
                                     File f0 = pair0File; int film0 = pair0Film;
+                                    int om = pairOwner;
                                     pair0File = null; pair0Film = -1;
                                     pairStaged = 0; pairOwner = -1;
-                                    clearPairState(stampMode);               // pair consumed
+                                    if (om >= 0) clearPairState(om);         // pair consumed
                                     Logger.log("watcher: pair frame2 " + f.getName() + " -> batch");
                                     enqueue(new Job(f0, film0, f, film, true));
                                 }
                             } else {
-                                Logger.log("watcher: enqueue " + f.getName() + " " + size + "B");
+                                Logger.log("watcher: enqueue " + f.getName() + " " + size + "B film#" + film);
                                 enqueue(new Job(f, film));
                             }
                             pendPath = null; pendSize = -1;
