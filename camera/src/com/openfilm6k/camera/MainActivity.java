@@ -893,6 +893,29 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private int pair0Film = -1;                      // film locked when frame 1 was pressed
     private final LinkedList<Integer> shotFilms = new LinkedList<Integer>();   // per-shot film FIFO
     private volatile boolean pairBlinkOn = true;
+    private int pairOwner = -1;                      // the pair mode (8/9) the in-memory pair belongs to, -1 = none
+    // the pending pair is PERSISTED per mode, so it survives a restart and shots taken in other modes in
+    // between: the next shot then completes the pair with the REAL first frame, not the previous file.
+    private static final String PK_ST = "pairSt", PK_P = "pairP", PK_F = "pairF";
+    private void savePairState(int mode) {
+        android.content.SharedPreferences.Editor e = getPreferences(MODE_PRIVATE).edit();
+        if (pairStaged == 1 && pair0File != null) e.putInt(PK_ST + mode, 1).putString(PK_P + mode, pair0File.getAbsolutePath()).putInt(PK_F + mode, pair0Film);
+        else e.remove(PK_ST + mode).remove(PK_P + mode).remove(PK_F + mode);
+        e.commit();
+    }
+    private void clearPairState(int mode) {
+        getPreferences(MODE_PRIVATE).edit().remove(PK_ST + mode).remove(PK_P + mode).remove(PK_F + mode).commit();
+    }
+    /** restore a mode's pending pair into the in-memory fields (missing/deleted frame 1 drops it) */
+    private void loadPairState(int mode) {
+        pair0File = null; pair0Film = -1; pairStaged = 0; pairOwner = -1;
+        android.content.SharedPreferences p = getPreferences(MODE_PRIVATE);
+        if (p.getInt(PK_ST + mode, 0) != 1) return;
+        String path = p.getString(PK_P + mode, null);
+        java.io.File f = path == null ? null : new java.io.File(path);
+        if (f == null || !f.exists()) { clearPairState(mode); return; }
+        pair0File = f; pair0Film = p.getInt(PK_F + mode, -1); pairStaged = 1; pairOwner = mode;
+    }
 
     // ---- double-exposure (mode '2'): the first exposure's still is shown as a translucent ghost over the
     //      live viewfinder while the second exposure is composed. The A6000 HAL never hands live preview
@@ -1347,22 +1370,30 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }});
     }
 
-    /** C2 changed the stamp mode: (re)arm or disarm the H/2 pair capture */
+    /** C2 changed the stamp mode: park the previous mode's pending pair and resume this mode's one */
     private void onStampModeChanged() {
-        pair0File = null; pair0Film = -1; pairStaged = 0;
+        if (pairOwner >= 0) savePairState(pairOwner);       // park the pair that belonged to the old mode
         synchronized (shotFilms) { shotFilms.clear(); }
+        clearGhost();
         if (isPairMode()) {
-            pairSlot = PAIR_FRAME1;
+            loadPairState(stampMode);                       // resume a pending pair for THIS mode
+            pairSlot = (pairStaged == 1) ? PAIR_FRAME2 : PAIR_FRAME1;
             pairBlinkOn = true;
             handler.removeCallbacks(pairBlinkTick);
             handler.post(pairBlinkTick);
+            if (stampMode == 9 && pairStaged == 1 && pair0File != null) {   // double: rebuild the 1st-exposure ghost
+                final java.io.File g = pair0File;
+                setGhostWait(true);
+                new Thread(new Runnable() { public void run() { loadGhost(g); } }, "ghost").start();   // decode off the UI thread
+                Logger.log("double: resumed pair, ghost from " + g.getName());
+            }
         } else {
+            pair0File = null; pair0Film = -1; pairStaged = 0; pairOwner = -1;
             pairSlot = PAIR_OFF;
             handler.removeCallbacks(pairBlinkTick);
             pairBlinkOn = true;
         }
         refreshPair();
-        clearGhost();
     }
 
     /** blink phase: flips the [ 1 ]/[ 2 ] indicator while a pair mode is active */
@@ -1447,13 +1478,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                             if (isPairMode()) {
                                 if (pairStaged == 0) {                      // stage frame 1, wait for frame 2
                                     pair0File = f; pair0Film = film;
-                                    pairStaged = 1;
+                                    pairStaged = 1; pairOwner = stampMode;
+                                    savePairState(stampMode);                // survives restart / shots in other modes
                                     Logger.log("watcher: pair frame1 " + f.getName() + " film#" + film);
                                     if (stampMode == 9 && pairSlot == PAIR_FRAME2) loadGhost(f);   // double: show 1st exposure as a ghost
                                 } else {                                    // frame 2 -> atomic batch
                                     File f0 = pair0File; int film0 = pair0Film;
                                     pair0File = null; pair0Film = -1;
-                                    pairStaged = 0;
+                                    pairStaged = 0; pairOwner = -1;
+                                    clearPairState(stampMode);               // pair consumed
                                     Logger.log("watcher: pair frame2 " + f.getName() + " -> batch");
                                     enqueue(new Job(f0, film0, f, film, true));
                                 }
