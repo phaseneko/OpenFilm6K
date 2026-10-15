@@ -589,7 +589,9 @@ public class Server {
      *  0.70 with a 0.60 scale (was 0.60 / 0.40 with a 0.80 pull): the old curve collapsed the top of
      *  the range into ~flat white, so bright areas lost their gradation. The later, gentler shoulder
      *  keeps a roughly 2x steeper slope in the highlights (more separation and detail up there) and
-     *  leaves headroom (~0.95 instead of ~0.99 at the top). 65536 entries = one lookup per channel. */
+     *  leaves headroom (~0.95 instead of ~0.99 at the top). A gentle toe (0.18 * s * (1-s), applied
+     *  only below 1.0 so the highlights keep their headroom) makes the shadows and midtones a little
+     *  denser, as a summed double exposure should be. 65536 entries = one lookup per channel. */
     private static byte[] STACK_FT;
     private static synchronized byte[] stackTable() {
         if (STACK_FT == null) {
@@ -599,7 +601,8 @@ public class Server {
             for (int a = 0; a < 256; a++)
                 for (int b = 0; b < 256; b++) {
                     float s = (lin[a] + lin[b]) * 0.75f;             // film-plane sum, per-shot pull
-                    float v = s <= 0.70f ? s : 0.70f + 0.30f * (float) Math.tanh((s - 0.70f) / 0.60f);
+                    float g = s - ((s < 1.0f) ? 0.18f * s * (1.0f - s) : 0.0f);   // gentle toe: denser shadows/midtones
+                    float v = g <= 0.70f ? g : 0.70f + 0.30f * (float) Math.tanh((g - 0.70f) / 0.60f);
                     t[(a << 8) | b] = (byte) Math.round(lin2srgb(v) * 255f);
                 }
             STACK_FT = t;
