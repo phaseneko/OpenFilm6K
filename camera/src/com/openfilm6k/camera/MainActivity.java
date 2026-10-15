@@ -1764,12 +1764,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             final File src0 = j.src, src1 = j.src2;
             String name = gnameFor(src0, j.filmIdx);
             String pack0 = packOf(j.filmIdx), pack1 = packOf(j.filmIdx2);
+            String postQ = "";
+            if (!postSel.isEmpty()) {                       // the pair must carry the post-process too
+                StringBuilder pb = new StringBuilder();
+                for (String c : postSel) { if (pb.length() > 0) pb.append(','); pb.append(c); }
+                postQ = "&post=" + java.net.URLEncoder.encode(pb.toString());
+            }
             if (fbox != null) fbox.beginUpload();
             conn = (java.net.HttpURLConnection) new java.net.URL(
                 "http://" + phoneIp() + ":8800/ingest2?mode=" + pairModeName()
                     + "&film0=" + java.net.URLEncoder.encode(pack0, "UTF-8")
                     + "&film1=" + java.net.URLEncoder.encode(pack1, "UTF-8")
-                    + "&name=" + name + "&len0=" + f0len + "&len1=" + f1len).openConnection();
+                    + "&name=" + name + "&len0=" + f0len + "&len1=" + f1len + postQ).openConnection();
             conn.setDoOutput(true); conn.setRequestMethod("POST");
             conn.setConnectTimeout(10000); conn.setReadTimeout(120000);   // two grades + compose
             conn.setFixedLengthStreamingMode((int) total);

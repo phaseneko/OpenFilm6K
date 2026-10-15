@@ -536,6 +536,17 @@ public class Server {
         byte[] exifApp1 = Exif.app1Of(src0);
         galDir.mkdirs();
         java.io.File out = new java.io.File(galDir, "graded_" + name);
+        // post-process on a pair: the lens imaging (dust / veiling / soft focus / HDF) and the film-base
+        // exposure (leak) belong to EACH exposure, so they go on the sources before the grade/merge, in the
+        // same order as the single-photo pipeline; the scratch is a film-surface overlay, applied to the
+        // composed frame at the end.
+        String post = q.get("post");
+        String lens = postSubset(post, "dust", "veiling", "softfocus", "hdf");
+        String leak = postSubset(post, "leak");
+        String scratch = postSubset(post, "scratch");
+        java.util.ArrayList<java.io.File> ptmp = new java.util.ArrayList<java.io.File>();
+        if (!lens.isEmpty()) { src0 = postTmp(src0, "a_" + name, lens, ptmp); src1 = postTmp(src1, "b_" + name, lens, ptmp); }
+        if (!leak.isEmpty()) { src0 = postTmp(src0, "c_" + name, leak, ptmp); src1 = postTmp(src1, "d_" + name, leak, ptmp); }
         String r;
         if ("double".equals(mode) && film0.equals(film1)) {
             // A: same film -> accumulate the two exposures in LIGHT, then develop ONCE through the engine
@@ -557,6 +568,8 @@ public class Server {
             else r = "ERR render " + r0 + " / " + r1;
             g0.delete(); g1.delete();
         }
+        if (!scratch.isEmpty() && r != null && !r.startsWith("ERR") && out.exists())
+            r = scratchColorized(out, film0, scratch);       // film-surface overlay on the composed frame
         if (exifApp1 != null && r != null && !r.startsWith("ERR") && out.exists())
             Exif.carryBytes(out, exifApp1);
         boolean ok = r != null && !r.startsWith("ERR") && out.exists();
@@ -575,7 +588,19 @@ public class Server {
                 });
         } catch (Throwable t3) { MainActivity.say("notif prep: " + t3); }
         src0.delete(); src1.delete();
+        for (java.io.File t : ptmp) if (t != null && t.exists()) t.delete();
         return ok ? "OK " + out.getName() : "ERR " + r;
+    }
+
+    /** apply a post-process spec to a temp copy of f; returns f itself when the spec is empty or failed */
+    private static java.io.File postTmp(java.io.File f, String tag, String spec, java.util.List<java.io.File> tmp) {
+        if (spec == null || spec.isEmpty()) return f;
+        java.io.File o = new java.io.File(workDir, "q_" + tag);
+        String r = Engine.get().applyPost(f.getAbsolutePath(), o.getAbsolutePath(), spec);
+        if (r != null && !r.equals(f.getAbsolutePath()) && new java.io.File(r).exists()) {
+            java.io.File nf = new java.io.File(r); tmp.add(nf); return nf;
+        }
+        return f;
     }
 
     /** H = half-frame, 2 = double-exposure. Dispatches the per-mode composition. */
