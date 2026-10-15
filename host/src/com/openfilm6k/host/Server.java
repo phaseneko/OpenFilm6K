@@ -585,10 +585,11 @@ public class Server {
     }
 
     /** 8-bit stacked-exposure LUT: each channel -> linear light, SUM the two exposures (the film
-     *  plane integrates photons), each frame pulled to 0.8 (the standard per-shot compensation),
-     *  then a tanh shoulder (knee 0.6) plays the negative's shoulder + paper latitude: highlight-
-     *  over-midtone lands ~0.94 sRGB (the old 0.5 average capped it at ~0.79, washing both frames
-     *  into midtones). 65536 entries = one array lookup per channel. */
+     *  plane integrates photons), each frame pulled to 0.75, then a tanh shoulder. The knee sits at
+     *  0.70 with a 0.60 scale (was 0.60 / 0.40 with a 0.80 pull): the old curve collapsed the top of
+     *  the range into ~flat white, so bright areas lost their gradation. The later, gentler shoulder
+     *  keeps a roughly 2x steeper slope in the highlights (more separation and detail up there) and
+     *  leaves headroom (~0.95 instead of ~0.99 at the top). 65536 entries = one lookup per channel. */
     private static byte[] STACK_FT;
     private static synchronized byte[] stackTable() {
         if (STACK_FT == null) {
@@ -597,8 +598,8 @@ public class Server {
             byte[] t = new byte[65536];
             for (int a = 0; a < 256; a++)
                 for (int b = 0; b < 256; b++) {
-                    float s = (lin[a] + lin[b]) * 0.8f;              // film-plane sum, per-shot pull
-                    float v = s <= 0.6f ? s : 0.6f + 0.4f * (float) Math.tanh((s - 0.6f) / 0.4f);
+                    float s = (lin[a] + lin[b]) * 0.75f;             // film-plane sum, per-shot pull
+                    float v = s <= 0.70f ? s : 0.70f + 0.30f * (float) Math.tanh((s - 0.70f) / 0.60f);
                     t[(a << 8) | b] = (byte) Math.round(lin2srgb(v) * 255f);
                 }
             STACK_FT = t;
