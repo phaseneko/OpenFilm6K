@@ -482,15 +482,31 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 float tw = measureMixed(mp, t);
                 drawMixed(cv, mp, t, (w - tw) / 2f, y0 + (i - start) * lh);
             }
-            // bottom hint: the hidden ↑→↓↓↓ unlock for the licences page (plain system font, HUD colour)
+            // bottom hint: the hidden ↑→↓↓↓ unlock for the licences page.
+            // arrows part = system font (DSEG14 has NO arrow glyphs); "View Licences" = DSEG14, side by side, centred.
+            float hsz = h / 26f;
+            float hy = h - hsz * 0.5f;
             android.graphics.Paint hh = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
             hh.setTypeface(android.graphics.Typeface.DEFAULT);
-            float hsz = h / 26f;
             hh.setTextSize(hsz);
             hh.setColor(0xFFBFBFBF);
             hh.setShadowLayer(3, 1, 2, 0xFF000000);
-            String hint = "\u2191\u2192\u2193\u2193\u2193: View Licences";
-            cv.drawText(hint, (w - hh.measureText(hint)) / 2f, h - hsz * 0.5f, hh);
+            String hintA = "\u2191\u2192\u2193\u2193\u2193: ";
+            String hintB = "View Licences";
+            float wA = hh.measureText(hintA);
+            float wB, hx;
+            if (tf != null) {
+                android.graphics.Paint hb = new android.graphics.Paint(hh);
+                hb.setTypeface(tf);
+                wB = hb.measureText(hintB);
+                hx = (w - (wA + wB)) / 2f;
+                cv.drawText(hintA, hx, hy, hh);
+                cv.drawText(hintB, hx + wA, hy, hb);
+            } else {
+                wB = hh.measureText(hintB);
+                hx = (w - (wA + wB)) / 2f;
+                cv.drawText(hintA + hintB, hx, hy, hh);
+            }
             cv.restoreToCount(msave);
         }
 
@@ -2405,8 +2421,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (fbox != null && fbox.licOpen) {   // licences page owns the keyboard for BOTH actions (before any other arm)
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
                 licensesKey(scan, 0);          // ↑/↓ scroll, Fn/MENU close (non-NEX)
-            } else if (e.getAction() == KeyEvent.ACTION_UP && scan == K_FN && km.fnC1) {
-                closeLicensesPage();           // NEX: Fn closes the page on release
+            } else if (e.getAction() == KeyEvent.ACTION_UP) {
+                downHeld = false; handler.removeCallbacks(downLongAction);   // never leave the 5s debug arm live
+                if (scan == K_FN && km.fnC1) closeLicensesPage();           // NEX: Fn closes the page on release
             }
             return true;                       // consume: no S1/S2/C2/C4/AEL, no 5s-down arm, no menu toggle
         }
@@ -2865,6 +2882,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private void openLicenses() {
         browser = -1;                              // Fn will return to the shooting HUD, not the list
         licSeq = 0;
+        handler.removeCallbacks(downLongAction); downHeld = false;   // the sequence's final ↓ armed the 5s debug timer: cancel it
         if (fbox == null) return;
         fbox.clearMenu();
         try {
@@ -2885,6 +2903,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     /** hide the licences page and restore the shooting HUD */
     private void closeLicensesPage() {
         if (fbox == null) return;
+        handler.removeCallbacks(downLongAction); downHeld = false;   // belt-and-braces: no debug screen can pop after returning
         fbox.licOpen = false; fbox.licLines = null; fbox.licTop = 0;
         fbox.postInvalidate();
         renderOverlay(); renderHud();
