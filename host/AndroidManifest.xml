@@ -12,6 +12,7 @@
     <application android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:label="OpenFilm6K" android:icon="@drawable/ic_launcher" android:hasCode="true">
         <activity android:name=".MainActivity" android:exported="false" />
+        <activity android:name=".LicensesActivity" android:exported="false" />
         <activity android:name=".EditorActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>

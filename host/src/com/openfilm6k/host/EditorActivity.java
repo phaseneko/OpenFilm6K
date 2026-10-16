@@ -894,6 +894,20 @@ public class EditorActivity extends Activity {
         android.widget.LinearLayout.LayoutParams alp = new android.widget.LinearLayout.LayoutParams(-2, -2);
         alp.topMargin = Ux.dp(16);
         info.addView(authorLine, alp);
+        // open-source licenses link: hyperlink style, on the line below the author line
+        android.widget.TextView licLink = new android.widget.TextView(this);
+        licLink.setText(L.s("licensesEntry"));
+        licLink.setTextColor(0xFF7FA8FF);
+        licLink.getPaint().setUnderlineText(true);
+        licLink.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(13));
+        licLink.setShadowLayer(4, 2, 2, 0xE6000000);
+        licLink.setClickable(true);
+        licLink.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            startActivity(new android.content.Intent(EditorActivity.this, LicensesActivity.class));
+        }});
+        android.widget.LinearLayout.LayoutParams licp = new android.widget.LinearLayout.LayoutParams(-2, -2);
+        licp.topMargin = Ux.dp(6);
+        info.addView(licLink, licp);
         android.widget.LinearLayout.LayoutParams infop = new LinearLayout.LayoutParams(0, -2, 1f);
         infop.leftMargin = Ux.dp(20);
         infop.gravity = android.view.Gravity.BOTTOM;

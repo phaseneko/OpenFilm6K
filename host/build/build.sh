@@ -17,6 +17,8 @@ cp films/previews/* out/pkgassets/films/root/
 FINDDIRS="films/root films/pipelines films/luts"
 if [ -d films/post ]; then cp -r films/post out/pkgassets/films/; FINDDIRS="$FINDDIRS films/post"; fi
 ( cd out/pkgassets && find $FINDDIRS -type f | sort > films/index.txt )
+# host/assets/* (license texts etc.) ride in via aapt2 link -A as well
+if [ -d assets ]; then cp -r assets/. out/pkgassets/; fi
 "$BT/aapt2" link --java out/gen -o out/unaligned.apk --manifest AndroidManifest.xml -I "$AJ" --min-sdk-version 24 --target-sdk-version 27 -A out/pkgassets out/res.zip
 find out/gen src -name "*.java" > out/srcs.txt
 javac -encoding UTF-8 --release 8 -Xlint:-options -nowarn -cp "$AJ" -d out/classes @out/srcs.txt
