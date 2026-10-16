@@ -300,6 +300,36 @@ public class Ux {
         return new android.graphics.drawable.InsetDrawable(sld, dp(2), 0, dp(2), 0);
     }
 
+    /** win98 warning: yellow triangle + black outline + black "!", drawn in code (no external asset), sized like checkbox98 */
+    static android.graphics.drawable.Drawable warn98(android.content.Context c) {
+        int px = dp(18);
+        android.graphics.Bitmap bm = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888);
+        Canvas cv = new Canvas(bm);
+        android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        float pad = px * 0.08f;
+        android.graphics.Path tri = new android.graphics.Path();
+        tri.moveTo(px / 2f, pad);
+        tri.lineTo(px - pad, px - pad);
+        tri.lineTo(pad, px - pad);
+        tri.close();
+        p.setColor(0xFFFFFF00);   // yellow fill
+        cv.drawPath(tri, p);
+        p.setStyle(android.graphics.Paint.Style.STROKE);
+        p.setColor(0xFF000000);   // black outline
+        p.setStrokeWidth(Math.max(1f, px * 0.10f));
+        p.setStrokeJoin(android.graphics.Paint.Join.MITER);
+        cv.drawPath(tri, p);
+        p.setStyle(android.graphics.Paint.Style.FILL);
+        p.setColor(0xFF000000);
+        float bw = Math.max(1f, px * 0.13f);
+        float bx = px / 2f - bw / 2f;
+        cv.drawRoundRect(new android.graphics.RectF(bx, px * 0.36f, bx + bw, px * 0.66f), bw / 2f, bw / 2f, p);
+        cv.drawRoundRect(new android.graphics.RectF(bx, px * 0.74f, bx + bw, px * 0.74f + bw), bw / 2f, bw / 2f, p);
+        android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(c.getResources(), bm);
+        d.setFilterBitmap(false);
+        return d;
+    }
+
     /** spy glyph: original 16x16 pixel art in the win98 palette (fedora + glasses + high-collar coat), scaled to dp(22) nearest-neighbour */
     static android.graphics.drawable.Drawable spy98(android.content.Context c) {
         return pixelRadio(c, R.drawable.spy98, dp(22));

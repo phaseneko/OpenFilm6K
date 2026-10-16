@@ -145,6 +145,8 @@ public class L {
         // ---- spy mode ----
         {"spyMode", "监视模式", "監視模式", "Spy mode", "スパイモード", "스파이 모드", "Spionmodus", "Mode espion", "Modo espía", "Режим слежки", "Modo espião"},
         {"spyEnable", "开启监视模式", "開啟監視模式", "Enable spy mode", "スパイモードを有効化", "감시 모드 활성화", "Spionmodus aktivieren", "Activer le mode espion", "Activar modo espía", "Включить режим слежки", "Ativar modo espião"},
+        {"spyNeedPerm", "需要存储权限才能使用监视模式", "需要儲存權限才能使用監視模式", "Storage permission is required for spy mode", "スパイモードにはストレージ権限が必要です", "스파이 모드를 사용하려면 저장소 권한이 필요합니다", "Für den Spionmodus ist Speicherberechtigung erforderlich", "L'autorisation de stockage est requise pour le mode espion", "Se requiere permiso de almacenamiento para el modo espía", "Для режима слежки требуется разрешение на хранилище", "A permissão de armazenamento é necessária para o modo espião"},
+        {"spyGrant", "授权", "授權", "Grant", "許可", "권한 부여", "Erlauben", "Autoriser", "Conceder", "Разрешить", "Conceder"},
         {"spyFilm", "胶卷", "膠卷", "Film", "フィルム", "필름", "Film", "Pellicule", "Película", "Плёнка", "Filme"},
         {"spyStamp", "水印与边框", "水印與邊框", "Watermark & frame", "ウォーターマークと枠", "워터마크 및 프레임", "Wasserzeichen & Rahmen", "Filigrane et cadre", "Marca y marco", "Водяной знак и рамка", "Marca e moldura"},
         {"spyDirs", "监视目录", "監視目錄", "Watched folders", "監視フォルダ", "감시 폴더", "Überwachte Ordner", "Dossiers surveillés", "Carpetas vigiladas", "Отслеживаемые папки", "Pastas vigiadas"},

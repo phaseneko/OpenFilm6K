@@ -90,16 +90,7 @@ public class MainActivity extends Activity {
             Ux.styleButton(ok); ok.setText(L.s("btnOk"));
             ok.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) {
                 try { permDlg.dismiss(); } catch (Throwable ig) {}
-                if (android.os.Build.VERSION.SDK_INT < 30) {
-                    a.requestPermissions(new String[]{"android.permission.WRITE_EXTERNAL_STORAGE"}, 1);
-                    return;
-                }
-                try {
-                    a.startActivity(new android.content.Intent("android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION",
-                            android.net.Uri.parse("package:" + a.getPackageName())));
-                } catch (Throwable t) {
-                    try { a.startActivity(new android.content.Intent("android.settings.MANAGE_ALL_FILES_ACCESS_PERMISSION")); } catch (Throwable t2) { toast("open settings: " + t2); }
-                }
+                requestStorage(a);
             }});
             android.widget.LinearLayout row = new android.widget.LinearLayout(a);
             row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
@@ -112,6 +103,21 @@ public class MainActivity extends Activity {
             return;
         }
         if (filmsMissing() || Server.versionNeedsInstall(a)) showInstall(a);   // first run or a new APK version: restate official data
+    }
+
+    /** request storage access: API<30 runtime grant, API30+ the All-Files-Access settings screen (with fallback) */
+    static void requestStorage(Activity a) {
+        if (a == null) return;
+        if (android.os.Build.VERSION.SDK_INT < 30) {
+            a.requestPermissions(new String[]{"android.permission.WRITE_EXTERNAL_STORAGE"}, 1);
+            return;
+        }
+        try {
+            a.startActivity(new android.content.Intent("android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION",
+                    android.net.Uri.parse("package:" + a.getPackageName())));
+        } catch (Throwable t) {
+            try { a.startActivity(new android.content.Intent("android.settings.MANAGE_ALL_FILES_ACCESS_PERMISSION")); } catch (Throwable t2) { toast("open settings: " + t2); }
+        }
     }
 
     /** win98 progress dialog; incremental install — only missing files are written */

@@ -665,8 +665,9 @@ public class EditorActivity extends Activity {
         spyBtn.setPadding(Ux.dp(8), 0, Ux.dp(8), 0);
         spyBtn.setContentDescription(L.s("spyMode"));
         spyChkView = new android.widget.ImageView(this);
-        spyChkView.setImageDrawable(Ux.checkbox98(this, getSharedPreferences("of6k", 0).getBoolean("spy_on", false)));
-        spyChkView.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {   // the checkbox half toggles in place; the rest opens the dialog
+        refreshSpyBtn();   // granted -> checkbox, not granted -> warning icon
+        spyChkView.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {   // checkbox half toggles in place; the rest opens the dialog
+            if (!MainActivity.storageGranted(EditorActivity.this)) { MainActivity.requestStorage(EditorActivity.this); return; }   // no storage yet: ask for it
             android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);
             boolean nv = !pf.getBoolean("spy_on", false);
             pf.edit().putBoolean("spy_on", nv).commit();
@@ -1893,12 +1894,14 @@ public class EditorActivity extends Activity {
     protected void onResume() {
         super.onResume();
         MainActivity.firstRunFlow(this);   // re-check after returning from the permission screen
+        refreshSpyBtn();                   // storage may have been granted/revoked while away: re-render
     }
 
-    /** sync the title-bar spy checkbox with the persisted spy_on flag (dialog is the single writer) */
+    /** sync the title-bar spy button: warning icon when storage is missing, otherwise the spy_on checkbox */
     void refreshSpyBtn() {
-        if (spyChkView != null)
-            spyChkView.setImageDrawable(Ux.checkbox98(this, getSharedPreferences("of6k", 0).getBoolean("spy_on", false)));
+        if (spyChkView == null) return;
+        if (!MainActivity.storageGranted(this)) spyChkView.setImageDrawable(Ux.warn98(this));
+        else spyChkView.setImageDrawable(Ux.checkbox98(this, getSharedPreferences("of6k", 0).getBoolean("spy_on", false)));
     }
 
     /** one group of the settings / spy dialogs — the FIRST group sits flush with the top of the body
@@ -2104,18 +2107,39 @@ public class EditorActivity extends Activity {
         egi.setGravity(android.view.Gravity.CENTER_VERTICAL);
         egi.setBackground(new Ux.Etched());
         egi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
-        CheckBox en = new CheckBox(this);
-        en.setText(L.s("spyEnable"));
-        en.setButtonDrawable(Ux.checkbox98States(this));   // explicit: authentic 98.css pixel art
-        en.setChecked(pf.getBoolean("spy_on", false));
-        en.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
-            public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
-                pf.edit().putBoolean("spy_on", v).commit();
-                refreshSpyBtn();
-                SpyWatcher.sync(getApplicationContext());
-            }
-        });
-        egi.addView(en, new LinearLayout.LayoutParams(-2, -2));
+        if (MainActivity.storageGranted(this)) {
+            CheckBox en = new CheckBox(this);
+            en.setText(L.s("spyEnable"));
+            en.setButtonDrawable(Ux.checkbox98States(this));   // explicit: authentic 98.css pixel art
+            en.setChecked(pf.getBoolean("spy_on", false));
+            en.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+                public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
+                    pf.edit().putBoolean("spy_on", v).commit();
+                    refreshSpyBtn();
+                    SpyWatcher.sync(getApplicationContext());
+                }
+            });
+            egi.addView(en, new LinearLayout.LayoutParams(-2, -2));
+        } else {
+            // storage missing: spy mode cannot run — replace the enable checkbox with warning + grant
+            android.widget.ImageView wi = new android.widget.ImageView(this);
+            wi.setImageDrawable(Ux.warn98(this));
+            egi.addView(wi, new LinearLayout.LayoutParams(-2, -2));
+            TextView wmsg = new TextView(this);
+            wmsg.setText(L.s("spyNeedPerm"));
+            wmsg.setTextColor(Ux.TXT);
+            wmsg.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+            LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(0, -2, 1f);
+            wlp.leftMargin = Ux.dp(6);
+            egi.addView(wmsg, wlp);
+            Button grant = new Button(this); Ux.styleButton(grant); grant.setText(L.s("spyGrant"));
+            grant.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+                MainActivity.requestStorage(EditorActivity.this);
+            }});
+            LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-2, -2);
+            glp.leftMargin = Ux.dp(10);
+            egi.addView(grant, glp);
+        }
         TextView egl = new TextView(this); egl.setText(L.s("spyMode")); Ux.styleHeader(egl);
         eg.setClipChildren(false);
         android.widget.FrameLayout.LayoutParams egil = new android.widget.FrameLayout.LayoutParams(-1, -2);
