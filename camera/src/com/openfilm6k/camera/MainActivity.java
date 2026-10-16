@@ -402,6 +402,31 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             sysP.setTypeface(cjk());
             return sysP;
         }
+        /** DSEG14's space advance is only ~0.20 em (vs ~0.816 em per glyph): add this much per space in Latin runs. */
+        float latinSp(android.graphics.Paint p) { return 0.30f * p.getTextSize(); }
+
+        /** width of one Latin (DSEG) run with the widened word spaces — MUST match drawLatinRun's advance */
+        float latinWidth(android.graphics.Paint p, String run) {
+            int spaces = 0;
+            for (int k = 0; k < run.length(); k++) if (run.charAt(k) == ' ') spaces++;
+            return p.measureText(run) + latinSp(p) * spaces;
+        }
+
+        /** draw one Latin (DSEG) run at x, widening each word space by latinSp() so the gaps stay visible */
+        void drawLatinRun(android.graphics.Canvas cv, android.graphics.Paint p, String run, float x, float y) {
+            float sp = latinSp(p);
+            int n = run.length(), i = 0;
+            float cx = x;
+            while (i < n) {
+                int e = i;
+                while (e < n && run.charAt(e) != ' ') e++;
+                if (e > i) cv.drawText(run.substring(i, e), cx, y, p);
+                cx += p.measureText(run.substring(i, e));
+                if (e < n) { cx += p.measureText(" ") + sp; e++; }   // the space glyph advance + the extra gap
+                i = e;
+            }
+        }
+
         void drawMixed(android.graphics.Canvas cv, android.graphics.Paint p, String txt, float x, float y) {
             if (tf == null) { cv.drawText(txt, x, y, p); return; }
             int i = 0, n = txt.length(); float cx = x;
@@ -410,9 +435,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 int j = i;
                 while (j < n && (txt.charAt(j) < 0x80) == latin) j++;
                 String run = txt.substring(i, j);
-                android.graphics.Paint pp = latin ? p : sys(p);
-                cv.drawText(run, cx, y, pp);
-                cx += pp.measureText(run);
+                if (latin) { drawLatinRun(cv, p, run, cx, y); cx += latinWidth(p, run); }
+                else { android.graphics.Paint pp = sys(p); cv.drawText(run, cx, y, pp); cx += pp.measureText(run); }
                 i = j;
             }
         }
@@ -423,8 +447,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 boolean latin = txt.charAt(i) < 0x80;
                 int j = i;
                 while (j < n && (txt.charAt(j) < 0x80) == latin) j++;
-                android.graphics.Paint pp = latin ? p : sys(p);
-                wsum += pp.measureText(txt.substring(i, j));
+                String run = txt.substring(i, j);
+                wsum += latin ? latinWidth(p, run) : sys(p).measureText(run);
                 i = j;
             }
             return wsum;
@@ -498,10 +522,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (tf != null) {
                 android.graphics.Paint hb = new android.graphics.Paint(hh);
                 hb.setTypeface(tf);
-                wB = hb.measureText(hintB);
+                wB = measureMixed(hb, hintB);          // DSEG run: includes the widened word space
                 hx = (w - (wA + wB)) / 2f;
                 cv.drawText(hintA, hx, hy, hh);
-                cv.drawText(hintB, hx + wA, hy, hb);
+                drawMixed(cv, hb, hintB, hx + wA, hy); // same shared path, so the gap matches the measurement
             } else {
                 wB = hh.measureText(hintB);
                 hx = (w - (wA + wB)) / 2f;
