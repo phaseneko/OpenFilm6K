@@ -10,5 +10,3 @@ To install, mirror this layout to the phone:
 
     /sdcard/OpenFilm6K/pipelines/*.properties
     /sdcard/OpenFilm6K/luts/*.cube
-
-All LUTs are original black-box fits; no data from commercial products.
