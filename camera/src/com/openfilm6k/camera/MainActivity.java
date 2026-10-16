@@ -2402,6 +2402,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
         if (!netReady) return true;   // boot screen: nothing operable until WiFi is up
         int scan = e.getScanCode();
+        if (fbox != null && fbox.licOpen) {   // licences page owns the keyboard for BOTH actions (before any other arm)
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                licensesKey(scan, 0);          // ↑/↓ scroll, Fn/MENU close (non-NEX)
+            } else if (e.getAction() == KeyEvent.ACTION_UP && scan == K_FN && km.fnC1) {
+                closeLicensesPage();           // NEX: Fn closes the page on release
+            }
+            return true;                       // consume: no S1/S2/C2/C4/AEL, no 5s-down arm, no menu toggle
+        }
         if (infoMode) {   // debug info screen: a fresh key press returns (ignore the held DOWN's own auto-repeat)
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0 && !(scan == K_DOWN && downHeld)) {
                 Logger.log("info closed by act=" + e.getAction() + " scan=" + scan + " rep=" + e.getRepeatCount());
@@ -2427,7 +2435,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 fnHeld = false;
                 handler.removeCallbacks(fnLongAction);
                 if (fnFired) { c1Held = false; renderHud(); }
-                else if (fbox != null && fbox.licOpen) closeLicensesPage();   // NEX Fn closes the licences page on release
                 else if (browser < 0 && settings < 0 && stampMenu < 0) { browser = sel; licSeq = 0; renderOverlay(); }
             }
         if (e.getAction() == KeyEvent.ACTION_UP && (scan == K_C2 || (K_C4 != 0 && scan == K_C4))) {
@@ -2464,7 +2471,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (e.getAction() != KeyEvent.ACTION_DOWN || e.getRepeatCount() > 0) return true;
         int dir = (scan == K_WHEEL_CW || scan == K_DIAL_CW) ? 1
                 : (scan == K_WHEEL_CCW || scan == K_DIAL_CCW) ? -1 : 0;
-        if (fbox != null && fbox.licOpen) return licensesKey(scan, dir);
         if (viewing >= 0) return viewerKey(scan, dir);
         if (stampMenu >= 0) return stampMenuKey(scan, dir);
         if (browser >= 0) return browserKey(scan, dir);
