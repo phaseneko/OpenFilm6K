@@ -104,6 +104,7 @@ public class EditorActivity extends Activity {
     float manualScore = 0f;
     CheckBox splitCbRef;
     boolean splitGuard = false;
+    boolean hadStorage = true;   // storage permission state recorded at onCreate; a change while away triggers a full reload
     // pipeline clipboard (chain + params + overlay lists), paste is NOT persisted until save
     static String clipChain = null;
     static LinkedHashMap<String, Float> clipParams = new LinkedHashMap<String, Float>();
@@ -430,6 +431,7 @@ public class EditorActivity extends Activity {
         super.onCreate(b);
         L.init(this);   // resolve saved/system language before any UI is built
         MainActivity.firstRunFlow(this);   // EditorActivity IS the launcher: permission + first data install
+        hadStorage = MainActivity.storageGranted(this);   // remember the permission state we loaded the data under
         startForegroundService(new android.content.Intent(this, HostService.class));   // engine init entry (Editor may be the launch activity)
         SpyWatcher.sync(getApplicationContext());   // resume spy watching if the flag survived
         ScrollView scroll = new ScrollView(this);
@@ -1893,6 +1895,12 @@ public class EditorActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        boolean now = MainActivity.storageGranted(this);
+        if (now != hadStorage) {           // permission toggled while we were away: reload data by rebuilding the page
+            hadStorage = now;
+            recreate();
+            return;
+        }
         MainActivity.firstRunFlow(this);   // re-check after returning from the permission screen
         refreshSpyBtn();                   // storage may have been granted/revoked while away: re-render
     }
