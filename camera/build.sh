@@ -53,6 +53,7 @@ echo "[4/7] aapt package + dex + native lib"
 ( cd out/dex   && "$BT/aapt" add ../unaligned.apk classes.dex )
 ( cd out/apklib && "$BT/aapt" add ../unaligned.apk lib/armeabi/libof6k.so )
 ( "$BT/aapt" add out/unaligned.apk assets/DSEG14.ttf )
+( "$BT/aapt" add out/unaligned.apk assets/licenses.txt )
 echo "[5/7] zipalign"
 "$BT/zipalign" -f 4 out/unaligned.apk out/aligned.apk
 

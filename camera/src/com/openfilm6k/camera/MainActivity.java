@@ -358,6 +358,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         volatile boolean ghostWait = false;         // dim the view while the 1st exposure's ghost is being prepared
         volatile boolean info = false;              // debug info screen (long-press DOWN)
         volatile String infoText = "";
+        volatile boolean licOpen = false;           // full-screen open-source licences page
+        volatile String[] licLines = null;          // body lines, wrapped ONCE on open (repaint just slices)
+        volatile int licTop = 0;                     // index of the first visible body line
+        volatile int licPage = 1;                    // visible body line count (wrapping-independent clamp)
         volatile float ghostAlpha = 1.0f;   // global multiplier on top of the per-pixel luminance alpha
         volatile float ghostScale = 0.75f;  // the live preview occupies ~75% of the screen width (side bars)
         volatile int ghostFinder = 0;       // 0 = LCD (9:8), 1 = EVF (3:2)
@@ -478,6 +482,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 float tw = measureMixed(mp, t);
                 drawMixed(cv, mp, t, (w - tw) / 2f, y0 + (i - start) * lh);
             }
+            // bottom hint: the hidden ↑→↓↓↓ unlock for the licences page (plain system font, HUD colour)
+            android.graphics.Paint hh = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            hh.setTypeface(android.graphics.Typeface.DEFAULT);
+            float hsz = h / 26f;
+            hh.setTextSize(hsz);
+            hh.setColor(0xFFBFBFBF);
+            hh.setShadowLayer(3, 1, 2, 0xFF000000);
+            String hint = "\u2191\u2192\u2193\u2193\u2193: View Licences";
+            cv.drawText(hint, (w - hh.measureText(hint)) / 2f, h - hsz * 0.5f, hh);
             cv.restoreToCount(msave);
         }
 
@@ -520,6 +533,64 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             drawColumn(cv, mp, menuLines, menuSel, menuAnchor, 0f, mid, y0, lh, maxLines);
             drawColumn(cv, mp, menuLines2, menuSel2, menuAnchor2, mid, (float) w, y0, lh, maxLines);
             cv.restoreToCount(msave);
+        }
+
+        /** wrap the licences text to the screen width ONCE, using a plain system font (not DSEG). */
+        void setLicenses(String raw) {
+            int w = uiW(), h = getHeight();
+            if (w <= 0 || h <= 0) { w = 640; h = 480; }        // not laid out yet: fall back to the frame-buffer size
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setTypeface(android.graphics.Typeface.DEFAULT);
+            float sz = h / 30f;
+            p.setTextSize(sz);
+            float avail = w - sz * 1.4f;                        // body margin (0.7 char each side)
+            java.util.ArrayList<String> out = new java.util.ArrayList<String>();
+            for (String para : raw.split("\n", -1)) {
+                if (para.length() == 0) { out.add(""); continue; }
+                int i = 0;
+                while (i < para.length()) {
+                    int fit = p.breakText(para, i, para.length(), true, avail, null);
+                    if (fit <= 0) fit = 1;
+                    if (i + fit < para.length()) {              // back off to the last space so words aren't split
+                        int sp = para.lastIndexOf(' ', i + fit - 1);
+                        if (sp > i) fit = sp - i + 1;
+                    }
+                    out.add(para.substring(i, i + fit));
+                    i += fit;
+                }
+            }
+            licLines = out.toArray(new String[out.size()]);
+            float lh = sz * 1.3f;
+            licPage = Math.max(1, (int) ((h - sz * 1.9f - sz * 1.4f) / lh));   // reserve a footer row
+            licTop = 0;
+            licOpen = true;
+            postInvalidate();
+        }
+
+        /** full-screen licences page: black, plain system font, draws only the visible slice + a footer */
+        void drawLicenses(android.graphics.Canvas cv) {
+            int w = uiW(), h = getHeight();
+            cv.drawColor(0xFF000000);
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setTypeface(android.graphics.Typeface.DEFAULT);
+            p.setColor(0xFFE6E6E6);
+            float sz = h / 30f;
+            p.setTextSize(sz);
+            float lh = sz * 1.3f;
+            android.graphics.Paint tp = new android.graphics.Paint(p);
+            tp.setColor(0xFFFF9500);
+            tp.setFakeBoldText(true);
+            cv.drawText("Licences", sz * 0.7f, sz * 1.35f, tp);
+            if (licLines != null) {
+                int page = Math.max(1, licPage);
+                int start = Math.max(0, Math.min(licTop, Math.max(0, licLines.length - page)));
+                float y0 = sz * 1.9f;
+                for (int i = 0; i < page && start + i < licLines.length; i++)
+                    cv.drawText(licLines[start + i], sz * 0.7f, y0 + i * lh, p);
+                android.graphics.Paint fp = new android.graphics.Paint(p);
+                fp.setColor(0xFF9E9E9E);
+                cv.drawText("\u2191/\u2193 scroll   Fn close", sz * 0.7f, h - sz * 0.5f, fp);
+            }
         }
 
         void drawBoot(android.graphics.Canvas cv) {
@@ -581,6 +652,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         public void onDraw(android.graphics.Canvas cv) {
             if (verUntil == 0L) verUntil = System.currentTimeMillis() + 1000;   // 1s window starts at first real draw
             if (!netReady) { drawBoot(cv); return; }
+            if (licOpen) { drawLicenses(cv); return; }   // full-screen licences page overrides everything
             if (menuLines != null) {
                 android.graphics.Paint mask = new android.graphics.Paint();
                 mask.setColor(0xB0000000);
@@ -867,6 +939,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final int OV_FULL = 0, OV_MINI = 1, OV_NONE = 2;
     private int overlayState = OV_FULL;
     private int browser = -1;                 // >=0: film browser cursor
+    private int licSeq = 0;                   // progress through the hidden ↑→↓↓↓ licences unlock (film list)
     private java.util.ArrayList<File> graded = new java.util.ArrayList<File>();
     private int viewing = -1;                 // >=0: viewer cursor into graded
     private int settings = -1;                // >=0: settings cursor
@@ -2354,7 +2427,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 fnHeld = false;
                 handler.removeCallbacks(fnLongAction);
                 if (fnFired) { c1Held = false; renderHud(); }
-                else if (browser < 0 && settings < 0 && stampMenu < 0) { browser = sel; renderOverlay(); }
+                else if (fbox != null && fbox.licOpen) closeLicensesPage();   // NEX Fn closes the licences page on release
+                else if (browser < 0 && settings < 0 && stampMenu < 0) { browser = sel; licSeq = 0; renderOverlay(); }
             }
         if (e.getAction() == KeyEvent.ACTION_UP && (scan == K_C2 || (K_C4 != 0 && scan == K_C4))) {
             c2Held = false;
@@ -2390,6 +2464,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (e.getAction() != KeyEvent.ACTION_DOWN || e.getRepeatCount() > 0) return true;
         int dir = (scan == K_WHEEL_CW || scan == K_DIAL_CW) ? 1
                 : (scan == K_WHEEL_CCW || scan == K_DIAL_CCW) ? -1 : 0;
+        if (fbox != null && fbox.licOpen) return licensesKey(scan, dir);
         if (viewing >= 0) return viewerKey(scan, dir);
         if (stampMenu >= 0) return stampMenuKey(scan, dir);
         if (browser >= 0) return browserKey(scan, dir);
@@ -2425,7 +2500,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 handler.postDelayed(fnLongAction, 600);
                 return true;
             }
-            if (stampMenu < 0) { browser = sel; renderOverlay(); } return true;
+            if (stampMenu < 0) { browser = sel; licSeq = 0; renderOverlay(); } return true;
         }
         if (scan == K_C1) {                                        // in focus-adjust: exit it and jump to film row
             c1Held = true;
@@ -2713,7 +2788,26 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         return Math.max(3, (int) ((fbox.getHeight() * 0.62f) / (ch * 1.35f)));
     }
 
+    /** expected scan code at position i of the hidden unlock sequence ↑ → ↓ ↓ ↓ */
+    private int licExpected(int i) {
+        if (i == 0) return K_UP;
+        if (i == 1) return K_RIGHT;
+        return K_DOWN;   // positions 2, 3, 4
+    }
+
+    /** the ↑→↓↓↓ unlock typed on the film list: only keys 2..5 are swallowed; key 1 (↑) still navigates */
+    private boolean licSeqStep(int scan) {
+        if (licSeq > 0 && scan == licExpected(licSeq)) {
+            licSeq++;
+            if (licSeq >= 5) { openLicenses(); return true; }
+            return true;                       // in-sequence: consume, don't move the list
+        }
+        licSeq = (scan == K_UP) ? 1 : 0;        // mismatch: restart (or arm) on the first key
+        return false;
+    }
+
     private boolean browserKey(int scan, int dir) {
+        if (licSeqStep(scan)) return true;                           // hidden ↑→↓↓↓ unlock -> licences page
         if (scan == K_LEFT || scan == K_RIGHT) {                     // page up / page down through the list
             int pg = menuPage() * (scan == K_RIGHT ? 1 : -1);
             browser = Math.max(0, Math.min(totalSel() - 1, browser + pg));
@@ -2759,6 +2853,50 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (scan == K_FN || scan == K_MENU) { browser = -1; renderOverlay(); return true; }
         if (scan == K_S2) { browser = -1; renderOverlay(); shoot(); return true; }
         return true;
+    }
+
+    /** leave the film list and show the full-screen licences page (reads assets/licenses.txt once) */
+    private void openLicenses() {
+        browser = -1;                              // Fn will return to the shooting HUD, not the list
+        licSeq = 0;
+        if (fbox == null) return;
+        fbox.clearMenu();
+        try {
+            java.io.InputStream in = getAssets().open("licenses.txt");
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[8192]; int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            in.close();
+            fbox.setLicenses(new String(bo.toByteArray(), "UTF-8"));
+        } catch (Throwable t) {
+            Logger.log("licenses load fail: " + t);
+            fbox.setLicenses("Licences asset missing: " + t);
+        }
+        overlay.setVisibility(View.INVISIBLE);
+        Logger.log("licences page opened");
+    }
+
+    /** hide the licences page and restore the shooting HUD */
+    private void closeLicensesPage() {
+        if (fbox == null) return;
+        fbox.licOpen = false; fbox.licLines = null; fbox.licTop = 0;
+        fbox.postInvalidate();
+        renderOverlay(); renderHud();
+        Logger.log("licences page closed");
+    }
+
+    /** licences page keys: ↑/↓ scroll, Fn returns to the shooting HUD; everything else is consumed */
+    private boolean licensesKey(int scan, int dir) {
+        if (fbox == null) return true;
+        if (scan == K_FN || scan == K_MENU) {
+            if (scan == K_FN && km.fnC1) return true;   // NEX Fn acts on release (see the ACTION_UP handler)
+            closeLicensesPage();
+            return true;
+        }
+        int max = (fbox.licLines != null) ? Math.max(0, fbox.licLines.length - Math.max(1, fbox.licPage)) : 0;
+        if (scan == K_UP) { if (fbox.licTop > 0) { fbox.licTop--; fbox.postInvalidate(); } return true; }
+        if (scan == K_DOWN) { if (fbox.licTop < max) { fbox.licTop++; fbox.postInvalidate(); } return true; }
+        return true;   // consume everything else (no accidental capture / menu changes)
     }
 
     private boolean settingsKey(int scan, int dir) {
