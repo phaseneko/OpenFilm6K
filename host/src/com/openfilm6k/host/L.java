@@ -150,6 +150,7 @@ public class L {
         {"spyFilm", "胶卷", "膠卷", "Film", "フィルム", "필름", "Film", "Pellicule", "Película", "Плёнка", "Filme"},
         {"spyStamp", "水印与边框", "水印與邊框", "Watermark & frame", "ウォーターマークと枠", "워터마크 및 프레임", "Wasserzeichen & Rahmen", "Filigrane et cadre", "Marca y marco", "Водяной знак и рамка", "Marca e moldura"},
         {"spyDirs", "监视目录", "監視目錄", "Watched folders", "監視フォルダ", "감시 폴더", "Überwachte Ordner", "Dossiers surveillés", "Carpetas vigiladas", "Отслеживаемые папки", "Pastas vigiadas"},
+        {"spyAddCamPath", "一键添加相机路径", "一鍵新增相機路徑", "Add camera folder", "カメラフォルダを追加", "카메라 폴더 추가", "Kameraordner hinzufügen", "Ajouter le dossier caméra", "Añadir carpeta de cámara", "Добавить папку камеры", "Adicionar pasta da câmera"},
         {"stB1", "白卡边框", "白卡邊框", "White border", "白カード枠", "화이트 카드 프레임", "Weißkarten-Rahmen", "Cadre carte blanche", "Marco tarjeta blanca", "Белая рамка", "Moldura cartão branco"},
         {"stB2", "胶片边框", "膠片邊框", "Film edge", "フィルムエッジ", "필름 에지", "Filmkante", "Bordure de film", "Borde de película", "Край плёнки", "Borda de filme"},
         {"stCollage", "四宫格拼贴", "四宮格拼貼", "4-shot collage", "4コマコラージュ", "4컷 콜라주", "4er-Collage", "Collage 4 vues", "Collage de 4", "Коллаж 4 кадра", "Colagem 4 fotos"},

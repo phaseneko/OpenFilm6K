@@ -2279,6 +2279,12 @@ public class EditorActivity extends Activity {
             try { startActivityForResult(it, 1003); } catch (Throwable e) { MainActivity.say("picker " + e); }
         }});
         dgi.addView(addDir, new android.widget.LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(34)));
+        final TextView camAdd = new TextView(this);
+        camAdd.setText(L.s("spyAddCamPath"));
+        camAdd.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        camAdd.setTextColor(0xFF0000EE);
+        camAdd.getPaint().setUnderlineText(true);
+        camAdd.setClickable(true);
         spyDirSpin = new Spinner(this);
         final Runnable[] refill = new Runnable[1];
         refill[0] = new Runnable() { public void run() {
@@ -2292,6 +2298,7 @@ public class EditorActivity extends Activity {
             };
             da.spin = spyDirSpin;
             spyDirSpin.setAdapter(da);
+            camAdd.setVisibility(hasCamDir(spyDirs(pf)) ? View.GONE : View.VISIBLE);   // stays in sync on add/remove/rebuild
         }};
         refill[0].run();
         android.widget.FrameLayout dspW = Ux.wrapSpinner(this, spyDirSpin);
@@ -2313,12 +2320,27 @@ public class EditorActivity extends Activity {
         android.widget.FrameLayout.LayoutParams dgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
         dgil.topMargin = Ux.dp(10);
         dg.addView(dgi, dgil);
+        camAdd.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            java.util.ArrayList<String> l2 = spyDirs(pf);
+            if (!hasCamDir(l2)) {
+                l2.add(CAM_DIR);
+                pf.edit().putString("spy_dirs", android.text.TextUtils.join("\n", l2)).commit();
+            }
+            refill[0].run();
+            camAdd.setVisibility(View.GONE);
+        }});
+        android.widget.FrameLayout.LayoutParams calp = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        calp.leftMargin = Ux.dp(12);
+        calp.topMargin = Ux.dp(72);   // directly under the [+|spinner|✕] row (10dp inset + 60dp row + 2dp gap)
+        dg.addView(camAdd, calp);
         android.widget.FrameLayout.LayoutParams dgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         dgll.leftMargin = Ux.dp(10);
         dgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         dg.addView(dgl2, dgll);
         addGroup(body, dg);
         Ux.themeTree(body);   // theme BEFORE mounting the title bar: themeTree would recolor the white title text
+        camAdd.setTextColor(0xFF0000EE);   // themeTree repaints TextViews with TXT; keep the link blue + underlined
+        camAdd.getPaint().setUnderlineText(true);
         box.addView(body, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout tb = new LinearLayout(this);
         tb.setOrientation(LinearLayout.HORIZONTAL);
@@ -2369,6 +2391,23 @@ public class EditorActivity extends Activity {
         String s = pf.getString("spy_dirs", "");
         if (s.length() > 0) for (String p : s.split("\n")) { p = p.trim(); if (p.length() > 0) out.add(p); }
         return out;
+    }
+
+    /** Android system camera default output folder — offered as a one-tap entry in the spy dialog */
+    static final String CAM_DIR = "/sdcard/DCIM/Camera";
+
+    /** true when the watched list already covers the camera folder (also matches /storage/emulated/0/DCIM/Camera) */
+    static boolean hasCamDir(java.util.List<String> dirs) {
+        for (String p : dirs) {
+            if (p == null) continue;
+            String q = p.trim();
+            if (q.endsWith("/")) q = q.substring(0, q.length() - 1);
+            if (q.equals(CAM_DIR)) return true;
+            try {
+                if (new java.io.File(q).getCanonicalPath().equals(new java.io.File(CAM_DIR).getCanonicalPath())) return true;
+            } catch (Throwable ignored) {}
+        }
+        return false;
     }
 
     @Override protected void onActivityResult(int req, int res, android.content.Intent data) {
