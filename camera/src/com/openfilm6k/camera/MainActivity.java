@@ -2708,10 +2708,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             }
             return true;                       // consume: no capture / menu changes
         }
-        if (initMode) {   // empty-card setup: only the shutter is accepted (menus/pages are mutually exclusive)
+        if (initMode) {   // empty-card setup: shutter + half-press focus only (menus/pages stay mutually exclusive)
             if (scan == K_S2) {
                 if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) shootInit();
                 else if (e.getAction() == KeyEvent.ACTION_UP) shutterUp();   // normal release: cancelTakePicture before preview restart
+            } else if (scan == K_S1) {
+                if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                    afCancel = false; if (fbox != null) fbox.set(1); rig.focus();
+                } else if (e.getAction() == KeyEvent.ACTION_UP) {
+                    if (!shooting) { rig.cancelFocus(); afCancel = true; if (fbox != null) fbox.set(0); }
+                }
             }
             return true;
         }
