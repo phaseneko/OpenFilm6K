@@ -2590,14 +2590,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             handler.removeCallbacks(c2LongAction);
             if (!c2Fired) {                                             // short press: toggle the two-column menu (left stamp / right post)
                 stampMenu = (stampMenu >= 0) ? -1 : stampCursor();
+                Logger.log("B: menu " + (stampMenu >= 0 ? "open" : "close"));
                 renderOverlay(); renderHud();
             }
+            c2Fired = false;                                            // never leave a stale long-press flag (B would go dead)
         }
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_AEL) {
                 aelHeld = false;
                 handler.removeCallbacks(aelLongAction);
                 if (!aelFired) {
                     spotMode = !spotMode;
+                    Logger.log("A: spotMode=" + (spotMode ? "on" : "off"));
                     if (spotMode) {                                     // entering adjust: refresh from system
                         try {
                             int[] spt2 = CameraRig.readSystemSpot(rig.camera().getParameters());
@@ -2743,7 +2746,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         spotX = 0; spotY = 0;
         rig.setSpot(spotX, spotY);
         if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.postInvalidate(); }
-        Logger.log("AEL long: spot recentered");
+        Logger.log("A: long (spot recentered)");
     } };
     private boolean fnHeld = false, fnFired = false;
     private final Runnable fnLongAction = new Runnable() { public void run() {   // NEX:长按 Fn = 按住 C1 (进入切换收藏卷选择模式)
@@ -2764,7 +2767,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (fbox != null) { fbox.ghostFinder = ghostFinder; fbox.postInvalidate(); }
         savePrefs();
         setStatus("VIEW " + (ghostFinder == 0 ? "LCD" : "EVF"));
-        Logger.log("ui mode " + ghostFinder + " (" + (ghostFinder == 0 ? "LCD" : "EVF") + ", C2/B long)");
+        Logger.log("B: long (VIEW " + (ghostFinder == 0 ? "LCD" : "EVF") + ")");
     } };
 
     private int spotX = 0, spotY = 0;
