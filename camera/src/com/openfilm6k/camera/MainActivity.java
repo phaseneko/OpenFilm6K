@@ -3237,7 +3237,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         fbox.clearMenu();
         fbox.licOpen = false; fbox.licLines = null; fbox.licTop = 0;
         overlay.setVisibility(View.INVISIBLE);
-        fbox.setLog(Logger.recent(400));                  // snapshot + wrap once; defaults to the newest page
+        String[] lines = Logger.recent(400);              // snapshot + wrap once; defaults to the newest page
+        if (lines.length == 0) lines = Logger.fileTail(400);   // after a crash+restart: show the on-disk tail
+        fbox.setLog(lines);
         Logger.log("log page opened");
     }
 

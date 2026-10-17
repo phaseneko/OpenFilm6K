@@ -45,6 +45,48 @@ public final class Logger {
         }
     }
 
+    /** the last lines of the on-disk log — the memory ring is empty after a crash+restart */
+    public static String[] fileTail(int max) {
+        if (max <= 0) return new String[0];
+        java.io.RandomAccessFile raf = null;
+        try {
+            File f = file();
+            if (!f.isFile() || f.length() <= 0) return new String[0];
+            raf = new java.io.RandomAccessFile(f, "r");
+            long len = raf.length();
+            int cap = 64 * 1024;                       // enough for ~400 short lines; grows if needed
+            byte[] b;
+            long start;
+            while (true) {
+                int n = (int) Math.min(cap, len);
+                start = len - n;
+                b = new byte[n];
+                raf.seek(start);
+                raf.readFully(b);
+                int nl = 0;
+                for (int i = 0; i < n; i++) if (b[i] == '\n') nl++;
+                if (start == 0 || nl > max) break;
+                cap *= 2;
+            }
+            String s = new String(b, "UTF-8");
+            if (start > 0) {                           // drop the partial first line (and any split multibyte char)
+                int i = s.indexOf('\n');
+                s = i >= 0 ? s.substring(i + 1) : "";
+            }
+            String[] all = s.split("\n");
+            int end = all.length;
+            while (end > 0 && all[end - 1].trim().length() == 0) end--;   // the writer always ends with a newline
+            int from = Math.max(0, end - max);
+            String[] out = new String[end - from];
+            System.arraycopy(all, from, out, 0, out.length);
+            return out;
+        } catch (Throwable t) {
+            return new String[0];
+        } finally {
+            try { if (raf != null) raf.close(); } catch (Throwable ig) {}
+        }
+    }
+
     private static File file() {
         // FuFsys only accepts new files inside firmware-created dirs — try in order
         for (String sub : new String[]{"OpenFilm6K", "DCIM/OpenFilm6K", "DCIM"}) {
