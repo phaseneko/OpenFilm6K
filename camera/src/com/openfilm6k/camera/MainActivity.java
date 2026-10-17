@@ -232,7 +232,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private static final int SHUTTER_RESTART_MS = 1000;
     private static final int[] SCALES = {2, 4, 1, 0};   // 6MP, 2MP, 24MP, phone
-    private static final int RET_PORT = 8790;
     private String phoneIp() {
         try {
             android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getSystemService("wifi");
@@ -240,95 +239,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (g == 0) return "192.168.43.1";
             return (g & 255) + "." + ((g >> 8) & 255) + "." + ((g >> 16) & 255) + "." + ((g >> 24) & 255);
         } catch (Throwable t) { return "192.168.43.1"; }
-    }
-    private void startReturnServer() {
-        new Thread(new Runnable() { public void run() {
-            try {
-                java.net.ServerSocket ss = new java.net.ServerSocket(RET_PORT);
-                Logger.log("return-server on :" + RET_PORT);
-                while (true) {
-                    final java.net.Socket cs = ss.accept();
-                    try {
-                        java.io.InputStream in2 = cs.getInputStream();
-                        String head = ""; int nl = 0, c;
-                        while (nl < 4 && (c = in2.read()) >= 0) { head += (char) c; nl = (c == 10 || c == 13) ? nl + 1 : 0; }
-                        java.util.Map<String,String> q2 = new java.util.HashMap<String,String>();
-                        int qi = head.indexOf('?');
-                        if (qi >= 0) { String u = head.substring(qi + 1); u = u.substring(0, Math.max(0, u.indexOf(' ')));
-                            for (String kv : u.split("&")) { int e2 = kv.indexOf('='); if (e2 > 0) q2.put(kv.substring(0, e2), kv.substring(e2 + 1)); } }
-                        int len = 0;
-                        if (head.contains("/msg")) {
-                            String mn = head.contains("name=") ? head.substring(head.indexOf("name=") + 5) : "?";
-                            mn = mn.replaceAll("[^A-Za-z0-9_.]", "");
-                            final String m = mn;
-                            setStatus(m + " graded");
-                            Logger.log("msg: " + m);
-                            cs.getOutputStream().write(("HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok").getBytes());
-                            cs.close(); continue;
-                        }
-                        for (String l : head.split("\r\n")) if (l.toLowerCase().startsWith("content-length:")) len = Integer.parseInt(l.substring(15).trim());
-                        String nm = q2.containsKey("name") ? q2.get("name") : ("R" + System.currentTimeMillis() + ".JPG");
-                        if (nm.indexOf('/') >= 0 || nm.indexOf('\\') >= 0) nm = "BAD.JPG";
-                        File out = new File(GRADED, nm);
-                        File tmp = new File(GRADED, "r.tmp");
-                        java.io.FileOutputStream fo = new java.io.FileOutputStream(tmp);
-                        byte[] b2 = new byte[65536]; int left = len;
-                        while (left > 0) { int r2 = in2.read(b2, 0, (int) Math.min(b2.length, left)); if (r2 < 0) break; fo.write(b2, 0, r2); left -= r2; }
-                        fo.close();
-                        boolean ok = tmp.length() == len && len > 0;
-                        if (ok) { tmp.renameTo(out); } else { tmp.delete(); }
-                        // replacement paused: the A6000 gallery does not index external files, replacing would only lose both the original and the graded copy
-                        // re-enable only after fully understanding AvindexStore INSERT
-                        String orig = null; // DISABLED 2026-09-25
-                        orig = q2.get("orig");
-                        if (false && orig != null && orig.indexOf('/') < 0) {
-                            try {
-                                File root = (LUTS != null && LUTS.getParentFile() != null && LUTS.getParentFile().getParentFile() != null)
-                                        ? LUTS.getParentFile().getParentFile() : SD;
-                                File dcDir = new File(root, "DCIM/101MSDCF");
-                                if (!dcDir.isDirectory()) dcDir = new File("/mnt/sdcard/DCIM/101MSDCF");
-                                File dc = new File(dcDir, orig);
-                                File dt = new File(dcDir, "RTMP" + (System.currentTimeMillis() % 10000) + ".TMP");
-                                Logger.log("replace target " + dc.getAbsolutePath() + " exists=" + dc.exists());
-                                java.io.FileInputStream di = new java.io.FileInputStream(out);
-                                java.io.FileOutputStream dfo = new java.io.FileOutputStream(dt);
-                                byte[] db = new byte[65536]; int dr2;
-                                while ((dr2 = di.read(db)) > 0) dfo.write(db, 0, dr2);
-                                di.close(); dfo.close();
-                                // find the next free DSC number
-                                File nn = dc;
-                                while (nn.exists()) {
-                                    long num = 0;
-                                    String b3 = nn.getName();
-                                    for (int ci = 0; ci < 8; ci++) {
-                                        char cc = b3.charAt(ci);
-                                        num = (cc >= '0' && cc <= '9') ? num * 10 + (cc - '0') : num;
-                                    }
-                                    nn = new File(dcDir, String.format("DSC%05d.JPG", num + 1));
-                                }
-                                java.io.FileInputStream d1 = new java.io.FileInputStream(dt);
-                                java.io.FileOutputStream d2 = new java.io.FileOutputStream(nn);
-                                while ((dr2 = d1.read(db)) > 0) d2.write(db, 0, dr2);
-                                d1.close(); d2.close();
-                                dt.delete();
-                                if (nn.length() == out.length()) {
-                                    dc.delete();
-                                    // never touch avindex: forced update/broadcast corrupts the camera DB (2026-09-25 incident)
-                                    Logger.log("graded->" + nn.getName() + " orig deleted " + orig);
-                                } else {
-                                    nn.delete();
-                                    Logger.log("graded write mismatch, kept orig");
-                                }
-                            } catch (Throwable t2) { Logger.log("replace EX " + t2); }
-                        }
-                        cs.getOutputStream().write(("HTTP/1.0 " + (ok ? 200 : 500) + " OK\r\nContent-Length: 2\r\n\r\nok").getBytes());
-                        Logger.log("returned " + nm + " " + len + "B ok=" + ok);
-                        if (ok) setStatus("graded in: " + nm);
-                        cs.close();
-                    } catch (Throwable t) { try { cs.close(); } catch (Throwable ig) {} }
-                }
-            } catch (Throwable t) { Logger.log("return-server dead " + t); }
-        }}, "return").start();
     }
     private String packOf(int i) {
         if (i >= 0 && i < names.size()) return names.get(i);
@@ -1251,7 +1161,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
-    /** the firmware needs DCIM to exist before the first still lands — never create it ourselves */
+    /** the firmware creates DCIM itself; the app must never create directories on the card */
     private void ensureCardDirs() {
         File d = new File(SD, "DCIM");
         if (d.isDirectory()) Logger.log("card: DCIM exists");
@@ -1373,7 +1283,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         renderOverlay();
         handler.postDelayed(readoutTick, 700);
         self = this;
-        startReturnServer();
         gradeThread = new Thread(gradeLoop, "grade");
         gradeThread.setDaemon(true);
         gradeThread.start();
@@ -1413,7 +1322,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         films.clear();                                   // local .flm list; film names come from the host at runtime
         names.clear();
         Logger.log("films " + names.size() + " in " + LUTS + (films.isEmpty() ? " | " + diag : ""));
-        if (GRADED != null) GRADED.mkdirs();
+        if (GRADED != null && !GRADED.isDirectory()) Logger.log("graded dir missing: " + GRADED);
     }
 
     private static void walk(File d, int depth, ArrayList<File> found) {
@@ -1609,7 +1518,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /** setup shot: fixed CC-200 + date watermark, no frame/post; its EXIF resolves and caches the keymap */
     private void shootInit() {
-        if (!new File(SD, "DCIM").isDirectory()) Logger.log("init: DCIM missing, shooting anyway (test)");
+        if (!new File(SD, "DCIM").isDirectory()) Logger.log("init: DCIM missing, the firmware will create it");
         if (initPending) return;                      // one setup shot in flight
         if (!rig.ready()) return;
         int fi = -1;
