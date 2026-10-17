@@ -3237,8 +3237,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         fbox.clearMenu();
         fbox.licOpen = false; fbox.licLines = null; fbox.licTop = 0;
         overlay.setVisibility(View.INVISIBLE);
-        String[] lines = Logger.recent(400);              // snapshot + wrap once; defaults to the newest page
-        if (lines.length == 0) lines = Logger.fileTail(400);   // after a crash+restart: show the on-disk tail
+        String[] lines = Logger.fileTail(400);            // on-disk: previous session's crash stack + this boot
+        if (lines.length == 0) {
+            lines = Logger.recent(400);                   // unreadable/missing file: use what the ring has
+        } else {
+            String[] ring = Logger.recent(400);           // append lines the writer has not flushed yet
+            String last = lines[lines.length - 1];
+            String cut = last.length() >= 12 ? last.substring(0, 12) : last;
+            java.util.ArrayList<String> merged = new java.util.ArrayList<String>();
+            for (String l : lines) merged.add(l);
+            for (String l : ring) {
+                String ts = l.length() >= 12 ? l.substring(0, 12) : l;
+                if (ts.compareTo(cut) > 0) merged.add(l);  // "HH:mm:ss.SSS " prefix, simple compare
+            }
+            lines = merged.toArray(new String[merged.size()]);
+        }
         fbox.setLog(lines);
         Logger.log("log page opened");
     }
