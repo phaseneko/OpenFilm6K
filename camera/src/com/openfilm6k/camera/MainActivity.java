@@ -1251,14 +1251,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
-    /** the firmware needs DCIM to exist before the first still lands (creating it mid-write kills the body) */
+    /** the firmware needs DCIM to exist before the first still lands — never create it ourselves */
     private void ensureCardDirs() {
         File d = new File(SD, "DCIM");
-        if (d.isDirectory()) { Logger.log("card: DCIM exists"); return; }
-        boolean ok = false;
-        try { ok = d.mkdirs(); } catch (Throwable t) { ok = false; }
-        if (ok || d.isDirectory()) Logger.log("card: DCIM created");
-        else Logger.log("card: DCIM MISSING (mkdirs failed)");
+        if (d.isDirectory()) Logger.log("card: DCIM exists");
+        else Logger.log("card: DCIM MISSING (will let the firmware create it)");
     }
 
     @Override
@@ -1612,11 +1609,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /** setup shot: fixed CC-200 + date watermark, no frame/post; its EXIF resolves and caches the keymap */
     private void shootInit() {
-        if (!new File(SD, "DCIM").isDirectory()) {     // no DCIM: the firmware first-still write can kill the body
-            Logger.log("init: DCIM missing, setup shot refused");
-            if (fbox != null) { fbox.initHint = "FORMAT CARD IN CAMERA"; fbox.postInvalidate(); }
-            return;
-        }
+        if (!new File(SD, "DCIM").isDirectory()) Logger.log("init: DCIM missing, shooting anyway (test)");
         if (initPending) return;                      // one setup shot in flight
         if (!rig.ready()) return;
         int fi = -1;
