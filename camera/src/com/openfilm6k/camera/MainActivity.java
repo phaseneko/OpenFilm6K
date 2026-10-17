@@ -266,12 +266,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (i >= 0 && i < names.size()) return names.get(i);
         return names.isEmpty() ? "-" : names.get(0);   // film list pulled from the host at runtime
     }
-    /** pull the film list from the OpenFilm6K host (:8800/films) — called after each successful connection */
-    private void pullFilmList() {
+    /** pull the film list from the OpenFilm6K host (:8800/films) — true only when the whole round trip parsed */
+    private boolean pullFilmList() {
         try {
             java.net.HttpURLConnection c = (java.net.HttpURLConnection)
                 new java.net.URL("http://" + phoneIp() + ":8800/films?stampmode=" + stampMode).openConnection();
-            c.setConnectTimeout(1000); c.setReadTimeout(2500);
+            c.setConnectTimeout(2000); c.setReadTimeout(8000);   // host is single-threaded and may be busy rendering
             java.io.InputStream in = c.getInputStream();
             java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
             byte[] b = new byte[8192]; int n;
@@ -294,7 +294,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             } else if (!got.isEmpty()) {
                 Logger.log("films pulled, unchanged (" + got.size() + ")");
             }
-        } catch (Throwable t) { Logger.log("films pull fail: " + t); }
+            return true;
+        } catch (Throwable t) { Logger.log("films pull fail: " + t); return false; }
     }
 
     private static final String[] SCALE_NAMES = {"6MP", "2MP", "24MP", "Phone"};
@@ -2295,25 +2296,33 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (fbox != null) fbox.netReady = false;
         Logger.log("wifi: connect flow start");
         final android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getSystemService("wifi");
+        boolean hostUp = false;
         try {
             if (wm != null && wifiUsable(wm) && hostPingOk(wm)) {
-                netReady = true;
-                if (fbox != null) { fbox.netReady = true; fbox.postInvalidate(); }
-                Logger.log("wifi: already up (ping ok)");
-                pullFilmList();
-                if (pendingHolder != null) startCamera(pendingHolder);
-                return;
+                hostUp = true;
+                if (pullFilmList()) {                      // only enter shooting once the film list is really here
+                    netReady = true;
+                    if (fbox != null) { fbox.netReady = true; fbox.postInvalidate(); }
+                    Logger.log("wifi: already up (ping ok)");
+                    triggerWatch();
+                    if (pendingHolder != null) startCamera(pendingHolder);
+                    renderOverlay();
+                    return;
+                }
+                Logger.log("films pull failed, retrying (t+" + (System.currentTimeMillis() - bootStart) + "ms)");
             }
         } catch (Throwable t) { Logger.log("wifi check: " + t); }
-        try {                                            // unproven/stale state -> hard radio reset forces a genuine connect
-            if (wm != null && wm.isWifiEnabled()) {
-                Logger.log("wifi: stale/unproven state, bouncing radio");
-                wm.setWifiEnabled(false);
-                Thread.sleep(1000);
-            }
-        } catch (Throwable t) { Logger.log("wifi bounce EX " + t); }
-        Logger.log("wifi: enabling");
-        try { wm.setWifiEnabled(true); } catch (Throwable t) { Logger.log("wifi enable EX " + t); }
+        if (!hostUp) {
+            try {                                            // unproven/stale state -> hard radio reset forces a genuine connect
+                if (wm != null && wm.isWifiEnabled()) {
+                    Logger.log("wifi: stale/unproven state, bouncing radio");
+                    wm.setWifiEnabled(false);
+                    Thread.sleep(1000);
+                }
+            } catch (Throwable t) { Logger.log("wifi bounce EX " + t); }
+            Logger.log("wifi: enabling");
+            try { wm.setWifiEnabled(true); } catch (Throwable t) { Logger.log("wifi enable EX " + t); }
+        }
         handler.post(new Runnable() { public void run() {
             if (netReady) return;
             int pct = (int) ((System.currentTimeMillis() - bootStart) / 150);
@@ -2344,18 +2353,25 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 lastNetLog = now;
                 Logger.log("wifi poll: " + ns + " (t+" + (now - bootStart) + "ms)");
             }
-            if (up) pct = 100;
-            else if (pct < 85) pct = 85;             // associated but host not answering yet
+            if (pct < 85) pct = 85;                  // 100 only once the films are actually in
             if (fbox != null) { fbox.wifiPct = pct; fbox.postInvalidate(); }
             if (up) {
-                netReady = true;
-                if (fbox != null) fbox.netReady = true;
-                Logger.log("wifi: connected + host reachable (t+" + (now - bootStart) + "ms)");
-                pullFilmList();
-                triggerWatch();                        // retry anything that failed while offline
-                if (pendingHolder != null) startCamera(pendingHolder);
-                renderOverlay();
-                if (fbox != null) fbox.postInvalidate();
+                if (pullFilmList()) {                  // the shooting screen opens only when the list is really here
+                    if (fbox != null) fbox.wifiPct = 100;
+                    Logger.log("wifi: connected + host reachable (t+" + (now - bootStart) + "ms)");
+                    netReady = true;
+                    if (fbox != null) fbox.netReady = true;
+                    triggerWatch();                    // retry anything that failed while offline
+                    if (pendingHolder != null) startCamera(pendingHolder);
+                    renderOverlay();
+                    if (fbox != null) fbox.postInvalidate();
+                    return;
+                }
+                if (now - lastFilmsFailLog >= 2000) {  // throttled: the pull itself already takes seconds
+                    lastFilmsFailLog = now;
+                    Logger.log("films pull failed, retrying (t+" + (now - bootStart) + "ms)");
+                }
+                handler.postDelayed(this, 1500);       // host is up: retry /films at a sane rate, not every 120 ms
                 return;
             }
             handler.postDelayed(this, 120);            // keep connecting until it actually works (no timeout)
@@ -2364,6 +2380,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private volatile String lastNetState = "";
     private volatile long lastNetLog = 0;
+    private volatile long lastFilmsFailLog = 0;
 
     private static int wifiIp(android.net.wifi.WifiManager wm) {
         try {
