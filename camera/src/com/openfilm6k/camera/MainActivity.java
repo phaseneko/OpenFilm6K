@@ -82,12 +82,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             522, 523, 526, 525, 0, 0,                             // wheel(滚轮->高亮值) dial(转盘->EV, 方向反) front(无)
             new int[]{}, 2, true);                                // NEX 左对齐 LCD; NEX fnC1
     static final java.util.HashMap<String, KeyMap> KEYMAPS = new java.util.HashMap<String, KeyMap>();
-    static {   // whitelist by EXIF Model
-        KEYMAPS.put("ILCE-6000", KM_A6000);
-        // every Android/PMCA α7-series body shares one key layout
+    static {   // whitelist by model (EXIF Model / cached km_model), keys normalized like the lookup
+        KEYMAPS.put(normModel("ILCE-6000"), KM_A6000);
+        // first/second-gen α7 bodies share one key layout (explicit list only)
         for (String m : new String[]{"ILCE-7", "ILCE-7R", "ILCE-7S", "ILCE-7M2", "ILCE-7RM2", "ILCE-7SM2"})
-            KEYMAPS.put(m, KM_A7M2);
-        KEYMAPS.put("NEX-5R", KM_NEX5R);
+            KEYMAPS.put(normModel(m), KM_A7M2);
+        KEYMAPS.put(normModel("NEX-5R"), KM_NEX5R);
     }
     static KeyMap km = KM_A6000;                                     // active map (A6000 until applyKeymap)
 
@@ -101,7 +101,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static int K_FRONT_CW = 0, K_FRONT_CCW = 0;       // 前转盘 -> film select (0 = none)
     private static int[] K_WHEEL_EXTRA = {522, 523};
     private static boolean inArr(int[] a, int v) { for (int x : a) if (x == v) return true; return false; }
-    private static String kmModel = "(no photo)";   // resolved EXIF model
+    private static String kmModel = "(no photo)";   // resolved model (cached km_model or EXIF), for the info screen
     private volatile boolean infoMode = false;     // debug info screen shown
     private volatile boolean downHeld = false;
     private final Runnable downLongAction = new Runnable() { public void run() { if (downHeld) showInfo(); } };
@@ -133,8 +133,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         Logger.log("info screen shown");
     }
 
-    /** read the EXIF Model of the newest DCIM photo — the camera writes its real model there */
+    /** cached model (prefs km_model) -> newest photo EXIF -> "" (caller falls back to A6000).
+     *  Build.MODEL is "ScalarA" on these bodies, so it is deliberately not used. */
     private String resolveModel() {
+        try {
+            String cached = normModel(getPreferences(MODE_PRIVATE).getString(PK_KM, ""));
+            if (cached.length() > 0) return cached;
+        } catch (Throwable t) { Logger.log("keymap prefs EX: " + t); }
         try {
             java.io.File f = newestPhoto();
             if (f != null) {
@@ -146,12 +151,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         return "";
     }
 
-    /** pick the key map from the EXIF model of a shot; unlisted / no photo -> A6000 fallback */
+    /** model-string normalisation: trim, collapse internal whitespace, uppercase */
+    private static String normModel(String s) {
+        if (s == null) return "";
+        return s.trim().replaceAll("\\s+", " ").toUpperCase(java.util.Locale.US);
+    }
+
+    /** pick the key map: cached km_model -> newest photo EXIF -> A6000 fallback */
     private void applyKeymap() {
-        String model = resolveModel();
-        KeyMap m = model.isEmpty() ? null : KEYMAPS.get(model);
-        if (m == null) { m = KM_A6000; kmModel = model.isEmpty() ? "(no photo) -> A6000" : model + " -> A6000 fallback"; }
+        String model = normModel(resolveModel());
+        KeyMap m = model.length() > 0 ? KEYMAPS.get(model) : null;
+        boolean fallback = (m == null);
+        if (fallback) { m = KM_A6000; kmModel = (model.length() > 0 ? model : "(none)") + " -> A6000 fallback"; }
         else kmModel = model;
+        String mapName = fallback ? "A6000 fallback" : (m == KM_A7M2) ? "A7M2" : (m == KM_NEX5R) ? "NEX-5R" : "A6000";
         km = m;
         K_UP = m.up; K_DOWN = m.down; K_LEFT = m.left; K_RIGHT = m.right; K_ENTER = m.enter;
         K_MENU = m.menu; K_AEL = m.ael; K_C1 = m.c1; K_C2 = m.c2; K_C3 = m.c3; K_C4 = m.c4; K_FN = m.fn;
@@ -159,7 +172,61 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         K_WHEEL_CW = m.wheelCw; K_WHEEL_CCW = m.wheelCcw; K_DIAL_CW = m.dialCw; K_DIAL_CCW = m.dialCcw;
         K_FRONT_CW = m.frontCw; K_FRONT_CCW = m.frontCcw;
         K_WHEEL_EXTRA = m.wheelExtra;
-        Logger.log("keymap: model=" + (model.isEmpty() ? "(none)" : model) + " -> " + kmModel);
+        Logger.log("keymap: model=" + (model.length() > 0 ? model : "(none)") + " -> " + mapName);
+    }
+
+    private void saveModel(String m) {
+        try { getPreferences(MODE_PRIVATE).edit().putString(PK_KM, m).commit(); }
+        catch (Throwable t) { Logger.log("km_model save fail: " + t); }
+    }
+
+    /** after the host + film list are ready: an empty card with no cached model must take one setup shot */
+    private void maybeInitMode() {
+        boolean need;
+        try { need = normModel(getPreferences(MODE_PRIVATE).getString(PK_KM, "")).length() == 0 && newestPhoto() == null; }
+        catch (Throwable t) { need = false; }
+        if (need) {
+            if (!initMode) {
+                initMode = true; initPending = false; initTimedOut = false;
+                browser = -1; settings = -1; stampMenu = -1;   // mutually exclusive with menus / pages
+                if (fbox != null) { fbox.clearMenu(); fbox.init = true; fbox.initHint = ""; fbox.postInvalidate(); }
+                if (overlay != null) overlay.setVisibility(View.INVISIBLE);
+                Logger.log("init: empty card + no cached model -> setup shot required");
+            }
+        } else if (initMode) {
+            initMode = false; initPending = false; initTimedOut = false;
+            handler.removeCallbacks(initTimeout);
+            if (fbox != null) { fbox.init = false; fbox.initHint = ""; fbox.postInvalidate(); }
+            Logger.log("init: not needed (cached model or photos present)");
+        }
+    }
+
+    /** watcher: the setup shot's file is on the card — cache the body model and leave setup */
+    private void initShotLanded(java.io.File f) {
+        String m = "";
+        try {
+            android.media.ExifInterface ex = new android.media.ExifInterface(f.getAbsolutePath());
+            m = normModel(ex.getAttribute(android.media.ExifInterface.TAG_MODEL));
+        } catch (Throwable t) { Logger.log("init: EXIF read fail " + t); }
+        if (m.length() == 0) {
+            Logger.log("init: setup shot has no EXIF model");
+            handler.post(new Runnable() { public void run() {
+                initPending = false; initTimedOut = true;
+                if (fbox != null) { fbox.initHint = "NO MODEL IN EXIF"; fbox.postInvalidate(); }
+            }});
+            return;
+        }
+        final String mm = m;
+        saveModel(m);
+        handler.post(new Runnable() { public void run() {
+            initPending = false; initTimedOut = false; initMode = false;
+            handler.removeCallbacks(initTimeout);
+            if (fbox != null) { fbox.init = false; fbox.initHint = ""; }
+            applyKeymap();                              // now reads the cached model
+            renderOverlay(); renderHud();
+            if (fbox != null) fbox.postInvalidate();
+            Logger.log("init: model=" + mm + " cached in " + PK_KM + ", keymap applied");
+        }});
     }
 
     private static final int SHUTTER_RESTART_MS = 1000;
@@ -369,6 +436,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         volatile String[] logLines = null;          // snapshot, wrapped ONCE on open (repaint just slices)
         volatile int logTop = 0;                     // index of the first visible body line
         volatile int logPage = 1;                    // visible body line count
+        volatile boolean init = false;              // empty-card setup prompt (over the live preview)
+        volatile String initHint = "";
         volatile float ghostAlpha = 1.0f;   // global multiplier on top of the per-pixel luminance alpha
         volatile float ghostScale = 0.75f;  // the live preview occupies ~75% of the screen width (side bars)
         volatile int ghostFinder = 0;       // 0 = LCD (9:8), 1 = EVF (3:2)
@@ -691,6 +760,27 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             }
         }
 
+        /** empty-card setup prompt: HUD-style DSEG text centred over the live preview (never a black page) */
+        void drawInit(android.graphics.Canvas cv) {
+            int w = uiW(), h = getHeight();
+            float chh = h / 19f;
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            if (tf != null) p.setTypeface(tf);
+            p.setTextSize(chh);
+            p.setShadowLayer(3, 1, 2, 0xFF000000);
+            float y0 = h * 0.42f;
+            p.setColor(0xFFFF9500);                    // orange title, same as the version/build hint
+            String a = "SETUP";
+            drawMixed(cv, p, a, (w - measureMixed(p, a)) / 2f, y0);
+            p.setColor(0xFFFFFFFF);                    // white body line
+            String b = "PRESS SHUTTER TO INITIALISE";
+            drawMixed(cv, p, b, (w - measureMixed(p, b)) / 2f, y0 + chh * 1.6f);
+            if (initHint.length() > 0) {
+                p.setColor(0xFFFF5252);                // red hint (insert card / retry)
+                drawMixed(cv, p, initHint, (w - measureMixed(p, initHint)) / 2f, y0 + chh * 3.2f);
+            }
+        }
+
         void drawBoot(android.graphics.Canvas cv) {
             int w = uiW(), h = getHeight();
             cv.drawColor(0xFF000000);
@@ -752,6 +842,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (!netReady) { drawBoot(cv); return; }
             if (licOpen) { drawLicenses(cv); return; }   // full-screen licences page overrides everything
             if (logOpen) { drawLog(cv); return; }        // full-screen log viewer (long-press UP)
+            if (init) { drawInit(cv); return; }          // empty-card setup prompt (live preview stays visible)
             if (menuLines != null) {
                 android.graphics.Paint mask = new android.graphics.Paint();
                 mask.setColor(0xB0000000);
@@ -1050,8 +1141,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static class Job {
         final File src; final int filmIdx;
         final File src2; final int filmIdx2; final boolean pair;   // H/2: two-frame batch
-        Job(File s, int f) { this(s, f, null, -1, false); }
-        Job(File s, int f, File s2, int f2, boolean p) { src = s; filmIdx = f; src2 = s2; filmIdx2 = f2; pair = p; }
+        final boolean init;                                        // empty-card setup shot: fixed CC-200 + date, no frames/post
+        Job(File s, int f) { this(s, f, null, -1, false, false); }
+        Job(File s, int f, boolean init) { this(s, f, null, -1, false, init); }
+        Job(File s, int f, File s2, int f2, boolean p) { this(s, f, s2, f2, p, false); }
+        Job(File s, int f, File s2, int f2, boolean p, boolean init) { src = s; filmIdx = f; src2 = s2; filmIdx2 = f2; pair = p; this.init = init; }
     }
     private final LinkedList<Job> queue = new LinkedList<Job>();
     private int done = 0;
@@ -1066,7 +1160,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     /** one shutter press: the film AND the stamp mode as they were at that instant. The watcher must use
      *  THESE, never the live selection, otherwise a film/mode change before the file is picked up (or a
      *  foreign jpg landing in DCIM) misattributes the film and the H/2 pair. */
-    private static final class Shot { final int film, mode; final long at; Shot(int f, int m) { film = f; mode = m; at = System.currentTimeMillis(); } }
+    private static final class Shot { final int film, mode; final boolean init; final long at;
+        Shot(int f, int m) { this(f, m, false); }
+        Shot(int f, int m, boolean init) { film = f; mode = m; this.init = init; at = System.currentTimeMillis(); } }
     private final LinkedList<Shot> shots = new LinkedList<Shot>();
     private volatile boolean pairBlinkOn = true;
     private int pairOwner = -1;                      // the pair mode (8/9) the in-memory pair belongs to, -1 = none
@@ -1105,6 +1201,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private String wantFilm = "";                // persisted selected film (by NAME; index is unstable)
     private volatile boolean afCancel = false;   // S1 released mid-focus -> suppress the cancel callback's "focus ✗"
     private volatile boolean shooting = false;   // S2 held (capture in progress): don't cancel focus on S1 up
+
+    // ---- empty-card setup: one shot identifies the body (no photos on the card + no cached model) ----
+    private static final String PK_KM = "km_model";
+    private volatile boolean initMode = false;      // waiting for the setup shot
+    private volatile boolean initPending = false;   // setup shot taken, waiting for its file
+    private volatile boolean initTimedOut = false;  // 10s elapsed: show the insert-card hint
+    private final Runnable initTimeout = new Runnable() { public void run() {
+        if (!initMode || !initPending) return;
+        initPending = false;
+        initTimedOut = true;
+        Logger.log("init: setup shot did not land within 10s");
+        if (fbox != null) { fbox.initHint = "INSERT CARD OR PRESS SHUTTER"; fbox.postInvalidate(); }
+    }};
 
     // ---- lens-cap auto sleep: preview stays near-black -> cap on -> sleep after 10s ----
     private boolean capDim = false;                // screen dimmed by lens-cap sleep
@@ -1468,6 +1577,37 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         setStatus("capturing…");
     }
 
+    /** setup shot: fixed CC-200 + date watermark, no frame/post; its EXIF resolves and caches the keymap */
+    private void shootInit() {
+        if (initPending) return;                      // one setup shot in flight
+        if (!rig.ready()) return;
+        int fi = -1;
+        for (int i = 0; i < names.size(); i++) if ("CC-200".equalsIgnoreCase(names.get(i).trim())) { fi = i; break; }
+        if (fi < 0) { fi = resolveSel(sel); Logger.log("init: CC-200 not in the film list, using film#" + fi); }
+        captureStart = System.currentTimeMillis();
+        shooting = true;
+        synchronized (shots) { shots.add(new Shot(fi, 0, true)); }   // mode 0: never a pair mode
+        initPending = true; initTimedOut = false;
+        if (fbox != null) { fbox.initHint = "CAPTURING..."; fbox.postInvalidate(); }
+        handler.removeCallbacks(initTimeout);
+        handler.postDelayed(initTimeout, 10000);
+        rig.shoot();
+        setStatus("capturing…");
+        Logger.log("init: setup shot film#" + fi + " (" + (fi >= 0 && fi < names.size() ? names.get(fi) : "?") + ") stamp=date post=none");
+    }
+
+    /** setup-shot release: restart preview + start the watcher WITHOUT cancelling the capture (slow bodies) */
+    private void initShutterUp() {
+        shooting = false;
+        Logger.log("init: shutterUp");
+        handler.postDelayed(new Runnable() {
+            public void run() {
+                if (rig.ready()) rig.startPreview();
+                triggerWatch();
+            }
+        }, SHUTTER_RESTART_MS);
+    }
+
     private Shot takeShot() {
         synchronized (shots) {
             while (!shots.isEmpty()) {
@@ -1662,6 +1802,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                             }
                             int film = sh.film;
                             applyKeymap();                             // a fresh card: resolve the keymap from the first shot's EXIF now
+                            if (sh.init) initShotLanded(f);            // setup shot: cache the body model and leave init mode
                             if (sh.mode == 8 || sh.mode == 9) {
                                 if (pairStaged == 0) {                      // stage frame 1, wait for frame 2
                                     pair0File = f; pair0Film = film;
@@ -1680,7 +1821,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                                 }
                             } else {
                                 Logger.log("watcher: enqueue " + f.getName() + " " + size + "B film#" + film);
-                                enqueue(new Job(f, film));
+                                enqueue(new Job(f, film, sh.init));
                             }
                             pendPath = null; pendSize = -1;
                             watchUntil = System.currentTimeMillis() + 8000;   // keep alive for the burst
@@ -1841,27 +1982,33 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             final long flen = j.src.length();
             if (fbox != null) fbox.beginUpload();
             String stampTxt = "", stamp2Txt = "";
-            String exposure = shutterText() + " " + "F" + apertureText() + " ISO" + stampIso(j.src);
-            if (printInfo == 1) stampTxt = "@DATE";                     // D: date
-            else if (printInfo == 2) stampTxt = exposure;               // E: exposure
-            else if (printInfo == 3) { stampTxt = "@DATE"; stamp2Txt = exposure; }   // DE
-            else if (printInfo == 4) stampTxt = pack;                   // F: film name
-            else if (printInfo == 5) { stampTxt = pack; stamp2Txt = exposure; }       // FE
+            if (j.init) {
+                stampTxt = "@DATE";                                     // setup shot: fixed date watermark, no frame, no post
+            } else {
+                String exposure = shutterText() + " " + "F" + apertureText() + " ISO" + stampIso(j.src);
+                if (printInfo == 1) stampTxt = "@DATE";                     // D: date
+                else if (printInfo == 2) stampTxt = exposure;               // E: exposure
+                else if (printInfo == 3) { stampTxt = "@DATE"; stamp2Txt = exposure; }   // DE
+                else if (printInfo == 4) stampTxt = pack;                   // F: film name
+                else if (printInfo == 5) { stampTxt = pack; stamp2Txt = exposure; }       // FE
+            }
             String stampQ = stampTxt.length() > 0 ? "&stamp=" + java.net.URLEncoder.encode(stampTxt) : "";
             if (stamp2Txt.length() > 0) stampQ += "&stamp2=" + java.net.URLEncoder.encode(stamp2Txt);
-            // frame (independent of print info; H/2 are pair modes handled elsewhere)
-            if (stampMode == 4) stampQ += "&b=1";               // B1: selected film + white-card frame
-            else if (stampMode == 5) stampQ += "&b2=1";         // B2: film edge, sprockets + stock name (right after B1)
-            else if (stampMode == 10) stampQ += "&x=1";         // X: no text, 4-film collage
-            else if (stampMode == 11) stampQ += "&w=1";         // W: wide, crop to the wide 2.7:1 ratio (host-side)
-            else if (stampMode == 12) stampQ += "&wb1=1";       // WB1: wide white-card paper
-            else if (stampMode == 13) stampQ += "&wb2=1";       // WB2: wide film edge
-            else if (stampMode == 14) stampQ += "&wb3=1";       // WB3: wide sprocket (photo covers the strip)
-            // post-process categories (multi-select)
-            if (!postSel.isEmpty()) {
-                StringBuilder pb = new StringBuilder();
-                for (String c : postSel) { if (pb.length() > 0) pb.append(','); pb.append(c); }
-                stampQ += "&post=" + java.net.URLEncoder.encode(pb.toString());
+            if (!j.init) {                                          // setup shot ignores the user's frame/post config
+                // frame (independent of print info; H/2 are pair modes handled elsewhere)
+                if (stampMode == 4) stampQ += "&b=1";               // B1: selected film + white-card frame
+                else if (stampMode == 5) stampQ += "&b2=1";         // B2: film edge, sprockets + stock name (right after B1)
+                else if (stampMode == 10) stampQ += "&x=1";         // X: no text, 4-film collage
+                else if (stampMode == 11) stampQ += "&w=1";         // W: wide, crop to the wide 2.7:1 ratio (host-side)
+                else if (stampMode == 12) stampQ += "&wb1=1";       // WB1: wide white-card paper
+                else if (stampMode == 13) stampQ += "&wb2=1";       // WB2: wide film edge
+                else if (stampMode == 14) stampQ += "&wb3=1";       // WB3: wide sprocket (photo covers the strip)
+                // post-process categories (multi-select)
+                if (!postSel.isEmpty()) {
+                    StringBuilder pb = new StringBuilder();
+                    for (String c : postSel) { if (pb.length() > 0) pb.append(','); pb.append(c); }
+                    stampQ += "&post=" + java.net.URLEncoder.encode(pb.toString());
+                }
             }
             conn = (java.net.HttpURLConnection) new java.net.URL(
                 "http://" + phoneIp() + ":8800/ingest?film=" + java.net.URLEncoder.encode(pack, "UTF-8")
@@ -2301,6 +2448,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (wm != null && wifiUsable(wm) && hostPingOk(wm)) {
                 hostUp = true;
                 if (pullFilmList()) {                      // only enter shooting once the film list is really here
+                    maybeInitMode();                   // empty card + no cached model: gate on the setup shot
                     netReady = true;
                     if (fbox != null) { fbox.netReady = true; fbox.postInvalidate(); }
                     Logger.log("wifi: already up (ping ok)");
@@ -2359,6 +2507,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 if (pullFilmList()) {                  // the shooting screen opens only when the list is really here
                     if (fbox != null) fbox.wifiPct = 100;
                     Logger.log("wifi: connected + host reachable (t+" + (now - bootStart) + "ms)");
+                    maybeInitMode();                   // empty card + no cached model: gate on the setup shot
                     netReady = true;
                     if (fbox != null) fbox.netReady = true;
                     triggerWatch();                    // retry anything that failed while offline
@@ -2569,6 +2718,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 if (scan == K_FN && km.fnC1) closeLogPage();                // NEX: Fn closes the page on release
             }
             return true;                       // consume: no capture / menu changes
+        }
+        if (initMode) {   // empty-card setup: only the shutter is accepted (menus/pages are mutually exclusive)
+            if (scan == K_S2) {
+                if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) shootInit();
+                else if (e.getAction() == KeyEvent.ACTION_UP) initShutterUp();
+            }
+            return true;
         }
         if (infoMode) {   // debug info screen: a fresh key press returns (ignore the held DOWN's own auto-repeat)
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0 && !(scan == K_DOWN && downHeld)) {
