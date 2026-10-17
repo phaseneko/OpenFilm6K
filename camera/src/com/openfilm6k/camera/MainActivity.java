@@ -1232,6 +1232,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // ---------------------------------------------------------------- setup
 
+    /** one-time: can we append to the SD-card root LOG.TXT? (the logger falls back to privateDir if not) */
+    private void logRootCheck() {
+        File root = new File(android.os.Environment.getExternalStorageDirectory(), "LOG.TXT");
+        boolean ok = false;
+        try {
+            java.io.FileWriter w = new java.io.FileWriter(root, true);
+            try { w.append("log: root=" + root.getAbsolutePath() + " writable=true\n"); }
+            finally { w.close(); }
+            ok = true;
+        } catch (Throwable t) { ok = false; }
+        if (ok) {
+            try { android.util.Log.i("OF6K", "log: root=" + root.getAbsolutePath() + " writable=true"); } catch (Throwable ig) {}
+        } else {
+            Logger.log("log: root=" + root.getAbsolutePath() + " writable=false");
+        }
+    }
+
     /** the firmware needs DCIM to exist before the first still lands (creating it mid-write kills the body) */
     private void ensureCardDirs() {
         File d = new File(SD, "DCIM");
@@ -1245,6 +1262,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     public void onCreate(Bundle b) {
         super.onCreate(b);
+        Logger.setPrivateDir(getFilesDir());   // before the first log: private fallback if the SD root is not writable
+        logRootCheck();
         ensureCardDirs();   // create DCIM before any write/first-still path runs
         applyKeymap();   // resolve the per-model key bindings (A6000 fallback) before any key event
         // runtime permissions (targetSdk 24+): camera + storage must be granted dynamically

@@ -87,13 +87,34 @@ public final class Logger {
         }
     }
 
-    private static File file() {
-        // FuFsys only accepts new files inside firmware-created dirs — try in order
-        for (String sub : new String[]{"OpenFilm6K", "DCIM/OpenFilm6K", "DCIM"}) {
-            File d = new File(Environment.getExternalStorageDirectory(), sub);
-            if (d.isDirectory() || d.mkdirs()) return new File(d, "LOG.TXT");
+    private static File privateDir;                 // app-private fallback (getFilesDir), set once at startup
+    private static volatile File chosen;            // decided target after a failed root append
+
+    /** app-private fallback directory — call before the first log */
+    public static void setPrivateDir(File d) { privateDir = d; }
+
+    /** the log target: SD-card root LOG.TXT unless the writer already fell back to privateDir */
+    public static File file() {
+        File c = chosen;
+        if (c != null) return c;
+        return new File(Environment.getExternalStorageDirectory(), "LOG.TXT");
+    }
+
+    private static boolean under(File f, File dir) {
+        try {
+            String a = f.getCanonicalPath(), b = dir.getCanonicalPath();
+            return a.equals(b) || a.startsWith(b + File.separator);
+        } catch (Throwable t) {
+            return f.getAbsolutePath().startsWith(dir.getAbsolutePath());
         }
-        return new File(Environment.getExternalStorageDirectory(), "OpenFilm6K/LOG.TXT");
+    }
+
+    /** append one batch; never creates directories */
+    private static void writeBatch(File f, String text) throws java.io.IOException {
+        File p = f.getParentFile();
+        if (p == null || !p.isDirectory()) throw new java.io.IOException("no dir: " + p);
+        BufferedWriter w = new BufferedWriter(new FileWriter(f, true));
+        try { w.append(text); w.newLine(); } finally { w.close(); }
     }
 
     private static void start() {
@@ -110,12 +131,14 @@ public final class Logger {
                             while (!Q.isEmpty()) sb.append('\n').append(Q.poll());
                             File f = file();
                             try {
-                                f.getParentFile().mkdirs();
-                                BufferedWriter w = new BufferedWriter(new FileWriter(f, true));
-                                w.append(sb.toString());
-                                w.newLine();
-                                w.close();
-                            } catch (Throwable inner) { /* the next write attempt retries the chain */ }
+                                writeBatch(f, sb.toString());
+                            } catch (Throwable inner) {
+                                File pd = privateDir;
+                                if (pd != null && !under(f, pd)) {   // root not writable: switch once, retry the same batch
+                                    chosen = new File(pd, "LOG.TXT");
+                                    try { writeBatch(chosen, sb.toString()); } catch (Throwable inner2) { }
+                                }
+                            }
                         } finally { busy = false; }
                     } catch (Throwable t2) {}
                 }
