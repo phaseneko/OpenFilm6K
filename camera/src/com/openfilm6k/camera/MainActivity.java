@@ -2296,7 +2296,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         Logger.log("wifi: connect flow start");
         final android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getSystemService("wifi");
         try {
-            if (wm != null && wifiUsable(wm) && hostPingOk(wm)) { netReady = true; if (fbox != null) fbox.netReady = true; Logger.log("wifi: already up (ping ok)"); pullFilmList(); return; }
+            if (wm != null && wifiUsable(wm) && hostPingOk(wm)) {
+                netReady = true;
+                if (fbox != null) { fbox.netReady = true; fbox.postInvalidate(); }
+                Logger.log("wifi: already up (ping ok)");
+                pullFilmList();
+                if (pendingHolder != null) startCamera(pendingHolder);
+                return;
+            }
         } catch (Throwable t) { Logger.log("wifi check: " + t); }
         try {                                            // unproven/stale state -> hard radio reset forces a genuine connect
             if (wm != null && wm.isWifiEnabled()) {
