@@ -1761,6 +1761,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
      *  uploading new photos one at a time; stays idle the rest of the time so it never
      *  competes with focus/shutter. */
     private void triggerWatch() {
+        int nshots;
+        synchronized (shots) { nshots = shots.size(); }
+        Logger.log("watcher: start cutoff=" + cutoffTime + " shots=" + nshots + " sent=" + sentPaths.size());
         if (!failedPaths.isEmpty()) {           // a new shot re-arms failed uploads for retry
             sentPaths.removeAll(failedPaths);
             failedPaths.clear();
@@ -1774,9 +1777,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 try {
                     while (System.currentTimeMillis() < watchUntil) {
                         try { Thread.sleep(500); } catch (InterruptedException e) { return; }
+                        int prow = photosViaProvider(cutoffTime, 200).size();   // diagnostics: one line per scan
+                        File f = oldestUnsentPhoto();
+                        Logger.log("watcher: scan av=" + (avindex() != null ? "yes" : "no")
+                                + " rows=" + prow + " cut=" + cutoffTime + " hit=" + (f != null ? f.getName() : "null"));
                         if (grading) { watchUntil = System.currentTimeMillis() + 8000; continue; }   // keep window open while busy
                         synchronized (queue) { if (!queue.isEmpty()) { watchUntil = System.currentTimeMillis() + 8000; continue; } }
-                        File f = oldestUnsentPhoto();
                         if (f == null) { pendPath = null; pendSize = -1; continue; }
                         long size = f.length();
                         String p = f.getAbsolutePath();
@@ -1979,13 +1985,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private void queryPhotosInto(Object[] av, long minTime, int max, boolean desc,
                                  java.util.ArrayList<String> out) {
+        String dir = desc ? "DESC" : "ASC";
         android.database.Cursor c = getContentResolver().query(
                 (android.net.Uri) av[0], new String[]{(String) av[1]},
                 null, null, (String) av[2] + (desc ? " DESC" : " ASC"));
-        if (c == null) return;
+        if (c == null) {
+            Logger.log("avindex q " + dir + " count=-1 first=- (null cursor)");
+            return;
+        }
+        int count = -1;
+        String first = null;
         try {
+            try { count = c.getCount(); } catch (Throwable ig) {}
             while (out.size() < max && c.moveToNext()) {
                 String p = c.getString(0);
+                if (p != null && first == null) first = p;   // diagnostics: first non-null DATA row
                 if (p == null) continue;
                 String lp = p.toLowerCase();
                 if (!lp.endsWith(".jpg") && !lp.endsWith(".jpeg")) continue;
@@ -1995,6 +2009,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 out.add(p);
             }
         } finally {
+            Logger.log("avindex q " + dir + " count=" + count + " first=" + (first == null ? "-" : first));
             c.close();
         }
     }
