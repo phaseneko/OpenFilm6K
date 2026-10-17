@@ -1232,9 +1232,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // ---------------------------------------------------------------- setup
 
+    /** the firmware needs DCIM to exist before the first still lands (creating it mid-write kills the body) */
+    private void ensureCardDirs() {
+        File d = new File(SD, "DCIM");
+        if (d.isDirectory()) { Logger.log("card: DCIM exists"); return; }
+        boolean ok = false;
+        try { ok = d.mkdirs(); } catch (Throwable t) { ok = false; }
+        if (ok || d.isDirectory()) Logger.log("card: DCIM created");
+        else Logger.log("card: DCIM MISSING (mkdirs failed)");
+    }
+
     @Override
     public void onCreate(Bundle b) {
         super.onCreate(b);
+        ensureCardDirs();   // create DCIM before any write/first-still path runs
         applyKeymap();   // resolve the per-model key bindings (A6000 fallback) before any key event
         // runtime permissions (targetSdk 24+): camera + storage must be granted dynamically
         if (android.os.Build.VERSION.SDK_INT >= 23) {
@@ -1580,6 +1591,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /** setup shot: fixed CC-200 + date watermark, no frame/post; its EXIF resolves and caches the keymap */
     private void shootInit() {
+        if (!new File(SD, "DCIM").isDirectory()) {     // no DCIM: the firmware first-still write can kill the body
+            Logger.log("init: DCIM missing, setup shot refused");
+            if (fbox != null) { fbox.initHint = "FORMAT CARD IN CAMERA"; fbox.postInvalidate(); }
+            return;
+        }
         if (initPending) return;                      // one setup shot in flight
         if (!rig.ready()) return;
         int fi = -1;
@@ -1761,9 +1777,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
      *  uploading new photos one at a time; stays idle the rest of the time so it never
      *  competes with focus/shutter. */
     private void triggerWatch() {
-        int nshots;
-        synchronized (shots) { nshots = shots.size(); }
-        Logger.log("watcher: start cutoff=" + cutoffTime + " shots=" + nshots + " sent=" + sentPaths.size());
         if (!failedPaths.isEmpty()) {           // a new shot re-arms failed uploads for retry
             sentPaths.removeAll(failedPaths);
             failedPaths.clear();
@@ -1777,12 +1790,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 try {
                     while (System.currentTimeMillis() < watchUntil) {
                         try { Thread.sleep(500); } catch (InterruptedException e) { return; }
-                        int prow = photosViaProvider(cutoffTime, 200).size();   // diagnostics: one line per scan
-                        File f = oldestUnsentPhoto();
-                        Logger.log("watcher: scan av=" + (avindex() != null ? "yes" : "no")
-                                + " rows=" + prow + " cut=" + cutoffTime + " hit=" + (f != null ? f.getName() : "null"));
                         if (grading) { watchUntil = System.currentTimeMillis() + 8000; continue; }   // keep window open while busy
                         synchronized (queue) { if (!queue.isEmpty()) { watchUntil = System.currentTimeMillis() + 8000; continue; } }
+                        File f = oldestUnsentPhoto();
                         if (f == null) { pendPath = null; pendSize = -1; continue; }
                         long size = f.length();
                         String p = f.getAbsolutePath();
@@ -1836,18 +1846,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }, "media").start();
     }
 
-    /** oldest jpg newer than the pre-launch baseline, not yet enqueued — provider-first, never lists DCIM */
+    /** oldest jpg under DCIM newer than the last pre-launch photo and not yet enqueued */
     private File oldestUnsentPhoto() {
-        if (avindex() != null) {                           // normal path: the provider is the safe enumerator
-            java.util.ArrayList<String> ps = photosViaProvider(cutoffTime, 200);
-            for (String p : ps) {
-                if (sentPaths.contains(p)) continue;
-                java.io.File f = new java.io.File(p);
-                if (f.isFile() && f.lastModified() > cutoffTime) return f;
-            }
-            return null;
-        }
-        // provider class unavailable only: legacy scan (File.listFiles on DCIM during a write kills this firmware)
         File best = null;
         File[] dirs = new File(SD, "DCIM").listFiles();
         if (dirs == null) return null;
@@ -1866,14 +1866,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         return best;
     }
 
-    /** newest real photo — provider-first; the DCIM listing is only a fallback when the provider is absent */
-    private File newestPhoto() {
-        if (avindex() != null) {
-            String p = newestImageViaProvider(0);
-            if (p == null) return null;
-            java.io.File f = new java.io.File(p);
-            return f.isFile() ? f : null;
-        }
+    private static File newestPhoto() {
         File best = null;
         File[] dirs = new File(SD, "DCIM").listFiles();
         if (dirs == null) return null;
@@ -1958,59 +1951,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         } catch (Throwable t) {
             Logger.log("avindex query: " + t);
             return null;
-        }
-    }
-
-    /** media rows from the avindex provider, oldest first (minTime filters by real file mtime) */
-    private java.util.ArrayList<String> photosViaProvider(long minTime, int max) {
-        java.util.ArrayList<String> out = new java.util.ArrayList<String>();
-        Object[] av = avindex();
-        if (av == null || max <= 0) return out;
-        try {
-            queryPhotosInto(av, minTime, max, false, out);   // ASC: oldest first
-            if (!out.isEmpty()) return out;
-        } catch (Throwable t) {
-            Logger.log("avindex query ASC: " + t);
-        }
-        out.clear();
-        try {
-            queryPhotosInto(av, minTime, max, true, out);    // provider rejects ASC: query DESC and reverse
-            java.util.Collections.reverse(out);
-        } catch (Throwable t) {
-            Logger.log("avindex query DESC: " + t);
-            out.clear();
-        }
-        return out;
-    }
-
-    private void queryPhotosInto(Object[] av, long minTime, int max, boolean desc,
-                                 java.util.ArrayList<String> out) {
-        String dir = desc ? "DESC" : "ASC";
-        android.database.Cursor c = getContentResolver().query(
-                (android.net.Uri) av[0], new String[]{(String) av[1]},
-                null, null, (String) av[2] + (desc ? " DESC" : " ASC"));
-        if (c == null) {
-            Logger.log("avindex q " + dir + " count=-1 first=- (null cursor)");
-            return;
-        }
-        int count = -1;
-        String first = null;
-        try {
-            try { count = c.getCount(); } catch (Throwable ig) {}
-            while (out.size() < max && c.moveToNext()) {
-                String p = c.getString(0);
-                if (p != null && first == null) first = p;   // diagnostics: first non-null DATA row
-                if (p == null) continue;
-                String lp = p.toLowerCase();
-                if (!lp.endsWith(".jpg") && !lp.endsWith(".jpeg")) continue;
-                java.io.File f = new java.io.File(p);
-                if (!f.isFile()) continue;
-                if (f.lastModified() <= minTime) continue;
-                out.add(p);
-            }
-        } finally {
-            Logger.log("avindex q " + dir + " count=" + count + " first=" + (first == null ? "-" : first));
-            c.close();
         }
     }
 
