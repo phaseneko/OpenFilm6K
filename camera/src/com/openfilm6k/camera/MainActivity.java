@@ -224,6 +224,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (fbox != null) { fbox.init = false; fbox.initHint = ""; }
             applyKeymap();                              // now reads the cached model
             renderOverlay(); renderHud();
+            try { rig.startPreview(); } catch (Throwable t) { Logger.log("init: startPreview " + t); }
             if (fbox != null) fbox.postInvalidate();
             Logger.log("init: model=" + mm + " cached in " + PK_KM + ", keymap applied");
         }});
@@ -1213,6 +1214,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         initTimedOut = true;
         Logger.log("init: setup shot did not land within 10s");
         if (fbox != null) { fbox.initHint = "INSERT CARD OR PRESS SHUTTER"; fbox.postInvalidate(); }
+        try { rig.startPreview(); } catch (Throwable t) {}   // never leave the preview frozen
     }};
 
     // ---- lens-cap auto sleep: preview stays near-black -> cap on -> sleep after 10s ----
@@ -1758,6 +1760,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             return;
         }
         Logger.log("shutterUp");
+        if (initPending) {   // setup shot: the body is still creating 100MSDCF/writing — stock camera cancels nothing
+            Logger.log("init: release without cancelTakePicture (body is writing the first still)");
+            triggerWatch();
+            return;
+        }
         rig.cancelShot();
         handler.postDelayed(new Runnable() {
             public void run() {
