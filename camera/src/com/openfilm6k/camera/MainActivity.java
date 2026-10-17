@@ -105,6 +105,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private volatile boolean infoMode = false;     // debug info screen shown
     private volatile boolean downHeld = false;
     private final Runnable downLongAction = new Runnable() { public void run() { if (downHeld) showInfo(); } };
+    private volatile boolean upHeld = false;       // long-press UP arm (main screen only)
+    private final Runnable upLongAction = new Runnable() { public void run() { if (upHeld) openLogPage(); } };
 
     /** long-press DOWN (5s): black debug screen with build/model/keymap info; any key returns */
     private void showInfo() {
@@ -362,6 +364,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         volatile String[] licLines = null;          // body lines, wrapped ONCE on open (repaint just slices)
         volatile int licTop = 0;                     // index of the first visible body line
         volatile int licPage = 1;                    // visible body line count (wrapping-independent clamp)
+        volatile boolean logOpen = false;           // full-screen log viewer (long-press UP)
+        volatile String[] logLines = null;          // snapshot, wrapped ONCE on open (repaint just slices)
+        volatile int logTop = 0;                     // index of the first visible body line
+        volatile int logPage = 1;                    // visible body line count
         volatile float ghostAlpha = 1.0f;   // global multiplier on top of the per-pixel luminance alpha
         volatile float ghostScale = 0.75f;  // the live preview occupies ~75% of the screen width (side bars)
         volatile int ghostFinder = 0;       // 0 = LCD (9:8), 1 = EVF (3:2)
@@ -575,6 +581,26 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             cv.restoreToCount(msave);
         }
 
+        /** wrap text to width ONCE, back off to the last space so words aren't split */
+        java.util.ArrayList<String> wrapLines(String raw, android.graphics.Paint p, float avail) {
+            java.util.ArrayList<String> out = new java.util.ArrayList<String>();
+            for (String para : raw.split("\n", -1)) {
+                if (para.length() == 0) { out.add(""); continue; }
+                int i = 0;
+                while (i < para.length()) {
+                    int fit = p.breakText(para, i, para.length(), true, avail, null);
+                    if (fit <= 0) fit = 1;
+                    if (i + fit < para.length()) {
+                        int sp = para.lastIndexOf(' ', i + fit - 1);
+                        if (sp > i) fit = sp - i + 1;
+                    }
+                    out.add(para.substring(i, i + fit));
+                    i += fit;
+                }
+            }
+            return out;
+        }
+
         /** wrap the licences text to the screen width ONCE, using a plain system font (not DSEG). */
         void setLicenses(String raw) {
             int w = uiW(), h = getHeight();
@@ -584,21 +610,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             float sz = h / 30f;
             p.setTextSize(sz);
             float avail = w - sz * 1.4f;                        // body margin (0.7 char each side)
-            java.util.ArrayList<String> out = new java.util.ArrayList<String>();
-            for (String para : raw.split("\n", -1)) {
-                if (para.length() == 0) { out.add(""); continue; }
-                int i = 0;
-                while (i < para.length()) {
-                    int fit = p.breakText(para, i, para.length(), true, avail, null);
-                    if (fit <= 0) fit = 1;
-                    if (i + fit < para.length()) {              // back off to the last space so words aren't split
-                        int sp = para.lastIndexOf(' ', i + fit - 1);
-                        if (sp > i) fit = sp - i + 1;
-                    }
-                    out.add(para.substring(i, i + fit));
-                    i += fit;
-                }
-            }
+            java.util.ArrayList<String> out = wrapLines(raw, p, avail);
             licLines = out.toArray(new String[out.size()]);
             float lh = sz * 1.3f;
             licPage = Math.max(1, (int) ((h - sz * 1.9f - sz * 1.4f) / lh));   // reserve a footer row
@@ -627,6 +639,51 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 float y0 = sz * 1.9f;
                 for (int i = 0; i < page && start + i < licLines.length; i++)
                     cv.drawText(licLines[start + i], sz * 0.7f, y0 + i * lh, p);
+                android.graphics.Paint fp = new android.graphics.Paint(p);
+                fp.setColor(0xFF9E9E9E);
+                cv.drawText("\u2191/\u2193 scroll   Fn close", sz * 0.7f, h - sz * 0.5f, fp);
+            }
+        }
+
+        /** snapshot the in-memory log, wrap it ONCE and open at the newest line */
+        void setLog(String[] lines) {
+            int w = uiW(), h = getHeight();
+            if (w <= 0 || h <= 0) { w = 640; h = 480; }
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setTypeface(android.graphics.Typeface.DEFAULT);
+            float sz = h / 34f;                                 // a little smaller than licences: more lines per page
+            p.setTextSize(sz);
+            StringBuilder sb = new StringBuilder();
+            if (lines != null) for (int i = 0; i < lines.length; i++) { if (i > 0) sb.append('\n'); sb.append(lines[i]); }
+            java.util.ArrayList<String> out = wrapLines(sb.toString(), p, w - sz * 1.4f);
+            logLines = out.toArray(new String[out.size()]);
+            float lh = sz * 1.2f;
+            logPage = Math.max(1, (int) ((h - sz * 1.9f - sz * 1.4f) / lh));
+            logTop = Math.max(0, logLines.length - logPage);    // default: newest at the bottom
+            logOpen = true;
+            postInvalidate();
+        }
+
+        /** full-screen log viewer: black, plain system font, visible slice + footer */
+        void drawLog(android.graphics.Canvas cv) {
+            int w = uiW(), h = getHeight();
+            cv.drawColor(0xFF000000);
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setTypeface(android.graphics.Typeface.DEFAULT);
+            p.setColor(0xFFE6E6E6);
+            float sz = h / 34f;
+            p.setTextSize(sz);
+            float lh = sz * 1.2f;
+            android.graphics.Paint tp = new android.graphics.Paint(p);
+            tp.setColor(0xFFFF9500);
+            tp.setFakeBoldText(true);
+            cv.drawText("Log", sz * 0.7f, sz * 1.35f, tp);
+            if (logLines != null) {
+                int page = Math.max(1, logPage);
+                int start = Math.max(0, Math.min(logTop, Math.max(0, logLines.length - page)));
+                float y0 = sz * 1.9f;
+                for (int i = 0; i < page && start + i < logLines.length; i++)
+                    cv.drawText(logLines[start + i], sz * 0.7f, y0 + i * lh, p);
                 android.graphics.Paint fp = new android.graphics.Paint(p);
                 fp.setColor(0xFF9E9E9E);
                 cv.drawText("\u2191/\u2193 scroll   Fn close", sz * 0.7f, h - sz * 0.5f, fp);
@@ -693,6 +750,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (verUntil == 0L) verUntil = System.currentTimeMillis() + 1000;   // 1s window starts at first real draw
             if (!netReady) { drawBoot(cv); return; }
             if (licOpen) { drawLicenses(cv); return; }   // full-screen licences page overrides everything
+            if (logOpen) { drawLog(cv); return; }        // full-screen log viewer (long-press UP)
             if (menuLines != null) {
                 android.graphics.Paint mask = new android.graphics.Paint();
                 mask.setColor(0xB0000000);
@@ -2235,6 +2293,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         netReady = false;                          // entering a connect flow invalidates previous state (stale netReady froze the poll)
         bootStart = System.currentTimeMillis();
         if (fbox != null) fbox.netReady = false;
+        Logger.log("wifi: connect flow start");
         final android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getSystemService("wifi");
         try {
             if (wm != null && wifiUsable(wm) && hostPingOk(wm)) { netReady = true; if (fbox != null) fbox.netReady = true; Logger.log("wifi: already up (ping ok)"); pullFilmList(); return; }
@@ -2251,22 +2310,40 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         handler.post(new Runnable() { public void run() {
             if (netReady) return;
             int pct = (int) ((System.currentTimeMillis() - bootStart) / 150);
-            if (pct > 90) pct = 90;
+            if (pct > 85) pct = 85;                  // never fabricate progress the link has not earned
             try {
                 int st = wm.getWifiState();
                 if (st == android.net.wifi.WifiManager.WIFI_STATE_ENABLING) pct = Math.max(pct, 40);
                 else if (st == android.net.wifi.WifiManager.WIFI_STATE_ENABLED) pct = Math.max(pct, 70);
             } catch (Throwable t) {}
-            boolean up = false;
-            try { up = wifiUsable(wm); } catch (Throwable t) {}
-            if (up) up = hostReachable(wm);          // real end-to-end check: kills stale-IP false positives
+            boolean wifi = false, host = false;
+            try { wifi = wifiUsable(wm); } catch (Throwable t) {}
+            if (wifi) host = hostReachable(wm);       // real end-to-end check: kills stale-IP false positives
+            boolean up = wifi && host;
+            long now = System.currentTimeMillis();
+            String ns;
+            if (!wifi) {
+                String sup = "?";
+                try {
+                    android.net.wifi.WifiInfo wi = wm.getConnectionInfo();
+                    if (wi != null && wi.getSupplicantState() != null) sup = wi.getSupplicantState().toString();
+                } catch (Throwable t) {}
+                ns = "link=down sup=" + sup;
+            } else {
+                ns = "ip=" + ipStr(wifiIp(wm)) + " host=" + (host ? "ok" : "down");
+            }
+            if (!ns.equals(lastNetState) || now - lastNetLog >= 2000) {   // throttle: no line every 120 ms
+                lastNetState = ns;
+                lastNetLog = now;
+                Logger.log("wifi poll: " + ns + " (t+" + (now - bootStart) + "ms)");
+            }
             if (up) pct = 100;
             else if (pct < 85) pct = 85;             // associated but host not answering yet
             if (fbox != null) { fbox.wifiPct = pct; fbox.postInvalidate(); }
             if (up) {
                 netReady = true;
                 if (fbox != null) fbox.netReady = true;
-                Logger.log("wifi: connected + host reachable");
+                Logger.log("wifi: connected + host reachable (t+" + (now - bootStart) + "ms)");
                 pullFilmList();
                 triggerWatch();                        // retry anything that failed while offline
                 if (pendingHolder != null) startCamera(pendingHolder);
@@ -2274,15 +2351,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 if (fbox != null) fbox.postInvalidate();
                 return;
             }
-            if (System.currentTimeMillis() - bootStart > 15000) {   // degraded entry, uploads retry later
-                netReady = true;
-                if (fbox != null) fbox.netReady = true;
-                Logger.log("wifi: 15s timeout, entering degraded (no host)");
-                if (pendingHolder != null) startCamera(pendingHolder);
-                return;
-            }
-            handler.postDelayed(this, 120);
+            handler.postDelayed(this, 120);            // keep connecting until it actually works (no timeout)
         }});
+    }
+
+    private volatile String lastNetState = "";
+    private volatile long lastNetLog = 0;
+
+    private static int wifiIp(android.net.wifi.WifiManager wm) {
+        try {
+            android.net.wifi.WifiInfo wi = wm.getConnectionInfo();
+            return wi != null ? wi.getIpAddress() : 0;
+        } catch (Throwable t) { return 0; }
+    }
+
+    private static String ipStr(int ip) {
+        return (ip & 0xff) + "." + ((ip >> 8) & 0xff) + "." + ((ip >> 16) & 0xff) + "." + ((ip >> 24) & 0xff);
     }
 
     private boolean wifiUsable(android.net.wifi.WifiManager wm) {
@@ -2447,9 +2531,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 licensesKey(scan, 0);          // ↑/↓ scroll, Fn/MENU close (non-NEX)
             } else if (e.getAction() == KeyEvent.ACTION_UP) {
                 downHeld = false; handler.removeCallbacks(downLongAction);   // never leave the 5s debug arm live
+                upHeld = false; handler.removeCallbacks(upLongAction);
                 if (scan == K_FN && km.fnC1) closeLicensesPage();           // NEX: Fn closes the page on release
             }
             return true;                       // consume: no S1/S2/C2/C4/AEL, no 5s-down arm, no menu toggle
+        }
+        if (fbox != null && fbox.logOpen) {   // log viewer owns the keyboard for BOTH actions
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                logKey(scan, 0);               // ↑/↓ scroll, Fn/MENU close (non-NEX)
+            } else if (e.getAction() == KeyEvent.ACTION_UP) {
+                downHeld = false; handler.removeCallbacks(downLongAction);
+                upHeld = false; handler.removeCallbacks(upLongAction);
+                if (scan == K_FN && km.fnC1) closeLogPage();                // NEX: Fn closes the page on release
+            }
+            return true;                       // consume: no capture / menu changes
         }
         if (infoMode) {   // debug info screen: a fresh key press returns (ignore the held DOWN's own auto-repeat)
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0 && !(scan == K_DOWN && downHeld)) {
@@ -2464,6 +2559,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (scan == K_DOWN && e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {   // hold DOWN 5s -> debug info screen
             downHeld = true; handler.removeCallbacks(downLongAction); handler.postDelayed(downLongAction, 5000);
         }
+        if (scan == K_UP && e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0
+                && viewing < 0 && browser < 0 && settings < 0 && stampMenu < 0) {   // hold UP 5s on the main screen -> log viewer
+            upHeld = true; handler.removeCallbacks(upLongAction); handler.postDelayed(upLongAction, 5000);
+        }
         if (e.getAction() == KeyEvent.ACTION_UP || e.getAction() == KeyEvent.ACTION_MULTIPLE) {
                 if (e.getAction() == KeyEvent.ACTION_UP && scan == K_S2 && browser < 0 && settings < 0 && stampMenu < 0) shutterUp();
                 if (e.getAction() == KeyEvent.ACTION_UP && scan == K_S1 && !shooting) {   // S1 released mid-focus: cancel it (firmware behaviour)
@@ -2471,6 +2570,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     if (fbox != null) fbox.set(0);
                 }
                 if (e.getAction() == KeyEvent.ACTION_UP && scan == K_DOWN) { downHeld = false; handler.removeCallbacks(downLongAction); }
+                if (e.getAction() == KeyEvent.ACTION_UP && scan == K_UP) { upHeld = false; handler.removeCallbacks(upLongAction); }
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_C1) { c1Held = false; renderHud(); }
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_FN && km.fnC1) {   // NEX Fn: short = open menu, long = release C1-hold
                 fnHeld = false;
@@ -2907,6 +3007,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         browser = -1;                              // Fn will return to the shooting HUD, not the list
         licSeq = 0;
         handler.removeCallbacks(downLongAction); downHeld = false;   // the sequence's final ↓ armed the 5s debug timer: cancel it
+        handler.removeCallbacks(upLongAction); upHeld = false;
         if (fbox == null) return;
         fbox.clearMenu();
         try {
@@ -2945,6 +3046,45 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         int max = (fbox.licLines != null) ? Math.max(0, fbox.licLines.length - Math.max(1, fbox.licPage)) : 0;
         if (scan == K_UP) { if (fbox.licTop > 0) { fbox.licTop--; fbox.postInvalidate(); } return true; }
         if (scan == K_DOWN) { if (fbox.licTop < max) { fbox.licTop++; fbox.postInvalidate(); } return true; }
+        return true;   // consume everything else (no accidental capture / menu changes)
+    }
+
+    /** long-press UP: show the in-memory log at the newest line; mutually exclusive with menus / licences */
+    private void openLogPage() {
+        upHeld = false;
+        handler.removeCallbacks(upLongAction);
+        handler.removeCallbacks(downLongAction); downHeld = false;
+        browser = -1; settings = -1; stampMenu = -1;      // clear every other overlay state
+        if (fbox == null) return;
+        fbox.clearMenu();
+        fbox.licOpen = false; fbox.licLines = null; fbox.licTop = 0;
+        overlay.setVisibility(View.INVISIBLE);
+        fbox.setLog(Logger.recent(400));                  // snapshot + wrap once; defaults to the newest page
+        Logger.log("log page opened");
+    }
+
+    /** hide the log viewer and restore the shooting HUD */
+    private void closeLogPage() {
+        if (fbox == null) return;
+        upHeld = false; handler.removeCallbacks(upLongAction);
+        handler.removeCallbacks(downLongAction); downHeld = false;
+        fbox.logOpen = false; fbox.logLines = null; fbox.logTop = 0;
+        fbox.postInvalidate();
+        renderOverlay(); renderHud();
+        Logger.log("log page closed");
+    }
+
+    /** log viewer keys: ↑/↓ scroll, Fn returns to the shooting HUD; everything else is consumed */
+    private boolean logKey(int scan, int dir) {
+        if (fbox == null) return true;
+        if (scan == K_FN || scan == K_MENU) {
+            if (scan == K_FN && km.fnC1) return true;   // NEX Fn acts on release (see the ACTION_UP handler)
+            closeLogPage();
+            return true;
+        }
+        int max = (fbox.logLines != null) ? Math.max(0, fbox.logLines.length - Math.max(1, fbox.logPage)) : 0;
+        if (scan == K_UP) { if (fbox.logTop > 0) { fbox.logTop--; fbox.postInvalidate(); } return true; }
+        if (scan == K_DOWN) { if (fbox.logTop < max) { fbox.logTop++; fbox.postInvalidate(); } return true; }
         return true;   // consume everything else (no accidental capture / menu changes)
     }
 

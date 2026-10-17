@@ -17,6 +17,33 @@ public final class Logger {
     private static final LinkedBlockingQueue<String> Q = new LinkedBlockingQueue<String>();
     private static volatile boolean started = false;
 
+    // in-memory ring: the on-camera log viewer reads this without touching the SD card
+    private static final int RING = 400;
+    private static final String[] RING_BUF = new String[RING];
+    private static final Object RING_LOCK = new Object();
+    private static int ringNext = 0, ringCount = 0;
+
+    /** append one line to the in-memory ring (cheap: one array store, no allocation) */
+    private static void ringAdd(String line) {
+        synchronized (RING_LOCK) {
+            RING_BUF[ringNext] = line;
+            ringNext = (ringNext + 1) % RING;
+            if (ringCount < RING) ringCount++;
+        }
+    }
+
+    /** the newest lines in chronological order (the newest is the LAST element) */
+    public static String[] recent(int max) {
+        if (max <= 0) return new String[0];
+        synchronized (RING_LOCK) {
+            int n = Math.min(max, ringCount);
+            String[] out = new String[n];
+            int start = (ringNext - n + RING) % RING;
+            for (int i = 0; i < n; i++) out[i] = RING_BUF[(start + i) % RING];
+            return out;
+        }
+    }
+
     private static File file() {
         // FuFsys only accepts new files inside firmware-created dirs — try in order
         for (String sub : new String[]{"OpenFilm6K", "DCIM/OpenFilm6K", "DCIM"}) {
@@ -57,6 +84,7 @@ public final class Logger {
         try { android.util.Log.i("OF6K", msg); } catch (Throwable t) {}   // mirror to logcat (readable via `adb logcat -s OF6K`)
         try {
             msg = new java.text.SimpleDateFormat("HH:mm:ss.SSS ").format(new java.util.Date()) + msg;
+            ringAdd(msg);
             Q.offer(msg);
         } catch (Throwable t) {}
     }
