@@ -2267,11 +2267,13 @@ public class EditorActivity extends Activity {
         addGroup(body, qg);
         // group: watched dirs — the same [+|spinner|✕] row as the settings import groups; + opens the system folder picker
         android.widget.FrameLayout dg = new android.widget.FrameLayout(this);
+        LinearLayout dgv = new LinearLayout(this);   // the etched box wraps both the row and the camera shortcut line
+        dgv.setOrientation(LinearLayout.VERTICAL);
+        dgv.setBackground(new Ux.Etched());
+        dgv.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
         LinearLayout dgi = new LinearLayout(this);
         dgi.setOrientation(LinearLayout.HORIZONTAL);
         dgi.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        dgi.setBackground(new Ux.Etched());
-        dgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
         Button addDir = new Button(this); addDir.setText("+"); addDir.setMinWidth(0); addDir.setMinimumWidth(0); addDir.setPadding(0, 0, 0, 0);
         addDir.setContentDescription(L.s("btnImport"));
         addDir.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
@@ -2316,10 +2318,7 @@ public class EditorActivity extends Activity {
         ddlp.leftMargin = Ux.dp(4);
         dgi.addView(delDir, ddlp);
         TextView dgl2 = new TextView(this); dgl2.setText(L.s("spyDirs")); Ux.styleHeader(dgl2);
-        dg.setClipChildren(false);
-        android.widget.FrameLayout.LayoutParams dgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
-        dgil.topMargin = Ux.dp(10);
-        dg.addView(dgi, dgil);
+        dgv.addView(dgi, new LinearLayout.LayoutParams(-1, -2));
         camAdd.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
             java.util.ArrayList<String> l2 = spyDirs(pf);
             if (!hasCamDir(l2)) {
@@ -2329,10 +2328,13 @@ public class EditorActivity extends Activity {
             refill[0].run();
             camAdd.setVisibility(View.GONE);
         }});
-        android.widget.FrameLayout.LayoutParams calp = new android.widget.FrameLayout.LayoutParams(-2, -2);
-        calp.leftMargin = Ux.dp(12);
-        calp.topMargin = Ux.dp(72);   // directly under the [+|spinner|✕] row (10dp inset + 60dp row + 2dp gap)
-        dg.addView(camAdd, calp);
+        LinearLayout.LayoutParams calp = new LinearLayout.LayoutParams(-2, -2);   // inside the etched box, under the row
+        calp.topMargin = Ux.dp(6);
+        dgv.addView(camAdd, calp);
+        dg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams dgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        dgil.topMargin = Ux.dp(10);
+        dg.addView(dgv, dgil);
         android.widget.FrameLayout.LayoutParams dgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         dgll.leftMargin = Ux.dp(10);
         dgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
