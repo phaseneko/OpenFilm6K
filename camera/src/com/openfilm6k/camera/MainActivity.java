@@ -2732,6 +2732,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             return true;
         }
         if (e.getAction() != KeyEvent.ACTION_DOWN || e.getRepeatCount() > 0) return true;
+        if (scan == K_S1 && (stampMenu >= 0 || browser >= 0 || settings >= 0)) {   // focus press always returns to shooting
+            stampMenu = -1; browser = -1; settings = -1;
+            Logger.log("S1: menu closed -> shooting");
+            renderOverlay(); renderHud();
+            // falls through: the same press still focuses (S1 branch below)
+        }
         int dir = (scan == K_WHEEL_CW || scan == K_DIAL_CW) ? 1
                 : (scan == K_WHEEL_CCW || scan == K_DIAL_CCW) ? -1 : 0;
         if (viewing >= 0) return viewerKey(scan, dir);
