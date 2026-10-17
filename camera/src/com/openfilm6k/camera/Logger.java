@@ -16,6 +16,7 @@ public final class Logger {
 
     private static final LinkedBlockingQueue<String> Q = new LinkedBlockingQueue<String>();
     private static volatile boolean started = false;
+    private static volatile boolean busy = false;   // writer thread is in the middle of a disk write
 
     // in-memory ring: the on-camera log viewer reads this without touching the SD card
     private static final int RING = 400;
@@ -61,16 +62,19 @@ public final class Logger {
                 while (true) {
                     try {
                         String m = Q.take();
-                        StringBuilder sb = new StringBuilder(m);
-                        while (!Q.isEmpty()) sb.append('\n').append(Q.poll());
-                        File f = file();
+                        busy = true;
                         try {
-                            f.getParentFile().mkdirs();
-                            BufferedWriter w = new BufferedWriter(new FileWriter(f, true));
-                            w.append(sb.toString());
-                            w.newLine();
-                            w.close();
-                        } catch (Throwable inner) { /* the next write attempt retries the chain */ }
+                            StringBuilder sb = new StringBuilder(m);
+                            while (!Q.isEmpty()) sb.append('\n').append(Q.poll());
+                            File f = file();
+                            try {
+                                f.getParentFile().mkdirs();
+                                BufferedWriter w = new BufferedWriter(new FileWriter(f, true));
+                                w.append(sb.toString());
+                                w.newLine();
+                                w.close();
+                            } catch (Throwable inner) { /* the next write attempt retries the chain */ }
+                        } finally { busy = false; }
                     } catch (Throwable t2) {}
                 }
             }
@@ -89,9 +93,10 @@ public final class Logger {
         } catch (Throwable t) {}
     }
 
-    /** block until queued log lines are on disk (used right before finishing) */
+    /** block until queued log lines are on disk (used right before finishing, and when logging a crash) */
     public static void flush() {
-        while (!Q.isEmpty()) {
+        long end = System.currentTimeMillis() + 3000;   // never hang a dying process forever
+        while ((!Q.isEmpty() || busy) && System.currentTimeMillis() < end) {
             try { Thread.sleep(20); } catch (InterruptedException e) { return; }
         }
     }

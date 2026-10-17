@@ -1256,6 +1256,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 Logger.log("UNCAUGHT on " + t.getName() + ": " + e);
                 StackTraceElement[] st = e.getStackTrace();
                 for (int i = 0; i < st.length && i < 12; i++) Logger.log("  at " + st[i]);
+                Logger.flush();   // the process is about to die: get the stack onto LOG.TXT synchronously
             }
         });
 
@@ -1594,18 +1595,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         rig.shoot();
         setStatus("capturing…");
         Logger.log("init: setup shot film#" + fi + " (" + (fi >= 0 && fi < names.size() ? names.get(fi) : "?") + ") stamp=date post=none");
-    }
-
-    /** setup-shot release: restart preview + start the watcher WITHOUT cancelling the capture (slow bodies) */
-    private void initShutterUp() {
-        shooting = false;
-        Logger.log("init: shutterUp");
-        handler.postDelayed(new Runnable() {
-            public void run() {
-                if (rig.ready()) rig.startPreview();
-                triggerWatch();
-            }
-        }, SHUTTER_RESTART_MS);
     }
 
     private Shot takeShot() {
@@ -2722,7 +2711,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (initMode) {   // empty-card setup: only the shutter is accepted (menus/pages are mutually exclusive)
             if (scan == K_S2) {
                 if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) shootInit();
-                else if (e.getAction() == KeyEvent.ACTION_UP) initShutterUp();
+                else if (e.getAction() == KeyEvent.ACTION_UP) shutterUp();   // normal release: cancelTakePicture before preview restart
             }
             return true;
         }
