@@ -1830,8 +1830,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }, "media").start();
     }
 
-    /** oldest jpg under DCIM newer than the last pre-launch photo and not yet enqueued */
+    /** oldest jpg newer than the pre-launch baseline, not yet enqueued — provider-first, never lists DCIM */
     private File oldestUnsentPhoto() {
+        if (avindex() != null) {                           // normal path: the provider is the safe enumerator
+            java.util.ArrayList<String> ps = photosViaProvider(cutoffTime, 200);
+            for (String p : ps) {
+                if (sentPaths.contains(p)) continue;
+                java.io.File f = new java.io.File(p);
+                if (f.isFile() && f.lastModified() > cutoffTime) return f;
+            }
+            return null;
+        }
+        // provider class unavailable only: legacy scan (File.listFiles on DCIM during a write kills this firmware)
         File best = null;
         File[] dirs = new File(SD, "DCIM").listFiles();
         if (dirs == null) return null;
@@ -1850,7 +1860,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         return best;
     }
 
-    private static File newestPhoto() {
+    /** newest real photo — provider-first; the DCIM listing is only a fallback when the provider is absent */
+    private File newestPhoto() {
+        if (avindex() != null) {
+            String p = newestImageViaProvider(0);
+            if (p == null) return null;
+            java.io.File f = new java.io.File(p);
+            return f.isFile() ? f : null;
+        }
         File best = null;
         File[] dirs = new File(SD, "DCIM").listFiles();
         if (dirs == null) return null;
@@ -1935,6 +1952,50 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         } catch (Throwable t) {
             Logger.log("avindex query: " + t);
             return null;
+        }
+    }
+
+    /** media rows from the avindex provider, oldest first (minTime filters by real file mtime) */
+    private java.util.ArrayList<String> photosViaProvider(long minTime, int max) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<String>();
+        Object[] av = avindex();
+        if (av == null || max <= 0) return out;
+        try {
+            queryPhotosInto(av, minTime, max, false, out);   // ASC: oldest first
+            if (!out.isEmpty()) return out;
+        } catch (Throwable t) {
+            Logger.log("avindex query ASC: " + t);
+        }
+        out.clear();
+        try {
+            queryPhotosInto(av, minTime, max, true, out);    // provider rejects ASC: query DESC and reverse
+            java.util.Collections.reverse(out);
+        } catch (Throwable t) {
+            Logger.log("avindex query DESC: " + t);
+            out.clear();
+        }
+        return out;
+    }
+
+    private void queryPhotosInto(Object[] av, long minTime, int max, boolean desc,
+                                 java.util.ArrayList<String> out) {
+        android.database.Cursor c = getContentResolver().query(
+                (android.net.Uri) av[0], new String[]{(String) av[1]},
+                null, null, (String) av[2] + (desc ? " DESC" : " ASC"));
+        if (c == null) return;
+        try {
+            while (out.size() < max && c.moveToNext()) {
+                String p = c.getString(0);
+                if (p == null) continue;
+                String lp = p.toLowerCase();
+                if (!lp.endsWith(".jpg") && !lp.endsWith(".jpeg")) continue;
+                java.io.File f = new java.io.File(p);
+                if (!f.isFile()) continue;
+                if (f.lastModified() <= minTime) continue;
+                out.add(p);
+            }
+        } finally {
+            c.close();
         }
     }
 
