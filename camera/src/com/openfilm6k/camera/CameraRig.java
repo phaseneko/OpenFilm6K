@@ -267,6 +267,7 @@ final class CameraRig {
                 for (String kv : p.flatten().split(";"))
                     if (kv.toLowerCase().matches(".*(zoom|lens|tele|wide).*")) Logger.log("Z " + kv);
             } catch (Throwable ig) {}
+            dumpFileFormat();                       // file/format params (RAW detection)
         } catch (Throwable t) { note = "EX: " + t; Logger.log("syncFocusMode: " + t); }
         try { java.io.FileWriter fw = new java.io.FileWriter("/sdcard/OpenFilm6K/focusmode.txt", true);
               fw.write(note + "\n"); fw.close();
@@ -373,6 +374,22 @@ final class CameraRig {
             Logger.log("zoom: stop");
             cxClass.getMethod("stopZoom").invoke(cameraEx);
         } catch (Throwable t) { Logger.log("zoom: stop EX " + t); }
+    }
+
+    /** diagnostics: file/format parameter table (finding the RX100 RAW key) */
+    void dumpFileFormat() {
+        try {
+            android.hardware.Camera.Parameters p = camera == null ? null : camera.getParameters();
+            if (p == null) return;
+            String[] kvs = p.flatten().split(";");
+            Logger.log("FM total=" + kvs.length);
+            for (String kv : kvs) {
+                int eq = kv.indexOf('=');
+                String k = (eq >= 0 ? kv.substring(0, eq) : kv).toLowerCase();
+                if (k.matches(".*(raw|quality|format|still|jpeg|image|exif|drive|file).*"))
+                    Logger.log("FM " + kv);
+            }
+        } catch (Throwable t) { Logger.log("FM EX " + t); }
     }
 
     void pushSpot() {

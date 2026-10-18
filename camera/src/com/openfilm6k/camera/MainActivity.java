@@ -1493,6 +1493,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (rig.ready()) {
             boolean jpeg = rig.forceJpegFormat();
             Logger.log("still: resume check ok=" + jpeg);
+            rig.dumpFileFormat();   // re-log after a camera-menu format change
         }
         new Thread(new Runnable() { public void run() {           // suspend/resume can revive the process with a dead net:
             try { Thread.sleep(1500); } catch (InterruptedException e) { return; }   // let onCreate's bootWifi settle on cold start
