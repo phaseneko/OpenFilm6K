@@ -65,6 +65,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             516, 518, 595, 207,                                      // s1 s2 del play
             528, 529, 525, 526, 0, 0,                                // wheel(波轮) dial(后转盘) front(前转盘)
             new int[]{522, 523}, 0, false);                          // lcdGhost = 9:8 centred
+    // RX100 III (DSC-RX100M3): same key codes as the A6000 fallback; distinct object for the zoom lever
+    static final KeyMap KM_RX100 = new KeyMap(
+            103, 108, 105, 106, 232, 514, 532, 622, 595, 0, 0, 520,
+            516, 518, 595, 207,
+            528, 529, 525, 526, 0, 0,
+            new int[]{522, 523}, 0, false);
     // A7 II (ILCE-7M2): 波轮(控制轮)=634/635, 后转盘=528/529, 前转盘=525/526,
     //                   C1=622 C2=623 C3=588 C4=595, AEL/AF/MF=638
     static final KeyMap KM_A7M2 = new KeyMap(
@@ -88,6 +94,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         for (String m : new String[]{"ILCE-7", "ILCE-7R", "ILCE-7S", "ILCE-7M2", "ILCE-7RM2", "ILCE-7SM2"})
             KEYMAPS.put(normModel(m), KM_A7M2);
         KEYMAPS.put(normModel("NEX-5R"), KM_NEX5R);
+        KEYMAPS.put(normModel("DSC-RX100M3"), KM_RX100);
     }
     static KeyMap km = KM_A6000;                                     // active map (A6000 until applyKeymap)
 
@@ -164,7 +171,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         boolean fallback = (m == null);
         if (fallback) { m = KM_A6000; kmModel = (model.length() > 0 ? model : "(none)") + " -> A6000 fallback"; }
         else kmModel = model;
-        String mapName = fallback ? "A6000 fallback" : (m == KM_A7M2) ? "A7M2" : (m == KM_NEX5R) ? "NEX-5R" : "A6000";
+        String mapName = fallback ? "A6000 fallback" : (m == KM_A7M2) ? "A7M2" : (m == KM_NEX5R) ? "NEX-5R" : (m == KM_RX100) ? "RX100" : "A6000";
         km = m;
         K_UP = m.up; K_DOWN = m.down; K_LEFT = m.left; K_RIGHT = m.right; K_ENTER = m.enter;
         K_MENU = m.menu; K_AEL = m.ael; K_C1 = m.c1; K_C2 = m.c2; K_C3 = m.c3; K_C4 = m.c4; K_FN = m.fn;
@@ -2672,6 +2679,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 if (scan == K_FN && km.fnC1) closeLogPage();                // NEX: Fn closes the page on release
             }
             return true;                       // consume: no capture / menu changes
+        }
+        if (km == KM_RX100 && (scan == 610 || scan == 611)) {   // RX100 zoom lever: T=610 tele, W=611 wide
+            if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                if (e.getRepeatCount() == 0) rig.zoomStart(scan == 610 ? 1 : -1);
+            } else if (e.getAction() == KeyEvent.ACTION_UP) {
+                rig.zoomStop();
+            }
+            return true;
         }
         if (initMode) {   // empty-card setup: shutter + half-press focus only (menus/pages stay mutually exclusive)
             if (scan == K_S2) {

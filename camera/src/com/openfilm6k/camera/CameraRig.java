@@ -348,6 +348,23 @@ final class CameraRig {
         }
     }
 
+    /** RX100-series optical zoom: CameraEx.startZoom(dir, speed) / stopZoom() (the param table is unusable) */
+    void zoomStart(int dir) {
+        try {
+            if (cameraEx == null || cxClass == null) { Logger.log("zoom: no cameraEx"); return; }
+            Logger.log("zoom: start dir=" + dir + " speed=4");
+            cxClass.getMethod("startZoom", int.class, int.class).invoke(cameraEx, dir, 4);
+        } catch (Throwable t) { Logger.log("zoom: start EX " + t); }
+    }
+
+    void zoomStop() {
+        try {
+            if (cameraEx == null || cxClass == null) { Logger.log("zoom: no cameraEx"); return; }
+            Logger.log("zoom: stop");
+            cxClass.getMethod("stopZoom").invoke(cameraEx);
+        } catch (Throwable t) { Logger.log("zoom: stop EX " + t); }
+    }
+
     void pushSpot() {
         if (camera == null || !spotDirty) return;
         try {
