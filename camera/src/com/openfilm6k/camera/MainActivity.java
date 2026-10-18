@@ -1121,6 +1121,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private volatile boolean afCancel = false;   // S1 released mid-focus -> suppress the cancel callback's "focus ✗"
     private volatile boolean shooting = false;   // S2 held (capture in progress): don't cancel focus on S1 up
     private int zoomDir = -1;  // -1 = not zooming (0 is a real TELE direction)
+    private final Runnable zoomStopRunnable = new Runnable() { public void run() {
+        if (zoomDir != -1) { zoomDir = -1; rig.zoomStop(); }
+    }};
 
     // ---- empty-card setup: one shot identifies the body (no photos on the card + no cached model) ----
     private static final String PK_KM = "km_model";
@@ -1506,6 +1509,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onPause();
         savePrefs();
         clearGhost();
+        handler.removeCallbacks(zoomStopRunnable);
         if (zoomDir != -1) { zoomDir = -1; rig.zoomStop(); }
         rig.release();
     }
@@ -2687,9 +2691,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (km == KM_RX100 && (scan == 610 || scan == 611)) {   // RX100 zoom lever: W=611 wide, T=610 tele
             int d = (scan == 611) ? rig.zoomDirection("wide") : rig.zoomDirection("tele");
             if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                handler.removeCallbacks(zoomStopRunnable);
                 if (zoomDir != d) { zoomDir = d; rig.zoomStart(d); }
             } else if (e.getAction() == KeyEvent.ACTION_UP) {
-                if (zoomDir != -1) { zoomDir = -1; rig.zoomStop(); }   // stock-like: stop immediately on release
+                handler.removeCallbacks(zoomStopRunnable);
+                handler.postDelayed(zoomStopRunnable, 140);   // bridge the ~100ms lever pulses
             }
             return true;
         }
