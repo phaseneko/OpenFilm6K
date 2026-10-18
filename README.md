@@ -109,6 +109,10 @@ exposure. Exposure = shutter / aperture / ISO, e.g. `1/60 F2.8 ISO400`.
 
 - The NEX series has no MENU key — the app cannot be quit from its keypad — and
   its C1 action is merged into Fn.
+- RX100 III: the buttons follow the α6000 column. It has no rear dial — the
+  single control wheel adjusts the highlighted parameter — and its W/T zoom
+  lever drives the optical zoom. Keep the still format at JPEG (RAW is not
+  supported; the app switches it back automatically).
 - `PLAY` and `MOVIE` are consumed by the camera firmware before the app sees them.
 
 ### Film browser (FN)
