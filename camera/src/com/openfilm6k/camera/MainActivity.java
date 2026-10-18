@@ -879,7 +879,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 String mt = "AF " + (afDisp.length() > 0 ? afDisp : afMode.toUpperCase());
                 cv.drawText(mt, (w - mp2.measureText(mt)) / 2f, (h / 19f) * 1.6f, mp2);
             }
-            int ccx = w / 2 + (int) (spotX * (w / 2f) / 1000f), ccy = h / 2 + (int) (spotY * (h / 2f) / 1000f);
+            final int ph = (km == KM_RX100) ? (int) (w * 2f / 3f) : h;   // RX100 preview is 3:2, top-aligned
+            int ccx = w / 2 + (int) (spotX * (w / 2f) / 1000f), ccy = ph / 2 + (int) (spotY * (ph / 2f) / 1000f);
             if (!showRect) { cv.drawText("+", ccx - ap.measureText("+") / 2f, ccy + base * 0.32f, ap); }
             else {
             float gapx = (h / 13f) * 1.6f * ms, gapy = (h / 13f) * 1.9f * ms;   // size via offsets
