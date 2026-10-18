@@ -1473,6 +1473,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onResume() {
         super.onResume();
+        try { getSharedPreferences("of6k", 0).edit().putBoolean("resume_app", true).commit(); } catch (Throwable t) {}
         if (fbox != null) fbox.verUntil = System.currentTimeMillis() + 1000;   // version hint on every entry
         if (surface.getHolder().getSurface() != null) startCamera(surface.getHolder());
         new Thread(new Runnable() { public void run() {           // suspend/resume can revive the process with a dead net:
@@ -1489,6 +1490,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onPause() {
         super.onPause();
+        try { getSharedPreferences("of6k", 0).edit().putBoolean("resume_app", !isFinishing()).commit(); } catch (Throwable t) {}
         savePrefs();
         clearGhost();
         rig.release();
