@@ -278,99 +278,57 @@ final class CameraRig {
         }
     }
 
-    /** diagnostics: list the zoom-related methods exposed by CameraEx and its ParametersModifier */
-    void probeZoomApis() {
+    /** the Sony still-storage format (RAW/JPEG), null when unavailable */
+    String storageFormat() {
         try {
-            java.util.HashSet<String> seen = new java.util.HashSet<String>();
-            if (cameraEx != null) {
-                try { dumpZoom(cxClass, seen); } catch (Throwable ig) {}
-                try { dumpZoom(cameraEx.getClass(), seen); } catch (Throwable ig) {}
-            }
-            if (modClass != null) {
-                for (java.lang.reflect.Method m : modClass.getMethods())
-                    if (m.getName().toLowerCase().contains("zoom"))
-                        Logger.log("ZM mod#" + m.getName() + "(" + types(m.getParameterTypes()) + ")");
-            }
-            try {
-                android.hardware.Camera.Parameters p = camera == null ? null : camera.getParameters();
-                if (p != null) {
-                    Logger.log("ZM param zoom-supported=" + p.get("zoom-supported"));
-                    Logger.log("ZM param zoom=" + p.get("zoom"));
-                }
-            } catch (Throwable ig) {}
-        } catch (Throwable t) { Logger.log("ZM EX " + t); }
-    }
-
-    /** diagnostics: API surface that might let us set the still format (RX100 RAW) */
-    void probeFormatApis() {
-        try {
-            java.util.HashSet<String> seen = new java.util.HashSet<String>();
-            if (cameraEx != null) {
-                try { dumpFormat(cameraEx.getClass(), seen); } catch (Throwable ig) {}
-                try { dumpFormat(cxClass, seen); } catch (Throwable ig) {}
-            }
-            if (modClass != null) { try { dumpFormat(modClass, seen); } catch (Throwable ig) {} }
-            try { dumpFormat(android.hardware.Camera.Parameters.class, seen); } catch (Throwable ig) {}
-        } catch (Throwable t) { Logger.log("FMT EX " + t); }
-    }
-
-    private static void dumpFormat(Class<?> c, java.util.HashSet<String> seen) {
-        if (c == null) return;
-        for (java.lang.reflect.Method m : c.getMethods()) {
-            String n = m.getName().toLowerCase();
-            if (!(n.contains("format") || n.contains("quality") || n.contains("raw")
-                    || n.contains("still") || n.contains("image") || n.contains("file"))) continue;
-            String sig = m.getDeclaringClass().getName() + "#" + m.getName() + "(" + types(m.getParameterTypes()) + ")";
-            if (seen.add(sig)) Logger.log("FMT " + sig);
-        }
-    }
-
-    private static void dumpZoom(Class<?> c, java.util.HashSet<String> seen) {
-        if (c == null) return;
-        for (java.lang.reflect.Method m : c.getMethods()) {
-            if (!m.getName().toLowerCase().contains("zoom")) continue;
-            String sig = m.getDeclaringClass().getName() + "#" + m.getName() + "(" + types(m.getParameterTypes()) + ")";
-            if (seen.add(sig)) Logger.log("ZM " + sig);
-        }
-    }
-
-    private static String types(Class<?>[] ts) {
-        if (ts == null || ts.length == 0) return "";
-        StringBuilder b = new StringBuilder();
-        for (int i = 0; i < ts.length; i++) {
-            if (i > 0) b.append(',');
-            b.append(ts[i] == null ? "?" : ts[i].getSimpleName());
-        }
-        return b.toString();
-    }
-
-    /** the still-image format from the Sony parameter table (null when the body does not expose it) */
-    String stillFormat() {
-        try {
-            android.hardware.Camera.Parameters p = camera == null ? null : camera.getParameters();
-            return p == null ? null : p.get("picture-format");
+            if (camera == null) return null;
+            Object m = modifier(camera.getParameters());
+            Object v = modClass.getMethod("getPictureStorageFormat").invoke(m);
+            return v == null ? null : v.toString();
         } catch (Throwable t) { return null; }
     }
 
-    /** try to force JPEG; true when the format contains jpeg after the attempt */
-    boolean forceJpegFormat() {
+    /** force the Sony storage format to jpeg; true when it is a pure JPEG value afterwards */
+    boolean forceJpegStorage() {
         try {
             if (camera == null) return false;
-            android.hardware.Camera.Parameters p = camera.getParameters();
-            String f = p.get("picture-format");
-            if (f != null && f.toLowerCase().contains("jpeg")) {
-                Logger.log("still: picture-format=" + f);
-                return true;
-            }
-            p.set("picture-format", "jpeg");
+            Object m = modifier(camera.getParameters());
+            String cur = null;
+            try { Object v = modClass.getMethod("getPictureStorageFormat").invoke(m); cur = v == null ? null : v.toString(); } catch (Throwable ig) {}
+            Object sup = null;
+            try { sup = modClass.getMethod("getSupportedPictureStorageFormats").invoke(m); } catch (Throwable ig) {}
+            Logger.log("still: storage=" + cur + " supported=" + listStr(sup));
+            if (isJpegStorage(cur)) return true;
+            android.hardware.Camera.Parameters p = emptyParams();
+            Object m2 = modifier(p);
+            modClass.getMethod("setPictureStorageFormat", String.class).invoke(m2, "jpeg");
             camera.setParameters(p);
-            String nf = camera.getParameters().get("picture-format");
-            Logger.log("still: picture-format=" + nf);
-            return nf != null && nf.toLowerCase().contains("jpeg");
+            String now = null;
+            try { Object v = modClass.getMethod("getPictureStorageFormat").invoke(modifier(camera.getParameters())); now = v == null ? null : v.toString(); } catch (Throwable ig) {}
+            Logger.log("still: set storage=jpeg -> " + now);
+            return isJpegStorage(now);
         } catch (Throwable t) {
-            Logger.log("still format: " + t);
+            Logger.log("still: set storage EX " + t);
             return false;
         }
+    }
+
+    /** true for a pure JPEG value (equal/starting with jpeg, never raw) */
+    private static boolean isJpegStorage(String v) {
+        if (v == null) return false;
+        String s = v.toLowerCase();
+        return (s.equals("jpeg") || s.startsWith("jpeg")) && !s.contains("raw");
+    }
+
+    private static String listStr(Object v) {
+        if (v == null) return "null";
+        if (v instanceof Object[]) {
+            Object[] a = (Object[]) v;
+            StringBuilder b = new StringBuilder("[");
+            for (int i = 0; i < a.length; i++) { if (i > 0) b.append(','); b.append(a[i]); }
+            return b.append(']').toString();
+        }
+        return String.valueOf(v);
     }
 
     /** Sony zoom direction constants (ZOOM_DIRECTION_TELE/WIDE), with a 2/1 fallback */

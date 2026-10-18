@@ -1403,8 +1403,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             evMax = p.getMaxExposureCompensation();
             ev = p.getExposureCompensation();
             rig.syncFocusMode(p);
-            rig.probeZoomApis();
-            rig.probeFormatApis();
             int[] spt = CameraRig.readSystemSpot(p);            // adopt the system focus point position
             if (spt != null) { rig.adoptSpot(spt[0], spt[1]); spotX = spt[0]; spotY = spt[1]; Logger.log("sys spot " + spt[0] + "," + spt[1]); }
             else Logger.log("sys spot: unavailable");
@@ -1419,7 +1417,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (sup != null) for (Object o : sup) isos.add(((Number) o).intValue());
             rig.setDriveSingle();
             rig.setAspectRatio32();
-            boolean jpeg = rig.forceJpegFormat();   // RAW still format crashes this body on shoot
+            boolean jpeg = rig.forceJpegStorage();   // RAW storage format crashes this body on shoot
             Logger.log("still: forced jpeg ok=" + jpeg);
         }
         try {
@@ -1492,7 +1490,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (fbox != null) fbox.verUntil = System.currentTimeMillis() + 1000;   // version hint on every entry
         if (surface.getHolder().getSurface() != null) startCamera(surface.getHolder());
         if (rig.ready()) {
-            boolean jpeg = rig.forceJpegFormat();
+            boolean jpeg = rig.forceJpegStorage();
             Logger.log("still: resume check ok=" + jpeg);
             rig.dumpFileFormat();   // re-log after a camera-menu format change
         }
@@ -1521,8 +1519,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /** true only when the parameter table positively reports a non-JPEG still format */
     private boolean stillFormatRaw() {
-        String f = rig.stillFormat();
-        return f != null && !f.toLowerCase().contains("jpeg");
+        String f = rig.storageFormat();
+        return f != null && f.toLowerCase().contains("raw");
     }
 
     private void shoot() {
@@ -2665,8 +2663,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
-        if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0)
-            Logger.log("rawkey scan=" + e.getScanCode() + " code=" + e.getKeyCode());
         if (capDim) {                 // screen locked (manual): first press wakes — FIRST so nothing can trap the keys
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) capWake();
             return true;
