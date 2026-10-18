@@ -301,6 +301,30 @@ final class CameraRig {
         } catch (Throwable t) { Logger.log("ZM EX " + t); }
     }
 
+    /** diagnostics: API surface that might let us set the still format (RX100 RAW) */
+    void probeFormatApis() {
+        try {
+            java.util.HashSet<String> seen = new java.util.HashSet<String>();
+            if (cameraEx != null) {
+                try { dumpFormat(cameraEx.getClass(), seen); } catch (Throwable ig) {}
+                try { dumpFormat(cxClass, seen); } catch (Throwable ig) {}
+            }
+            if (modClass != null) { try { dumpFormat(modClass, seen); } catch (Throwable ig) {} }
+            try { dumpFormat(android.hardware.Camera.Parameters.class, seen); } catch (Throwable ig) {}
+        } catch (Throwable t) { Logger.log("FMT EX " + t); }
+    }
+
+    private static void dumpFormat(Class<?> c, java.util.HashSet<String> seen) {
+        if (c == null) return;
+        for (java.lang.reflect.Method m : c.getMethods()) {
+            String n = m.getName().toLowerCase();
+            if (!(n.contains("format") || n.contains("quality") || n.contains("raw")
+                    || n.contains("still") || n.contains("image") || n.contains("file"))) continue;
+            String sig = m.getDeclaringClass().getName() + "#" + m.getName() + "(" + types(m.getParameterTypes()) + ")";
+            if (seen.add(sig)) Logger.log("FMT " + sig);
+        }
+    }
+
     private static void dumpZoom(Class<?> c, java.util.HashSet<String> seen) {
         if (c == null) return;
         for (java.lang.reflect.Method m : c.getMethods()) {

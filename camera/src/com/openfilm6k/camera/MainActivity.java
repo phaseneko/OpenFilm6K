@@ -1404,6 +1404,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             ev = p.getExposureCompensation();
             rig.syncFocusMode(p);
             rig.probeZoomApis();
+            rig.probeFormatApis();
             int[] spt = CameraRig.readSystemSpot(p);            // adopt the system focus point position
             if (spt != null) { rig.adoptSpot(spt[0], spt[1]); spotX = spt[0]; spotY = spt[1]; Logger.log("sys spot " + spt[0] + "," + spt[1]); }
             else Logger.log("sys spot: unavailable");
