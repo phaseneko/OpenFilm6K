@@ -262,6 +262,11 @@ final class CameraRig {
                 for (String kv : p.flatten().split(";"))
                     if (kv.toLowerCase().contains("focus")) Logger.log("P " + kv);
             } catch (Throwable ig) {}
+            try {                                   // dump zoom/lens params (RX100 III W/T lever mapping)
+                Logger.log("Z total=" + p.flatten().split(";").length);
+                for (String kv : p.flatten().split(";"))
+                    if (kv.toLowerCase().matches(".*(zoom|lens|tele|wide).*")) Logger.log("Z " + kv);
+            } catch (Throwable ig) {}
         } catch (Throwable t) { note = "EX: " + t; Logger.log("syncFocusMode: " + t); }
         try { java.io.FileWriter fw = new java.io.FileWriter("/sdcard/OpenFilm6K/focusmode.txt", true);
               fw.write(note + "\n"); fw.close();
