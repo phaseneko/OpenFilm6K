@@ -262,6 +262,18 @@ final class CameraRig {
                 for (String kv : p.flatten().split(";"))
                     if (kv.toLowerCase().contains("focus")) Logger.log("P " + kv);
             } catch (Throwable ig) {}
+            try {                                   // still-image format probe (raw/quality/format/still/jpeg/image/exif)
+                String[] kvs = p.flatten().split(";");
+                Logger.log("Q total=" + kvs.length);
+                for (String kv : kvs) {
+                    int eq = kv.indexOf('=');
+                    String k = (eq >= 0 ? kv.substring(0, eq) : kv).toLowerCase();
+                    if (k.contains("raw") || k.contains("quality") || k.contains("format")
+                            || k.contains("still") || k.contains("jpeg") || k.contains("image")
+                            || k.contains("exif"))
+                        Logger.log("Q " + kv);
+                }
+            } catch (Throwable ig) { Logger.log("Q EX " + ig); }
         } catch (Throwable t) { note = "EX: " + t; Logger.log("syncFocusMode: " + t); }
         try { java.io.FileWriter fw = new java.io.FileWriter("/sdcard/OpenFilm6K/focusmode.txt", true);
               fw.write(note + "\n"); fw.close();
