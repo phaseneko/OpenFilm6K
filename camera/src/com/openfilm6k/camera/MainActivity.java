@@ -2644,6 +2644,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
+        if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0)
+            Logger.log("rawkey scan=" + e.getScanCode() + " code=" + e.getKeyCode());
         if (capDim) {                 // screen locked (manual): first press wakes — FIRST so nothing can trap the keys
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) capWake();
             return true;
