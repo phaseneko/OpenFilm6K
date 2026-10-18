@@ -7,14 +7,11 @@ import android.content.Intent;
 /** on boot: relaunch the camera app only if it was foreground when the previous session ended */
 public class BootReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context, Intent intent) {
-        String a = intent == null ? null : intent.getAction();
-        boolean flag = false;
-        try { flag = context.getSharedPreferences("of6k", 0).getBoolean("resume_app", false); } catch (Throwable t) {}
-        try { Logger.log("boot: rx action=" + a + " resume=" + flag); } catch (Throwable t) {}
         try {
+            String a = intent == null ? null : intent.getAction();
             if (!Intent.ACTION_BOOT_COMPLETED.equals(a)
                     && !"android.intent.action.QUICKBOOT_POWERON".equals(a)) return;
-            if (!flag) return;
+            if (!context.getSharedPreferences("of6k", 0).getBoolean("resume_app", false)) return;
             schedule(context, 15000);   // firmware may need a moment before an activity start succeeds
             schedule(context, 35000);   // retry once; a start while already foreground is a harmless no-op
         } catch (Throwable t) {}
