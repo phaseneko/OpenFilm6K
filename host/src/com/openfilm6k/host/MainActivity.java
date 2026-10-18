@@ -132,7 +132,6 @@ public class MainActivity extends Activity {
 
     // ---- keep-alive onboarding: accessibility service + battery whitelist ----
 
-    private static boolean chainBatt = false;
     private static android.app.Dialog keepDlg;
     private static android.app.Dialog installDlg, installResultDlg;   // chain guard for the permission dialog
 
@@ -193,27 +192,18 @@ public class MainActivity extends Activity {
         catch (Throwable t) { toast("battery settings: " + t); }
     }
 
-    /** grant what is missing; the battery screen follows the accessibility screen via permResume */
+    /** the only required permission: exemption from battery optimisation */
     static void requestAll(Activity a) {
         if (a == null) return;
-        if (!a11yEnabled(a)) { chainBatt = true; requestA11y(a); }
-        else if (!battIgnored(a)) requestBatt(a);
+        if (!battIgnored(a)) requestBatt(a);
     }
 
-    static void permResume(Activity a) {
-        if (chainBatt) {
-            chainBatt = false;
-            if (!battIgnored(a)) requestBatt(a);
-        }
-    }
+    static void permResume(Activity a) { }   // kept for the resume hook; no permission chain any more
 
-    /** one-time (until dismissed for good) win98 dialog explaining the two keep-alive permissions */
-    static boolean permsOk(Context c) { return a11yEnabled(c) && battIgnored(c); }
-
-    /** recommended keep-alive permissions; only after storage/install dialogs are gone */
+    /** recommended keep-alive permission; only after storage/install dialogs are gone */
     static void permFlow(final Activity a) {
         if (a == null || a.isFinishing()) return;
-        if (permsOk(a)) return;
+        if (battIgnored(a)) return;
         if (permDlg != null && permDlg.isShowing()) return;          // chain: storage -> install -> permissions
         if (installDlg != null && installDlg.isShowing()) return;
         if (installResultDlg != null && installResultDlg.isShowing()) return;
@@ -246,7 +236,7 @@ public class MainActivity extends Activity {
             }});
             grant.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) {
                 try { self[0].dismiss(); } catch (Throwable ig) {}
-                requestAll(a);
+                requestBatt(a);   // battery exemption only
             }});
             self[0] = winDlgX(a, L.s("keepTitle"), b);   // ✕ top-right in the navy title bar
             keepDlg = self[0];

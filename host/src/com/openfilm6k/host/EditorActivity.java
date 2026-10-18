@@ -2009,22 +2009,31 @@ public class EditorActivity extends Activity {
             MainActivity.showInstall(EditorActivity.this);
         }});
         rgi.addView(rbtn, new LinearLayout.LayoutParams(-2, Ux.dp(38)));
-        Button grant = new Button(this);
-        Ux.styleButton(grant); grant.setText(L.s("keepGrant"));
-        if (!MainActivity.permsOk(this)) {   // same warning icon as spy mode, on the grant button itself
-            grant.setCompoundDrawablesWithIntrinsicBounds(Ux.warn98(this), null, null, null);
-            grant.setCompoundDrawablePadding(Ux.dp(4));
-            grant.setEnabled(true);
-            grant.setAlpha(1.0f);
-        } else {                             // nothing left to grant: grey the button out
-            grant.setCompoundDrawablesWithIntrinsicBounds(null, null, null, null);
-            grant.setEnabled(false);
-            grant.setAlpha(0.45f);
+        Button batt = new Button(this);
+        Ux.styleButton(batt); batt.setText(L.s("battOpt"));
+        if (!MainActivity.battIgnored(this)) {   // only the required permission carries a warning
+            batt.setCompoundDrawablesWithIntrinsicBounds(Ux.warn98(this), null, null, null);
+            batt.setCompoundDrawablePadding(Ux.dp(4));
+            batt.setEnabled(true);
+            batt.setAlpha(1.0f);
+        } else {                                 // granted: grey it out
+            batt.setCompoundDrawablesWithIntrinsicBounds(null, null, null, null);
+            batt.setEnabled(false);
+            batt.setAlpha(0.45f);
         }
-        grant.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { MainActivity.requestAll(EditorActivity.this); }});
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-2, Ux.dp(38));
-        glp.leftMargin = Ux.dp(8);
-        rgi.addView(grant, glp);
+        batt.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { MainActivity.requestBatt(EditorActivity.this); }});
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-2, Ux.dp(38));
+        blp.leftMargin = Ux.dp(8);
+        rgi.addView(batt, blp);
+        Button a11y = new Button(this);
+        Ux.styleButton(a11y); a11y.setText(L.s("keepA11y"));
+        a11y.setCompoundDrawablesWithIntrinsicBounds(null, null, null, null);   // accessibility is optional: never a warning
+        if (MainActivity.a11yEnabled(this)) { a11y.setEnabled(false); a11y.setAlpha(0.45f); }
+        else { a11y.setEnabled(true); a11y.setAlpha(1.0f); }
+        a11y.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { MainActivity.requestA11y(EditorActivity.this); }});
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(-2, Ux.dp(38));
+        alp.leftMargin = Ux.dp(8);
+        rgi.addView(a11y, alp);
         android.widget.FrameLayout.LayoutParams rl2 = new android.widget.FrameLayout.LayoutParams(-1, -2);
         rl2.topMargin = Ux.dp(10);
         rg.addView(rgi, rl2);
