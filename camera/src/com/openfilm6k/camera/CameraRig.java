@@ -277,6 +277,48 @@ final class CameraRig {
         }
     }
 
+    /** diagnostics: list the zoom-related methods exposed by CameraEx and its ParametersModifier */
+    void probeZoomApis() {
+        try {
+            java.util.HashSet<String> seen = new java.util.HashSet<String>();
+            if (cameraEx != null) {
+                try { dumpZoom(cxClass, seen); } catch (Throwable ig) {}
+                try { dumpZoom(cameraEx.getClass(), seen); } catch (Throwable ig) {}
+            }
+            if (modClass != null) {
+                for (java.lang.reflect.Method m : modClass.getMethods())
+                    if (m.getName().toLowerCase().contains("zoom"))
+                        Logger.log("ZM mod#" + m.getName() + "(" + types(m.getParameterTypes()) + ")");
+            }
+            try {
+                android.hardware.Camera.Parameters p = camera == null ? null : camera.getParameters();
+                if (p != null) {
+                    Logger.log("ZM param zoom-supported=" + p.get("zoom-supported"));
+                    Logger.log("ZM param zoom=" + p.get("zoom"));
+                }
+            } catch (Throwable ig) {}
+        } catch (Throwable t) { Logger.log("ZM EX " + t); }
+    }
+
+    private static void dumpZoom(Class<?> c, java.util.HashSet<String> seen) {
+        if (c == null) return;
+        for (java.lang.reflect.Method m : c.getMethods()) {
+            if (!m.getName().toLowerCase().contains("zoom")) continue;
+            String sig = m.getDeclaringClass().getName() + "#" + m.getName() + "(" + types(m.getParameterTypes()) + ")";
+            if (seen.add(sig)) Logger.log("ZM " + sig);
+        }
+    }
+
+    private static String types(Class<?>[] ts) {
+        if (ts == null || ts.length == 0) return "";
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < ts.length; i++) {
+            if (i > 0) b.append(',');
+            b.append(ts[i] == null ? "?" : ts[i].getSimpleName());
+        }
+        return b.toString();
+    }
+
     /** the still-image format from the Sony parameter table (null when the body does not expose it) */
     String stillFormat() {
         try {
