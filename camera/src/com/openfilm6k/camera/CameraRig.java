@@ -348,6 +348,16 @@ final class CameraRig {
         }
     }
 
+    /** Sony zoom direction constants (ZOOM_DIRECTION_TELE/WIDE), with a 2/1 fallback */
+    int zoomDirection(String which) {
+        try {
+            java.lang.reflect.Field f = cxClass.getField("ZOOM_DIRECTION_" + which.toUpperCase());
+            Object v = f.get(null);
+            if (v instanceof Integer) { Logger.log("zoom: const " + which + "=" + v); return (Integer) v; }
+        } catch (Throwable t) { Logger.log("zoom: const " + which + " EX " + t); }
+        return "tele".equals(which) ? 2 : 1;
+    }
+
     /** RX100-series optical zoom: CameraEx.startZoom(dir, speed) / stopZoom() (the param table is unusable) */
     void zoomStart(int dir) {
         try {
