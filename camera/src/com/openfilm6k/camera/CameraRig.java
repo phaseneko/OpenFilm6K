@@ -262,18 +262,6 @@ final class CameraRig {
                 for (String kv : p.flatten().split(";"))
                     if (kv.toLowerCase().contains("focus")) Logger.log("P " + kv);
             } catch (Throwable ig) {}
-            try {                                   // still-image format probe (raw/quality/format/still/jpeg/image/exif)
-                String[] kvs = p.flatten().split(";");
-                Logger.log("Q total=" + kvs.length);
-                for (String kv : kvs) {
-                    int eq = kv.indexOf('=');
-                    String k = (eq >= 0 ? kv.substring(0, eq) : kv).toLowerCase();
-                    if (k.contains("raw") || k.contains("quality") || k.contains("format")
-                            || k.contains("still") || k.contains("jpeg") || k.contains("image")
-                            || k.contains("exif"))
-                        Logger.log("Q " + kv);
-                }
-            } catch (Throwable ig) { Logger.log("Q EX " + ig); }
         } catch (Throwable t) { note = "EX: " + t; Logger.log("syncFocusMode: " + t); }
         try { java.io.FileWriter fw = new java.io.FileWriter("/sdcard/OpenFilm6K/focusmode.txt", true);
               fw.write(note + "\n"); fw.close();
@@ -281,6 +269,35 @@ final class CameraRig {
             Logger.log("fm write: " + ig);
             try { java.io.FileWriter fw2 = new java.io.FileWriter("/sdcard/OpenFilm6K/fm_err.txt", true);
                   fw2.write(ig + "\n"); fw2.close(); } catch (Throwable ig2) {}
+        }
+    }
+
+    /** the still-image format from the Sony parameter table (null when the body does not expose it) */
+    String stillFormat() {
+        try {
+            android.hardware.Camera.Parameters p = camera == null ? null : camera.getParameters();
+            return p == null ? null : p.get("picture-format");
+        } catch (Throwable t) { return null; }
+    }
+
+    /** try to force JPEG; true when the format contains jpeg after the attempt */
+    boolean forceJpegFormat() {
+        try {
+            if (camera == null) return false;
+            android.hardware.Camera.Parameters p = camera.getParameters();
+            String f = p.get("picture-format");
+            if (f != null && f.toLowerCase().contains("jpeg")) {
+                Logger.log("still: picture-format=" + f);
+                return true;
+            }
+            p.set("picture-format", "jpeg");
+            camera.setParameters(p);
+            String nf = camera.getParameters().get("picture-format");
+            Logger.log("still: picture-format=" + nf);
+            return nf != null && nf.toLowerCase().contains("jpeg");
+        } catch (Throwable t) {
+            Logger.log("still format: " + t);
+            return false;
         }
     }
 

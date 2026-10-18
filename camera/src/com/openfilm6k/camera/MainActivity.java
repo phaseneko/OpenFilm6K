@@ -1405,6 +1405,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (sup != null) for (Object o : sup) isos.add(((Number) o).intValue());
             rig.setDriveSingle();
             rig.setAspectRatio32();
+            boolean jpeg = rig.forceJpegFormat();   // RAW still format crashes this body on shoot
+            Logger.log("still: forced jpeg ok=" + jpeg);
         }
         try {
             rig.camera().setPreviewDisplay(h);
@@ -1496,8 +1498,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // ---------------------------------------------------------------- shoot + grade
 
+    /** true only when the parameter table positively reports a non-JPEG still format */
+    private boolean stillFormatRaw() {
+        String f = rig.stillFormat();
+        return f != null && !f.toLowerCase().contains("jpeg");
+    }
+
     private void shoot() {
         if (!rig.ready()) return;
+        if (stillFormatRaw()) {
+            Logger.log("still: RAW format, shot refused");
+            setStatus("SET STILL FORMAT TO JPEG");
+            return;
+        }
         captureStart = System.currentTimeMillis();
         shooting = true;
         // film locked at shutter press; a FIFO keeps per-shot films even if the user
@@ -1518,6 +1531,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /** setup shot: fixed CC-200 + date watermark, no frame/post; its EXIF resolves and caches the keymap */
     private void shootInit() {
+        if (stillFormatRaw()) {
+            Logger.log("still: RAW format, shot refused");
+            if (fbox != null) { fbox.initHint = "SET STILL FORMAT TO JPEG"; fbox.postInvalidate(); }
+            return;
+        }
         if (!new File(SD, "DCIM").isDirectory()) Logger.log("init: DCIM missing, the firmware will create it");
         if (initPending) return;                      // one setup shot in flight
         if (!rig.ready()) return;
