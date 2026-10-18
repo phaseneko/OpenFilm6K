@@ -1521,6 +1521,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private void shoot() {
         if (!rig.ready()) return;
+        boolean jpeg = rig.forceJpegFormat();
+        Logger.log("still: per-shot check ok=" + jpeg);
         if (stillFormatRaw()) {
             Logger.log("still: RAW format, shot refused");
             setStatus("SET STILL FORMAT TO JPEG");
@@ -1546,6 +1548,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /** setup shot: fixed CC-200 + date watermark, no frame/post; its EXIF resolves and caches the keymap */
     private void shootInit() {
+        boolean jpeg = rig.forceJpegFormat();
+        Logger.log("still: per-shot check ok=" + jpeg);
         if (stillFormatRaw()) {
             Logger.log("still: RAW format, shot refused");
             if (fbox != null) { fbox.initHint = "SET STILL FORMAT TO JPEG"; fbox.postInvalidate(); }
