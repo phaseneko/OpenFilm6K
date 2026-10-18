@@ -262,12 +262,6 @@ final class CameraRig {
                 for (String kv : p.flatten().split(";"))
                     if (kv.toLowerCase().contains("focus")) Logger.log("P " + kv);
             } catch (Throwable ig) {}
-            try {                                   // dump zoom/lens params (RX100 III W/T lever mapping)
-                Logger.log("Z total=" + p.flatten().split(";").length);
-                for (String kv : p.flatten().split(";"))
-                    if (kv.toLowerCase().matches(".*(zoom|lens|tele|wide).*")) Logger.log("Z " + kv);
-            } catch (Throwable ig) {}
-            dumpFileFormat();                       // file/format params (RAW detection)
         } catch (Throwable t) { note = "EX: " + t; Logger.log("syncFocusMode: " + t); }
         try { java.io.FileWriter fw = new java.io.FileWriter("/sdcard/OpenFilm6K/focusmode.txt", true);
               fw.write(note + "\n"); fw.close();
@@ -336,42 +330,24 @@ final class CameraRig {
         try {
             java.lang.reflect.Field f = cxClass.getField("ZOOM_DIRECTION_" + which.toUpperCase());
             Object v = f.get(null);
-            if (v instanceof Integer) { Logger.log("zoom: const " + which + "=" + v); return (Integer) v; }
-        } catch (Throwable t) { Logger.log("zoom: const " + which + " EX " + t); }
+            if (v instanceof Integer) return (Integer) v;
+        } catch (Throwable t) {}
         return "tele".equals(which) ? 2 : 1;
     }
 
     /** RX100-series optical zoom: CameraEx.startZoom(dir, speed) / stopZoom() (the param table is unusable) */
     void zoomStart(int dir) {
         try {
-            if (cameraEx == null || cxClass == null) { Logger.log("zoom: no cameraEx"); return; }
-            Logger.log("zoom: start dir=" + dir + " speed=4");
+            if (cameraEx == null || cxClass == null) return;
             cxClass.getMethod("startZoom", int.class, int.class).invoke(cameraEx, dir, 4);
         } catch (Throwable t) { Logger.log("zoom: start EX " + t); }
     }
 
     void zoomStop() {
         try {
-            if (cameraEx == null || cxClass == null) { Logger.log("zoom: no cameraEx"); return; }
-            Logger.log("zoom: stop");
+            if (cameraEx == null || cxClass == null) return;
             cxClass.getMethod("stopZoom").invoke(cameraEx);
         } catch (Throwable t) { Logger.log("zoom: stop EX " + t); }
-    }
-
-    /** diagnostics: file/format parameter table (finding the RX100 RAW key) */
-    void dumpFileFormat() {
-        try {
-            android.hardware.Camera.Parameters p = camera == null ? null : camera.getParameters();
-            if (p == null) return;
-            String[] kvs = p.flatten().split(";");
-            Logger.log("FM total=" + kvs.length);
-            for (String kv : kvs) {
-                int eq = kv.indexOf('=');
-                String k = (eq >= 0 ? kv.substring(0, eq) : kv).toLowerCase();
-                if (k.matches(".*(raw|quality|format|still|jpeg|image|exif|drive|file).*"))
-                    Logger.log("FM " + kv);
-            }
-        } catch (Throwable t) { Logger.log("FM EX " + t); }
     }
 
     void pushSpot() {
