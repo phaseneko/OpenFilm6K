@@ -2686,8 +2686,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             }
             return true;                       // consume: no capture / menu changes
         }
-        if (km == KM_RX100 && (scan == 610 || scan == 611)) {   // RX100 zoom lever: W=611 wide(1), T=610 tele(2)
-            int d = (scan == 611) ? 1 : 2;
+        if (km == KM_RX100 && (scan == 610 || scan == 611)) {   // RX100 zoom lever: W=611 wide(1), T=610 tele(0)
+            int d = (scan == 611) ? 1 : 0;
             if (e.getAction() == KeyEvent.ACTION_DOWN) {
                 handler.removeCallbacks(zoomStopRunnable);
                 if (zoomDir != d) { zoomDir = d; rig.zoomStart(d); }
