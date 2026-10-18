@@ -2014,8 +2014,12 @@ public class EditorActivity extends Activity {
         if (!MainActivity.permsOk(this)) {   // same warning icon as spy mode, on the grant button itself
             grant.setCompoundDrawablesWithIntrinsicBounds(Ux.warn98(this), null, null, null);
             grant.setCompoundDrawablePadding(Ux.dp(4));
-        } else {
+            grant.setEnabled(true);
+            grant.setAlpha(1.0f);
+        } else {                             // nothing left to grant: grey the button out
             grant.setCompoundDrawablesWithIntrinsicBounds(null, null, null, null);
+            grant.setEnabled(false);
+            grant.setAlpha(0.45f);
         }
         grant.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { MainActivity.requestAll(EditorActivity.this); }});
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-2, Ux.dp(38));
