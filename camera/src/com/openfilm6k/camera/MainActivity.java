@@ -1490,6 +1490,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onResume();
         if (fbox != null) fbox.verUntil = System.currentTimeMillis() + 1000;   // version hint on every entry
         if (surface.getHolder().getSurface() != null) startCamera(surface.getHolder());
+        if (rig.ready()) {
+            boolean jpeg = rig.forceJpegFormat();
+            Logger.log("still: resume check ok=" + jpeg);
+        }
         new Thread(new Runnable() { public void run() {           // suspend/resume can revive the process with a dead net:
             try { Thread.sleep(1500); } catch (InterruptedException e) { return; }   // let onCreate's bootWifi settle on cold start
             if (!netReady) return;                                 // boot flow still connecting — leave it alone
@@ -1521,8 +1525,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private void shoot() {
         if (!rig.ready()) return;
-        boolean jpeg = rig.forceJpegFormat();
-        Logger.log("still: per-shot check ok=" + jpeg);
         if (stillFormatRaw()) {
             Logger.log("still: RAW format, shot refused");
             setStatus("SET STILL FORMAT TO JPEG");
@@ -1548,8 +1550,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /** setup shot: fixed CC-200 + date watermark, no frame/post; its EXIF resolves and caches the keymap */
     private void shootInit() {
-        boolean jpeg = rig.forceJpegFormat();
-        Logger.log("still: per-shot check ok=" + jpeg);
         if (stillFormatRaw()) {
             Logger.log("still: RAW format, shot refused");
             if (fbox != null) { fbox.initHint = "SET STILL FORMAT TO JPEG"; fbox.postInvalidate(); }
