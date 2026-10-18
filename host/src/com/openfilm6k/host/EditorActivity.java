@@ -1920,7 +1920,7 @@ public class EditorActivity extends Activity {
         }
         MainActivity.firstRunFlow(this);   // re-check after returning from the permission screen
         MainActivity.permResume(this);     // continue the keep-alive chain (battery after accessibility)
-        MainActivity.permFlow(this);       // chain: show after storage/install dialogs are gone
+        if (!MainActivity.installing) MainActivity.permFlow(this);   // never over the install chain
         if (settingsDlg != null && settingsDlg.isShowing()) {   // returning from a system settings screen: refresh statuses
             try { settingsDlg.dismiss(); } catch (Throwable ig) {}
             showSettings();
@@ -1941,6 +1941,15 @@ public class EditorActivity extends Activity {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
         if (body.getChildCount() > 0) p.topMargin = Ux.dp(8);
         body.addView(g, p);
+    }
+
+    /** show a dialog owned by this activity and register it with the app-wide arbiter */
+    private void showOwned(final android.app.Dialog dlg) {
+        dlg.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+            public void onDismiss(android.content.DialogInterface d) { if (MainActivity.activeDlg == dlg) MainActivity.activeDlg = null; }
+        });
+        MainActivity.activeDlg = dlg;
+        dlg.show();
     }
 
     private void showSettings() {
@@ -2137,7 +2146,7 @@ public class EditorActivity extends Activity {
             w.setBackgroundDrawable(Ux.frame98());
             w.setLayout(Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24)), -2);
         }
-        dlg.show();
+        showOwned(dlg);
     }
 
     // ---- spy mode dialog (监视模式): master switch + film/stamp pickers + watched dirs ----
@@ -2408,7 +2417,7 @@ public class EditorActivity extends Activity {
             w.setBackgroundDrawable(Ux.frame98());
             w.setLayout(Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24)), -2);
         }
-        dlg.show();
+        showOwned(dlg);
     }
 
     /** ACTION_OPEN_DOCUMENT_TREE result → real filesystem path on the primary volume ("primary:DCIM/Camera" → /sdcard/DCIM/Camera) */

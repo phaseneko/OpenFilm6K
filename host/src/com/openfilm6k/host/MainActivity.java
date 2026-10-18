@@ -34,6 +34,10 @@ public class MainActivity extends Activity {
     // ---- first-run / data-install flow (called from EditorActivity, the real launcher) ----
 
     private static android.app.Dialog permDlg;
+    static android.app.Dialog activeDlg;          // the one app dialog currently shown (arbiter)
+    static boolean installing;                    // data install running or its result dialog is up
+
+    static boolean dlgBusy() { return activeDlg != null && activeDlg.isShowing(); }
 
     static boolean storageGranted(Activity a) {
         try {   // API 30+: All-Files-Access toggle
@@ -100,11 +104,15 @@ public class MainActivity extends Activity {
         box.addView(bar);
         box.addView(bodyWrap);
         dlg.setContentView(box);
+        dlg.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+            public void onDismiss(android.content.DialogInterface d) { if (activeDlg == dlg) activeDlg = null; }
+        });
         return dlg;
     }
 
     /** permission warning (win98) -> system grant screen; install (win98, progress) when data is missing */
     public static void firstRunFlow(final Activity a) {
+        if (installing) return;   // the install chain owns the dialogs until its result is dismissed
         if (!storageGranted(a)) {
             if (permDlg != null && permDlg.isShowing()) return;
             android.widget.LinearLayout b = new android.widget.LinearLayout(a);
@@ -124,6 +132,7 @@ public class MainActivity extends Activity {
             b.addView(msg);
             b.addView(row);
             permDlg = winDlg(a, L.s("permTitle"), b);
+            activeDlg = permDlg;
             permDlg.show();
             return;
         }
@@ -133,6 +142,20 @@ public class MainActivity extends Activity {
     // ---- keep-alive onboarding: accessibility service + battery whitelist ----
 
     private static android.app.Dialog keepDlg;
+    private static Context appCtx;
+    private static final android.os.Handler UI = new android.os.Handler(android.os.Looper.getMainLooper());
+    private static int keepPoll;
+    private static final Runnable keepPollTick = new Runnable() { public void run() {
+        if (keepDlg == null || !keepDlg.isShowing()) return;
+        if (appCtx != null && battIgnored(appCtx)) { dismissKeep(); return; }
+        if (++keepPoll < 40) UI.postDelayed(this, 500);   // ~20 s max
+    }};
+
+    static void dismissKeep() {
+        if (keepDlg != null) { try { keepDlg.dismiss(); } catch (Throwable ig) {} }
+        keepDlg = null;
+        if (activeDlg != null && !activeDlg.isShowing()) activeDlg = null;
+    }
     private static android.app.Dialog installDlg, installResultDlg;   // chain guard for the permission dialog
 
     static boolean a11yEnabled(Context c) {
@@ -198,12 +221,24 @@ public class MainActivity extends Activity {
         if (!battIgnored(a)) requestBatt(a);
     }
 
-    static void permResume(Activity a) { }   // kept for the resume hook; no permission chain any more
+    static void permResume(Activity a) {   // returning from the battery screen: close the prompt once granted
+        if (a == null) return;
+        final Context app = a.getApplicationContext();
+        appCtx = app;
+        if (keepDlg == null) return;
+        if (battIgnored(app)) { dismissKeep(); return; }
+        for (final int d : new int[]{400, 900, 1600}) {   // slow system write: re-check a few times
+            UI.postDelayed(new Runnable() { public void run() {
+                if (keepDlg != null && battIgnored(app)) dismissKeep();
+            }}, d);
+        }
+    }
 
     /** recommended keep-alive permission; only after storage/install dialogs are gone */
     static void permFlow(final Activity a) {
         if (a == null || a.isFinishing()) return;
         if (battIgnored(a)) return;
+        if (dlgBusy() || installing) return;          // one app dialog at a time; install chain first
         if (permDlg != null && permDlg.isShowing()) return;          // chain: storage -> install -> permissions
         if (installDlg != null && installDlg.isShowing()) return;
         if (installResultDlg != null && installResultDlg.isShowing()) return;
@@ -240,7 +275,12 @@ public class MainActivity extends Activity {
             }});
             self[0] = winDlgX(a, L.s("keepTitle"), b);   // ✕ top-right in the navy title bar
             keepDlg = self[0];
+            activeDlg = keepDlg;
+            appCtx = a.getApplicationContext();
             keepDlg.show();
+            keepPoll = 0;
+            UI.removeCallbacks(keepPollTick);
+            UI.postDelayed(keepPollTick, 500);
         } catch (Throwable t) { say("permFlow " + t); }
     }
 
@@ -261,6 +301,8 @@ public class MainActivity extends Activity {
 
     /** win98 progress dialog; incremental install — only missing files are written */
     public static void showInstall(final Activity a) {
+        if (installing) return;   // never start a second install/result dialog
+        installing = true;
         android.widget.LinearLayout b = new android.widget.LinearLayout(a);
         b.setOrientation(android.widget.LinearLayout.VERTICAL);
         TextView msg = new TextView(a);
@@ -273,8 +315,10 @@ public class MainActivity extends Activity {
         final android.app.Dialog dlg = winDlg(a, "OpenFilm6K", b);
         installDlg = dlg;
         dlg.setCancelable(false);
+        activeDlg = dlg;
         dlg.show();
         final android.app.Dialog[] resDlg = new android.app.Dialog[1];
+        final boolean[] done = {false};   // Server.installAssets.onDone must only produce one result dialog
         new Thread(new Runnable() { public void run() {
             try { Server.get().startForInstall(a.getApplicationContext()); } catch (Throwable ig) {}
             Server.installAssets(new Server.InstallReporter() {
@@ -282,6 +326,8 @@ public class MainActivity extends Activity {
                     a.runOnUiThread(new Runnable() { public void run() { pb.setMax(Math.max(1, total)); pb.setProgress(done); } });
                 }
                 public void onDone(final int copied, final String error) {
+                    if (done[0]) return;
+                    done[0] = true;
                     a.runOnUiThread(new Runnable() { public void run() {
                         try { dlg.dismiss(); } catch (Throwable ig) {}
                         installDlg = null;
@@ -299,20 +345,32 @@ public class MainActivity extends Activity {
                         android.widget.Button ok = new android.widget.Button(a);
                         Ux.styleButton(ok); ok.setText(L.s("btnOk"));
                         ok.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) {
-                            try { resDlg[0].dismiss(); } catch (Throwable ig) {}
-                            installResultDlg = null;
-                            if (copied > 0 && a instanceof EditorActivity)
-                                ((EditorActivity) a).recreate();   // the editor was built before the data existed — rebuild everything
-                            else permFlow(a);                      // chain: install done -> permissions
+                            try { resDlg[0].dismiss(); } catch (Throwable ig) {}   // cleanup happens once in onDismiss
                         }});
                         android.widget.LinearLayout row = new android.widget.LinearLayout(a);
                         row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
                         row.setGravity(android.view.Gravity.RIGHT);
                         row.addView(ok);
                         rb.addView(row);
-                        resDlg[0] = winDlg(a, copied >= 0 ? "OpenFilm6K" : L.s("installFail"), rb);
-                        installResultDlg = resDlg[0];
-                        resDlg[0].show();
+                        final android.app.Dialog res = winDlg(a, copied >= 0 ? "OpenFilm6K" : L.s("installFail"), rb);
+                        resDlg[0] = res;
+                        installResultDlg = res;
+                        activeDlg = res;
+                        res.setCancelable(false);   // only OK ends the install phase
+                        final boolean[] finished = {false};
+                        res.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+                            public void onDismiss(android.content.DialogInterface d) {
+                                if (activeDlg == res) activeDlg = null;
+                                if (finished[0]) return;
+                                finished[0] = true;
+                                installResultDlg = null;
+                                installing = false;            // cleared exactly once, on dismissal
+                                if (copied > 0 && a instanceof EditorActivity)
+                                    ((EditorActivity) a).recreate();   // rebuild after the data existed
+                                else permFlow(a);                      // chain: install done -> permissions
+                            }
+                        });
+                        res.show();
                     } });
                 }
             });
