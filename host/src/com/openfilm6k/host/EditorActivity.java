@@ -431,6 +431,7 @@ public class EditorActivity extends Activity {
         super.onCreate(b);
         L.init(this);   // resolve saved/system language before any UI is built
         MainActivity.firstRunFlow(this);   // EditorActivity IS the launcher: permission + first data install
+        MainActivity.permFlow(this);       // keep-alive recommendations (accessibility + battery whitelist)
         hadStorage = MainActivity.storageGranted(this);   // remember the permission state we loaded the data under
         startForegroundService(new android.content.Intent(this, HostService.class));   // engine init entry (Editor may be the launch activity)
         SpyWatcher.sync(getApplicationContext());   // resume spy watching if the flag survived
@@ -1674,6 +1675,7 @@ public class EditorActivity extends Activity {
     /** delete-film confirm: win98 message box — warning icon + text + buttons (same chrome as settings) */
     private void showDelFilm(final String n) {
         final android.app.Dialog dlg = new android.app.Dialog(this);
+        dlg.setCanceledOnTouchOutside(false);
         dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -1745,6 +1747,7 @@ public class EditorActivity extends Activity {
     /** new-film dialog: name + blank/copy-of-current choice, win98 chrome identical to the settings dialog */
     private void showNewFilm() {
         final android.app.Dialog dlg = new android.app.Dialog(this);
+        dlg.setCanceledOnTouchOutside(false);
         dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -1916,6 +1919,12 @@ public class EditorActivity extends Activity {
             return;
         }
         MainActivity.firstRunFlow(this);   // re-check after returning from the permission screen
+        MainActivity.permResume(this);     // continue the keep-alive chain (battery after accessibility)
+        MainActivity.permFlow(this);       // chain: show after storage/install dialogs are gone
+        if (settingsDlg != null && settingsDlg.isShowing()) {   // returning from a system settings screen: refresh statuses
+            try { settingsDlg.dismiss(); } catch (Throwable ig) {}
+            showSettings();
+        }
         refreshSpyBtn();                   // storage may have been granted/revoked while away: re-render
     }
 
@@ -1936,6 +1945,7 @@ public class EditorActivity extends Activity {
 
     private void showSettings() {
         final android.app.Dialog dlg = new android.app.Dialog(this);
+        dlg.setCanceledOnTouchOutside(false);
         settingsDlg = dlg;
         dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
         LinearLayout box = new LinearLayout(this);
@@ -1985,7 +1995,7 @@ public class EditorActivity extends Activity {
         ll3.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
         lg.addView(lgl, ll3);
         addGroup(body, lg);
-        // data group: incremental reinstall of the bundled film library (never clears anything)
+        // data & permissions group: incremental reinstall + one-tap keep-alive permissions
         android.widget.FrameLayout rg = new android.widget.FrameLayout(this);
         android.widget.LinearLayout rgi = new android.widget.LinearLayout(this);
         rgi.setOrientation(LinearLayout.HORIZONTAL);
@@ -1999,11 +2009,25 @@ public class EditorActivity extends Activity {
             MainActivity.showInstall(EditorActivity.this);
         }});
         rgi.addView(rbtn, new LinearLayout.LayoutParams(-2, Ux.dp(38)));
+        rgi.addView(new android.view.View(this), new LinearLayout.LayoutParams(0, Ux.dp(1), 1f));   // push the permission pair right
+        if (!MainActivity.permsOk(this)) {
+            TextView warn = new TextView(this);   // shown only while either permission is missing
+            warn.setText("⚠");
+            warn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(18));
+            warn.setTextColor(0xFFFF9500);
+            rgi.addView(warn, new LinearLayout.LayoutParams(-2, -2));
+        }
+        Button grant = new Button(this);
+        Ux.styleButton(grant); grant.setText(L.s("keepGrant"));
+        grant.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { MainActivity.requestAll(EditorActivity.this); }});
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-2, Ux.dp(38));
+        glp.leftMargin = Ux.dp(6);
+        rgi.addView(grant, glp);
         android.widget.FrameLayout.LayoutParams rl2 = new android.widget.FrameLayout.LayoutParams(-1, -2);
         rl2.topMargin = Ux.dp(10);
         rg.addView(rgi, rl2);
         TextView rgl = new TextView(this);
-        rgl.setText(L.s("reinstallData"));
+        rgl.setText(L.s("dataPerms"));
         Ux.styleHeader(rgl);
         android.widget.FrameLayout.LayoutParams rll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         rll.leftMargin = Ux.dp(10);
@@ -2108,6 +2132,7 @@ public class EditorActivity extends Activity {
     // ---- spy mode dialog (监视模式): master switch + film/stamp pickers + watched dirs ----
     private void showSpy() {
         final android.app.Dialog dlg = new android.app.Dialog(this);
+        dlg.setCanceledOnTouchOutside(false);
         spyDlg = dlg;
         dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
         final android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);

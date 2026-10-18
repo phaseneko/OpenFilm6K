@@ -1,6 +1,7 @@
 package com.openfilm6k.host;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.widget.TextView;
@@ -51,7 +52,17 @@ public class MainActivity extends Activity {
 
     /** win98 dialog chrome: raised bevel frame + navy recessed title bar, matching the editor */
     static android.app.Dialog winDlg(Activity a, String title, android.view.View body) {
+        return winDlg(a, title, body, false);
+    }
+
+    /** same chrome with a ✕ in the title bar (permission dialog) */
+    static android.app.Dialog winDlgX(Activity a, String title, android.view.View body) {
+        return winDlg(a, title, body, true);
+    }
+
+    static android.app.Dialog winDlg(final Activity a, String title, android.view.View body, boolean close) {
         final android.app.Dialog dlg = new android.app.Dialog(a);
+        dlg.setCanceledOnTouchOutside(false);   // no dialog may be dismissed by tapping outside
         dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
         dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));   // kill the system's rounded dialog backdrop: the window takes the square frame98 shape
         android.widget.LinearLayout box = new android.widget.LinearLayout(a);
@@ -66,7 +77,21 @@ public class MainActivity extends Activity {
         t.setText(title); t.setTextColor(0xFFFFFFFF);
         t.setTypeface(android.graphics.Typeface.create("sans-serif-bold", 0));
         t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14)); t.setPadding(Ux.dp(8), Ux.dp(4), Ux.dp(8), Ux.dp(4));
-        bar.addView(t);
+        if (close) {
+            android.widget.LinearLayout trow = new android.widget.LinearLayout(a);
+            trow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            trow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            trow.addView(t, new android.widget.LinearLayout.LayoutParams(0, -2, 1f));
+            android.widget.Button x = new android.widget.Button(a); x.setText("✕"); Ux.styleButton(x);
+            x.setMinWidth(0); x.setMinimumWidth(0); x.setPadding(0, 0, Ux.dp(4), Ux.dp(4));
+            x.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) {
+                try { dlg.dismiss(); } catch (Throwable ig) {}
+            }});
+            trow.addView(x, new android.widget.LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34)));
+            bar.addView(trow, new android.widget.LinearLayout.LayoutParams(-1, -2));
+        } else {
+            bar.addView(t);
+        }
         android.widget.LinearLayout bodyWrap = new android.widget.LinearLayout(a);
         bodyWrap.setOrientation(android.widget.LinearLayout.VERTICAL);
         bodyWrap.setBackgroundColor(Ux.FACE);
@@ -105,6 +130,130 @@ public class MainActivity extends Activity {
         if (filmsMissing() || Server.versionNeedsInstall(a)) showInstall(a);   // first run or a new APK version: restate official data
     }
 
+    // ---- keep-alive onboarding: accessibility service + battery whitelist ----
+
+    private static boolean chainBatt = false;
+    private static android.app.Dialog keepDlg;
+    private static android.app.Dialog installDlg, installResultDlg;   // chain guard for the permission dialog
+
+    static boolean a11yEnabled(Context c) {
+        try {
+            android.view.accessibility.AccessibilityManager am =
+                    (android.view.accessibility.AccessibilityManager) c.getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if (am == null) return false;
+            java.util.List<android.accessibilityservice.AccessibilityServiceInfo> l =
+                    am.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
+            String want = new android.content.ComponentName(c, HostAccessibility.class).flattenToString();
+            for (android.accessibilityservice.AccessibilityServiceInfo i : l) {
+                if (i == null) continue;
+                String id = i.getId();
+                if (id != null && (id.equals(want)
+                        || id.equals("com.openfilm6k.host/com.openfilm6k.host.HostAccessibility"))) return true;
+                android.content.pm.ResolveInfo ri = i.getResolveInfo();
+                if (ri != null && ri.serviceInfo != null
+                        && c.getPackageName().equals(ri.serviceInfo.packageName)
+                        && HostAccessibility.class.getName().equals(ri.serviceInfo.name)) return true;
+            }
+        } catch (Throwable t) {}
+        return false;
+    }
+
+    static boolean battIgnored(Context c) {
+        if (android.os.Build.VERSION.SDK_INT < 23) return true;
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) c.getSystemService(Context.POWER_SERVICE);
+            return pm != null && pm.isIgnoringBatteryOptimizations(c.getPackageName());
+        } catch (Throwable t) { return false; }
+    }
+
+    static void requestA11y(Activity a) {
+        if (a == null) return;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                android.content.Intent i = new android.content.Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS");
+                i.putExtra(android.content.Intent.EXTRA_COMPONENT_NAME,
+                        new android.content.ComponentName(a, HostAccessibility.class).flattenToString());
+                a.startActivity(i);
+                return;
+            }
+        } catch (Throwable t) {}
+        try { a.startActivity(new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); }
+        catch (Throwable t) { toast("a11y settings: " + t); }
+    }
+
+    static void requestBatt(Activity a) {
+        if (a == null) return;
+        try {
+            android.content.Intent i = new android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            i.setData(android.net.Uri.parse("package:" + a.getPackageName()));
+            a.startActivity(i);
+            return;
+        } catch (Throwable t) {}
+        try { a.startActivity(new android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); }
+        catch (Throwable t) { toast("battery settings: " + t); }
+    }
+
+    /** grant what is missing; the battery screen follows the accessibility screen via permResume */
+    static void requestAll(Activity a) {
+        if (a == null) return;
+        if (!a11yEnabled(a)) { chainBatt = true; requestA11y(a); }
+        else if (!battIgnored(a)) requestBatt(a);
+    }
+
+    static void permResume(Activity a) {
+        if (chainBatt) {
+            chainBatt = false;
+            if (!battIgnored(a)) requestBatt(a);
+        }
+    }
+
+    /** one-time (until dismissed for good) win98 dialog explaining the two keep-alive permissions */
+    static boolean permsOk(Context c) { return a11yEnabled(c) && battIgnored(c); }
+
+    /** recommended keep-alive permissions; only after storage/install dialogs are gone */
+    static void permFlow(final Activity a) {
+        if (a == null || a.isFinishing()) return;
+        if (permsOk(a)) return;
+        if (permDlg != null && permDlg.isShowing()) return;          // chain: storage -> install -> permissions
+        if (installDlg != null && installDlg.isShowing()) return;
+        if (installResultDlg != null && installResultDlg.isShowing()) return;
+        if (keepDlg != null && keepDlg.isShowing()) return;          // never stack
+        try {
+            android.widget.LinearLayout b = new android.widget.LinearLayout(a);
+            b.setOrientation(android.widget.LinearLayout.VERTICAL);
+            TextView msg = new TextView(a);
+            msg.setText(L.s("keepMsg"));
+            msg.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
+            msg.setTextColor(Ux.TXT);
+            b.addView(msg);
+            android.widget.Button later = new android.widget.Button(a);
+            Ux.styleButton(later); later.setText(L.s("keepLater"));
+            android.widget.Button grant = new android.widget.Button(a);
+            Ux.styleButton(grant); grant.setText(L.s("keepGrant"));
+            android.widget.LinearLayout row = new android.widget.LinearLayout(a);
+            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.RIGHT);
+            android.widget.LinearLayout.LayoutParams rlp = new android.widget.LinearLayout.LayoutParams(-1, -2);
+            rlp.topMargin = Ux.dp(12);
+            android.widget.LinearLayout.LayoutParams blp = new android.widget.LinearLayout.LayoutParams(-2, -2);
+            blp.leftMargin = Ux.dp(8);
+            row.addView(later);
+            row.addView(grant, blp);
+            b.addView(row, rlp);
+            final android.app.Dialog[] self = new android.app.Dialog[1];
+            later.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) {
+                try { self[0].dismiss(); } catch (Throwable ig) {}
+            }});
+            grant.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) {
+                try { self[0].dismiss(); } catch (Throwable ig) {}
+                requestAll(a);
+            }});
+            self[0] = winDlgX(a, L.s("keepTitle"), b);   // ✕ top-right in the navy title bar
+            keepDlg = self[0];
+            keepDlg.show();
+        } catch (Throwable t) { say("permFlow " + t); }
+    }
+
     /** request storage access: API<30 runtime grant, API30+ the All-Files-Access settings screen (with fallback) */
     static void requestStorage(Activity a) {
         if (a == null) return;
@@ -132,6 +281,7 @@ public class MainActivity extends Activity {
         b.addView(msg);
         b.addView(pb, new android.widget.LinearLayout.LayoutParams(-1, Ux.dp(18)));
         final android.app.Dialog dlg = winDlg(a, "OpenFilm6K", b);
+        installDlg = dlg;
         dlg.setCancelable(false);
         dlg.show();
         final android.app.Dialog[] resDlg = new android.app.Dialog[1];
@@ -144,6 +294,7 @@ public class MainActivity extends Activity {
                 public void onDone(final int copied, final String error) {
                     a.runOnUiThread(new Runnable() { public void run() {
                         try { dlg.dismiss(); } catch (Throwable ig) {}
+                        installDlg = null;
                         // result dialog: success count or the full error log for debugging
                         android.widget.LinearLayout rb = new android.widget.LinearLayout(a);
                         rb.setOrientation(android.widget.LinearLayout.VERTICAL);
@@ -159,8 +310,10 @@ public class MainActivity extends Activity {
                         Ux.styleButton(ok); ok.setText(L.s("btnOk"));
                         ok.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) {
                             try { resDlg[0].dismiss(); } catch (Throwable ig) {}
+                            installResultDlg = null;
                             if (copied > 0 && a instanceof EditorActivity)
                                 ((EditorActivity) a).recreate();   // the editor was built before the data existed — rebuild everything
+                            else permFlow(a);                      // chain: install done -> permissions
                         }});
                         android.widget.LinearLayout row = new android.widget.LinearLayout(a);
                         row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
@@ -168,6 +321,7 @@ public class MainActivity extends Activity {
                         row.addView(ok);
                         rb.addView(row);
                         resDlg[0] = winDlg(a, copied >= 0 ? "OpenFilm6K" : L.s("installFail"), rb);
+                        installResultDlg = resDlg[0];
                         resDlg[0].show();
                     } });
                 }
