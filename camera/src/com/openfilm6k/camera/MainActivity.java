@@ -69,8 +69,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     static final KeyMap KM_RX100 = new KeyMap(
             103, 108, 105, 106, 232, 514, 532, 622, 595, 0, 0, 520,
             516, 518, 595, 207,
-            528, 529, 525, 526, 0, 0,
-            new int[]{522, 523}, 0, false);
+            525, 526, 0, 0, 0, 0,
+            new int[]{}, 0, false);
     // A7 II (ILCE-7M2): 波轮(控制轮)=634/635, 后转盘=528/529, 前转盘=525/526,
     //                   C1=622 C2=623 C3=588 C4=595, AEL/AF/MF=638
     static final KeyMap KM_A7M2 = new KeyMap(
@@ -1119,6 +1119,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private String wantFilm = "";                // persisted selected film (by NAME; index is unstable)
     private volatile boolean afCancel = false;   // S1 released mid-focus -> suppress the cancel callback's "focus ✗"
     private volatile boolean shooting = false;   // S2 held (capture in progress): don't cancel focus on S1 up
+    private int zoomDir = 0;   // 0 = not zooming (RX100 lever)
+    private final Runnable zoomStopRunnable = new Runnable() { public void run() {
+        if (zoomDir != 0) { zoomDir = 0; rig.zoomStop(); Logger.log("zoom: stop"); }
+    }};
 
     // ---- empty-card setup: one shot identifies the body (no photos on the card + no cached model) ----
     private static final String PK_KM = "km_model";
@@ -1501,6 +1505,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onPause();
         savePrefs();
         clearGhost();
+        handler.removeCallbacks(zoomStopRunnable);
+        if (zoomDir != 0) { zoomDir = 0; rig.zoomStop(); }
         rig.release();
     }
 
@@ -2680,11 +2686,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             }
             return true;                       // consume: no capture / menu changes
         }
-        if (km == KM_RX100 && (scan == 610 || scan == 611)) {   // RX100 zoom lever: T=610 tele, W=611 wide
+        if (km == KM_RX100 && (scan == 610 || scan == 611)) {   // RX100 zoom lever: W=611 wide(1), T=610 tele(2)
+            int d = (scan == 611) ? 1 : 2;
             if (e.getAction() == KeyEvent.ACTION_DOWN) {
-                if (e.getRepeatCount() == 0) rig.zoomStart(scan == 610 ? 1 : -1);
+                handler.removeCallbacks(zoomStopRunnable);
+                if (zoomDir != d) { zoomDir = d; rig.zoomStart(d); }
             } else if (e.getAction() == KeyEvent.ACTION_UP) {
-                rig.zoomStop();
+                handler.removeCallbacks(zoomStopRunnable);
+                handler.postDelayed(zoomStopRunnable, 200);   // hold = continuous zoom, release = stop after 200 ms
             }
             return true;
         }
