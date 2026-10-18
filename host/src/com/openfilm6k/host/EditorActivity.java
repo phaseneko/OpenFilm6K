@@ -1999,7 +1999,7 @@ public class EditorActivity extends Activity {
         android.widget.FrameLayout rg = new android.widget.FrameLayout(this);
         android.widget.LinearLayout rgi = new android.widget.LinearLayout(this);
         rgi.setOrientation(LinearLayout.HORIZONTAL);
-        rgi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        rgi.setGravity(android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL);
         rgi.setBackground(new Ux.Etched());
         rgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
         Button rbtn = new Button(this);
@@ -2009,19 +2009,17 @@ public class EditorActivity extends Activity {
             MainActivity.showInstall(EditorActivity.this);
         }});
         rgi.addView(rbtn, new LinearLayout.LayoutParams(-2, Ux.dp(38)));
-        rgi.addView(new android.view.View(this), new LinearLayout.LayoutParams(0, Ux.dp(1), 1f));   // push the permission pair right
-        if (!MainActivity.permsOk(this)) {
-            TextView warn = new TextView(this);   // shown only while either permission is missing
-            warn.setText("⚠");
-            warn.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(18));
-            warn.setTextColor(0xFFFF9500);
-            rgi.addView(warn, new LinearLayout.LayoutParams(-2, -2));
-        }
         Button grant = new Button(this);
         Ux.styleButton(grant); grant.setText(L.s("keepGrant"));
+        if (!MainActivity.permsOk(this)) {   // same warning icon as spy mode, on the grant button itself
+            grant.setCompoundDrawablesWithIntrinsicBounds(Ux.warn98(this), null, null, null);
+            grant.setCompoundDrawablePadding(Ux.dp(4));
+        } else {
+            grant.setCompoundDrawablesWithIntrinsicBounds(null, null, null, null);
+        }
         grant.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { MainActivity.requestAll(EditorActivity.this); }});
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-2, Ux.dp(38));
-        glp.leftMargin = Ux.dp(6);
+        glp.leftMargin = Ux.dp(8);
         rgi.addView(grant, glp);
         android.widget.FrameLayout.LayoutParams rl2 = new android.widget.FrameLayout.LayoutParams(-1, -2);
         rl2.topMargin = Ux.dp(10);
