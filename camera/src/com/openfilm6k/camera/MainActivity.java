@@ -1119,9 +1119,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private String wantFilm = "";                // persisted selected film (by NAME; index is unstable)
     private volatile boolean afCancel = false;   // S1 released mid-focus -> suppress the cancel callback's "focus ✗"
     private volatile boolean shooting = false;   // S2 held (capture in progress): don't cancel focus on S1 up
-    private int zoomDir = 0;   // 0 = not zooming (RX100 lever)
+    private int zoomDir = -1;  // -1 = not zooming (0 is a real TELE direction)
     private final Runnable zoomStopRunnable = new Runnable() { public void run() {
-        if (zoomDir != 0) { zoomDir = 0; rig.zoomStop(); Logger.log("zoom: stop"); }
+        if (zoomDir != -1) { zoomDir = -1; rig.zoomStop(); Logger.log("zoom: stop"); }
     }};
 
     // ---- empty-card setup: one shot identifies the body (no photos on the card + no cached model) ----
@@ -1506,7 +1506,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         savePrefs();
         clearGhost();
         handler.removeCallbacks(zoomStopRunnable);
-        if (zoomDir != 0) { zoomDir = 0; rig.zoomStop(); }
+        if (zoomDir != -1) { zoomDir = -1; rig.zoomStop(); }
         rig.release();
     }
 
