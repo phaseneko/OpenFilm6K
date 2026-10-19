@@ -1497,6 +1497,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     protected void onPause() {
         long t0 = System.currentTimeMillis();
         Logger.log("lifecycle: pause");
+        if (km == KM_RX100) {   // power-off experiment: let Wi-Fi go before releasing
+            try {
+                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getSystemService("wifi");
+                if (wm != null && wm.isWifiEnabled()) {
+                    Logger.log("poweroff: wifi off");
+                    wm.setWifiEnabled(false);
+                }
+            } catch (Throwable t) { Logger.log("poweroff: wifi off EX " + t); }
+        }
         try { rig.release(); } catch (Throwable t) {}   // release the camera FIRST (slow FUSE writes below)
         Logger.log("lifecycle: released in " + (System.currentTimeMillis() - t0) + "ms");
         super.onPause();
