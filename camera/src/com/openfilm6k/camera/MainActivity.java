@@ -1506,19 +1506,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override
     protected void onPause() {
+        long t0 = System.currentTimeMillis();
         Logger.log("lifecycle: pause");
+        try { rig.release(); } catch (Throwable t) {}   // release the camera FIRST (slow FUSE writes below)
+        Logger.log("lifecycle: released in " + (System.currentTimeMillis() - t0) + "ms");
         super.onPause();
         savePrefs();
         clearGhost();
         handler.removeCallbacks(zoomStopRunnable);
         if (zoomDir != -1) { zoomDir = -1; rig.zoomStop(); }
-        rig.release();
+        Logger.log("lifecycle: pause done in " + (System.currentTimeMillis() - t0) + "ms");
     }
 
     @Override
     protected void onStop() {
+        long t0 = System.currentTimeMillis();
         Logger.log("lifecycle: stop");
         try { rig.release(); } catch (Throwable t) {}
+        Logger.log("lifecycle: released in stop " + (System.currentTimeMillis() - t0) + "ms");
         super.onStop();
     }
 
