@@ -115,7 +115,8 @@ exposure. Exposure = shutter / aperture / ISO, e.g. `1/60 F2.8 ISO400`.
   and no AEL / C1 / C3 / C4, so focus-area adjust, screen-lock and the C1
   favourite mode are unavailable; the delete key acts as C2 and the W/T lever
   drives the optical zoom. Keep the still format at JPEG (RAW is not supported;
-  the app switches it back automatically).
+  the app switches it back automatically for itself and does not change the
+  camera's own setting).
 - `MOVIE` is consumed by the camera firmware before the app sees it.
 
 ### Film browser (FN)
