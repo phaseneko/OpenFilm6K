@@ -822,7 +822,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 final int phw = (km == KM_RX100) ? (int) Math.ceil(w * 2f / 3f) : h;   // RX100 preview is 3:2, top-aligned
                 float bar = phw * (1f - 1.5f / 2.7f) * 0.5f;   // native 3:2 -> 2.7:1
                 cv.drawRect(0, 0, w, bar, wp);
-                cv.drawRect(0, phw - bar, w, phw, wp);
+                final int over = (km == KM_RX100) ? 4 : 0;   // overlap the real preview bottom (already black)
+                cv.drawRect(0, phw - bar, w, phw + over, wp);
             }
             if (pairDisp >= 0 && pairBlink) {       // H/2: blinking "[ 1 ]" / "[ 2 ]" frame counter (brackets rotated 90 deg)
                 android.graphics.Paint pp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
