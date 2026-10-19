@@ -819,7 +819,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (wideMask) {                         // W (wide 2.7:1): black out the top/bottom bands inside the visible preview
                 android.graphics.Paint wp = new android.graphics.Paint();
                 wp.setColor(0xFF000000);
-                final int phw = (km == KM_RX100) ? (int) (w * 2f / 3f) : h;   // RX100 preview is 3:2, top-aligned
+                final int phw = (km == KM_RX100) ? (int) Math.ceil(w * 2f / 3f) : h;   // RX100 preview is 3:2, top-aligned
                 float bar = phw * (1f - 1.5f / 2.7f) * 0.5f;   // native 3:2 -> 2.7:1
                 cv.drawRect(0, 0, w, bar, wp);
                 cv.drawRect(0, phw - bar, w, phw, wp);
@@ -880,7 +880,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 String mt = "AF " + (afDisp.length() > 0 ? afDisp : afMode.toUpperCase());
                 cv.drawText(mt, (w - mp2.measureText(mt)) / 2f, (h / 19f) * 1.6f, mp2);
             }
-            final int ph = (km == KM_RX100) ? (int) (w * 2f / 3f) : h;   // RX100 preview is 3:2, top-aligned
+            final int ph = (km == KM_RX100) ? (int) Math.ceil(w * 2f / 3f) : h;   // RX100 preview is 3:2, top-aligned
             int ccx = w / 2 + (int) (spotX * (w / 2f) / 1000f), ccy = ph / 2 + (int) (spotY * (ph / 2f) / 1000f);
             if (!showRect) { cv.drawText("+", ccx - ap.measureText("+") / 2f, ccy + base * 0.32f, ap); }
             else {
