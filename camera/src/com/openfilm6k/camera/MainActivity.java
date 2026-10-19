@@ -1403,6 +1403,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             evMax = p.getMaxExposureCompensation();
             ev = p.getExposureCompensation();
             rig.syncFocusMode(p);
+            rig.probeCloseApis();
             int[] spt = CameraRig.readSystemSpot(p);            // adopt the system focus point position
             if (spt != null) { rig.adoptSpot(spt[0], spt[1]); spotX = spt[0]; spotY = spt[1]; Logger.log("sys spot " + spt[0] + "," + spt[1]); }
             else Logger.log("sys spot: unavailable");
@@ -2699,8 +2700,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
-        if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0)
-            Logger.log("rawkey scan=" + e.getScanCode() + " code=" + e.getKeyCode());
+        Logger.log("keyev act=" + e.getAction() + " scan=" + e.getScanCode() + " code=" + e.getKeyCode() + " rep=" + e.getRepeatCount());
         if (capDim) {                 // screen locked (manual): first press wakes — FIRST so nothing can trap the keys
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) capWake();
             return true;

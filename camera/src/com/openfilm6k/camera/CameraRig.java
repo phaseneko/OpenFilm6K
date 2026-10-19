@@ -30,6 +30,7 @@ final class CameraRig {
     }
 
     void release() {
+        Logger.log("rig: release");
         try {
             if (camera != null) camera.stopPreview();
             if (cameraEx != null) cxClass.getMethod("release").invoke(cameraEx);
@@ -38,6 +39,7 @@ final class CameraRig {
         }
         cameraEx = null;
         camera = null;
+        Logger.log("rig: released");
     }
 
     Camera camera() { return camera; }
@@ -348,6 +350,36 @@ final class CameraRig {
             if (cameraEx == null || cxClass == null) return;
             cxClass.getMethod("stopZoom").invoke(cameraEx);
         } catch (Throwable t) { Logger.log("zoom: stop EX " + t); }
+    }
+
+    /** diagnostics: Sony methods that might close/suspend the camera for power-off */
+    void probeCloseApis() {
+        try {
+            java.util.HashSet<String> seen = new java.util.HashSet<String>();
+            dumpClose(cxClass, seen);
+            if (cameraEx != null) dumpClose(cameraEx.getClass(), seen);
+        } catch (Throwable t) { Logger.log("CLS EX " + t); }
+    }
+
+    private static void dumpClose(Class<?> c, java.util.HashSet<String> seen) {
+        if (c == null) return;
+        for (java.lang.reflect.Method m : c.getMethods()) {
+            String n = m.getName().toLowerCase();
+            if (!(n.contains("close") || n.contains("exit") || n.contains("power") || n.contains("shutdown")
+                    || n.contains("suspend") || n.contains("release") || n.contains("open"))) continue;
+            String sig = m.getName() + "(" + dtypes(m.getParameterTypes()) + ")";
+            if (seen.add(sig)) Logger.log("CLS " + sig);
+        }
+    }
+
+    private static String dtypes(Class<?>[] ts) {
+        if (ts == null || ts.length == 0) return "";
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < ts.length; i++) {
+            if (i > 0) b.append(',');
+            b.append(ts[i] == null ? "?" : ts[i].getSimpleName());
+        }
+        return b.toString();
     }
 
     void pushSpot() {
