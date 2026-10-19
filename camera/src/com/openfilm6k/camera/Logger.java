@@ -2,7 +2,9 @@ package com.openfilm6k.camera;
 
 import android.os.Environment;
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileWriter;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /** the camera has no logcat we can reach — log to the SD card, read via USB.
@@ -15,7 +17,6 @@ public final class Logger {
     private static final LinkedBlockingQueue<String> Q = new LinkedBlockingQueue<String>();
     private static volatile boolean started = false;
     private static volatile boolean busy = false;   // writer thread is in the middle of a disk write
-    private static final boolean NO_SD = true;      // power-off experiment: no SD-card writes at all
 
     // in-memory ring: the on-camera log viewer reads this without touching the SD card
     private static final int RING = 400;
@@ -46,7 +47,7 @@ public final class Logger {
 
     /** the last lines of the on-disk log — the memory ring is empty after a crash+restart */
     public static String[] fileTail(int max) {
-        if (max <= 0 || NO_SD) return new String[0];
+        if (max <= 0) return new String[0];
         java.io.RandomAccessFile raf = null;
         try {
             File f = file();
@@ -99,6 +100,23 @@ public final class Logger {
         return new File(Environment.getExternalStorageDirectory(), "LOG.TXT");
     }
 
+    private static boolean under(File f, File dir) {
+        try {
+            String a = f.getCanonicalPath(), b = dir.getCanonicalPath();
+            return a.equals(b) || a.startsWith(b + File.separator);
+        } catch (Throwable t) {
+            return f.getAbsolutePath().startsWith(dir.getAbsolutePath());
+        }
+    }
+
+    /** append one batch; never creates directories */
+    private static void writeBatch(File f, String text) throws java.io.IOException {
+        File p = f.getParentFile();
+        if (p == null || !p.isDirectory()) throw new java.io.IOException("no dir: " + p);
+        BufferedWriter w = new BufferedWriter(new FileWriter(f, true));
+        try { w.append(text); w.newLine(); } finally { w.close(); }
+    }
+
     private static void start() {
         if (started) return;
         started = true;
@@ -106,8 +124,22 @@ public final class Logger {
             public void run() {
                 while (true) {
                     try {
-                        Q.take();
-                        while (!Q.isEmpty()) Q.poll();   // power-off experiment: no SD-card writes
+                        String m = Q.take();
+                        busy = true;
+                        try {
+                            StringBuilder sb = new StringBuilder(m);
+                            while (!Q.isEmpty()) sb.append('\n').append(Q.poll());
+                            File f = file();
+                            try {
+                                writeBatch(f, sb.toString());
+                            } catch (Throwable inner) {
+                                File pd = privateDir;
+                                if (pd != null && !under(f, pd)) {   // root not writable: switch once, retry the same batch
+                                    chosen = new File(pd, "LOG.TXT");
+                                    try { writeBatch(chosen, sb.toString()); } catch (Throwable inner2) { }
+                                }
+                            }
+                        } finally { busy = false; }
                     } catch (Throwable t2) {}
                 }
             }
