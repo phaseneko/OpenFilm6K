@@ -251,11 +251,9 @@ final class CameraRig {
     }
     /** adopt the firmware's current focus area mode (called at camera open) */
     void syncFocusMode(android.hardware.Camera.Parameters p) {
-        String note = "";
         try {
             String cur = p.get("focus-area-type");        // param-table source of truth
             if (cur == null) cur = (String) modifier(p).getClass().getMethod("getFocusAreaMode").invoke(modifier(p));
-            note = "ok: " + cur;
             Logger.log("sys focus-area-type: " + cur);
             userSetFam = false;
             if (cur != null) {
@@ -268,14 +266,7 @@ final class CameraRig {
                 for (String kv : p.flatten().split(";"))
                     if (kv.toLowerCase().contains("focus")) Logger.log("P " + kv);
             } catch (Throwable ig) {}
-        } catch (Throwable t) { note = "EX: " + t; Logger.log("syncFocusMode: " + t); }
-        try { java.io.FileWriter fw = new java.io.FileWriter("/sdcard/OpenFilm6K/focusmode.txt", true);
-              fw.write(note + "\n"); fw.close();
-        } catch (Throwable ig) {
-            Logger.log("fm write: " + ig);
-            try { java.io.FileWriter fw2 = new java.io.FileWriter("/sdcard/OpenFilm6K/fm_err.txt", true);
-                  fw2.write(ig + "\n"); fw2.close(); } catch (Throwable ig2) {}
-        }
+        } catch (Throwable t) { Logger.log("syncFocusMode: " + t); }
     }
 
     /** the Sony still-storage format (RAW/JPEG), null when unavailable */
@@ -354,36 +345,6 @@ final class CameraRig {
             if (cameraEx == null || cxClass == null) return;
             cxClass.getMethod("stopZoom").invoke(cameraEx);
         } catch (Throwable t) { Logger.log("zoom: stop EX " + t); }
-    }
-
-    /** diagnostics: Sony methods that might close/suspend the camera for power-off */
-    void probeCloseApis() {
-        try {
-            java.util.HashSet<String> seen = new java.util.HashSet<String>();
-            dumpClose(cxClass, seen);
-            if (cameraEx != null) dumpClose(cameraEx.getClass(), seen);
-        } catch (Throwable t) { Logger.log("CLS EX " + t); }
-    }
-
-    private static void dumpClose(Class<?> c, java.util.HashSet<String> seen) {
-        if (c == null) return;
-        for (java.lang.reflect.Method m : c.getMethods()) {
-            String n = m.getName().toLowerCase();
-            if (!(n.contains("close") || n.contains("exit") || n.contains("power") || n.contains("shutdown")
-                    || n.contains("suspend") || n.contains("release") || n.contains("open"))) continue;
-            String sig = m.getName() + "(" + dtypes(m.getParameterTypes()) + ")";
-            if (seen.add(sig)) Logger.log("CLS " + sig);
-        }
-    }
-
-    private static String dtypes(Class<?>[] ts) {
-        if (ts == null || ts.length == 0) return "";
-        StringBuilder b = new StringBuilder();
-        for (int i = 0; i < ts.length; i++) {
-            if (i > 0) b.append(',');
-            b.append(ts[i] == null ? "?" : ts[i].getSimpleName());
-        }
-        return b.toString();
     }
 
     void pushSpot() {

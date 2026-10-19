@@ -1159,18 +1159,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     /** one-time: can we append to the SD-card root LOG.TXT? (the logger falls back to privateDir if not) */
     private void logRootCheck() {
         File root = new File(android.os.Environment.getExternalStorageDirectory(), "LOG.TXT");
-        boolean ok = false;
-        try {
-            java.io.FileWriter w = new java.io.FileWriter(root, true);
-            try { w.append("log: root=" + root.getAbsolutePath() + " writable=true\n"); }
-            finally { w.close(); }
-            ok = true;
-        } catch (Throwable t) { ok = false; }
-        if (ok) {
-            try { android.util.Log.i("OF6K", "log: root=" + root.getAbsolutePath() + " writable=true"); } catch (Throwable ig) {}
-        } else {
-            Logger.log("log: root=" + root.getAbsolutePath() + " writable=false");
-        }
+        Logger.log("log: root=" + root.getAbsolutePath() + " writable=false (SD writes disabled for experiment)");
     }
 
     /** the firmware creates DCIM itself; the app must never create directories on the card */
@@ -1403,7 +1392,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             evMax = p.getMaxExposureCompensation();
             ev = p.getExposureCompensation();
             rig.syncFocusMode(p);
-            rig.probeCloseApis();
             int[] spt = CameraRig.readSystemSpot(p);            // adopt the system focus point position
             if (spt != null) { rig.adoptSpot(spt[0], spt[1]); spotX = spt[0]; spotY = spt[1]; Logger.log("sys spot " + spt[0] + "," + spt[1]); }
             else Logger.log("sys spot: unavailable");
@@ -2705,7 +2693,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
-        Logger.log("keyev act=" + e.getAction() + " scan=" + e.getScanCode() + " code=" + e.getKeyCode() + " rep=" + e.getRepeatCount());
         if (capDim) {                 // screen locked (manual): first press wakes — FIRST so nothing can trap the keys
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) capWake();
             return true;
