@@ -1543,6 +1543,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onDestroy();
     }
 
+    /** firmware suspend/power-off: release the camera and truly exit so the lens can retract */
+    static void onFirmwareSuspend(android.content.Context c) {
+        MainActivity a = self;
+        if (a == null) return;
+        a.runOnUiThread(new Runnable() { public void run() {
+            Logger.log("suspend: release");
+            a.handler.removeCallbacks(a.zoomStopRunnable);
+            a.zoomDir = -1;
+            try { a.rig.release(); } catch (Throwable t) { Logger.log("suspend: release EX " + t); }
+            try { a.finish(); } catch (Throwable t) {}
+        }});
+    }
+
     // ---------------------------------------------------------------- shoot + grade
 
     /** true only when the parameter table positively reports a non-JPEG still format */

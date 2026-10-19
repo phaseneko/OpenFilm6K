@@ -19,5 +19,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <receiver android:name=".SuspendReceiver">
+            <intent-filter>
+                <action android:name="com.android.server.SyncAndroidService.SUSPEND" />
+                <category android:name="com.android.server.SyncAndroidService.SUSPEND" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
