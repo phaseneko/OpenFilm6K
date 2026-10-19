@@ -1524,7 +1524,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         Logger.log("lifecycle: stop");
         try { rig.release(); } catch (Throwable t) {}
         Logger.log("lifecycle: released in stop " + (System.currentTimeMillis() - t0) + "ms");
-        if (km == KM_RX100 && !isFinishing() && !isChangingConfigurations()) {   // RX100: firmware needs a real exit
+        if (km == KM_RX100 && !isFinishing()) {   // RX100: firmware needs a real exit (landscape-locked, no config changes)
             try {
                 android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
                 if (pm != null && !pm.isScreenOn()) {
