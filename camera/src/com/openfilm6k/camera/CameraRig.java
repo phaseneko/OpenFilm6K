@@ -32,7 +32,11 @@ final class CameraRig {
     void release() {
         Logger.log("rig: release");
         try {
-            if (camera != null) camera.stopPreview();
+            if (camera != null) {
+                try { camera.stopPreview(); } catch (Throwable ig) {}
+                try { camera.setPreviewDisplay(null); } catch (Throwable ig) {}
+                try { camera.release(); } catch (Throwable t) { Logger.log("CameraRig.release(camera): " + t); }
+            }
             if (cameraEx != null) cxClass.getMethod("release").invoke(cameraEx);
         } catch (Throwable t) {
             Logger.log("CameraRig.release: " + t);
