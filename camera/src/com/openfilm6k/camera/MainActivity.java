@@ -1506,12 +1506,27 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override
     protected void onPause() {
+        Logger.log("lifecycle: pause");
         super.onPause();
         savePrefs();
         clearGhost();
         handler.removeCallbacks(zoomStopRunnable);
         if (zoomDir != -1) { zoomDir = -1; rig.zoomStop(); }
         rig.release();
+    }
+
+    @Override
+    protected void onStop() {
+        Logger.log("lifecycle: stop");
+        try { rig.release(); } catch (Throwable t) {}
+        super.onStop();
+    }
+
+    @Override
+    protected void onDestroy() {
+        Logger.log("lifecycle: destroy");
+        try { rig.release(); } catch (Throwable t) {}
+        super.onDestroy();
     }
 
     // ---------------------------------------------------------------- shoot + grade
@@ -2662,6 +2677,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
+        if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0)
+            Logger.log("rawkey scan=" + e.getScanCode() + " code=" + e.getKeyCode());
         if (capDim) {                 // screen locked (manual): first press wakes — FIRST so nothing can trap the keys
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) capWake();
             return true;
@@ -3163,7 +3180,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             setStatus("loaded " + selName(sel));
             return true;
         }
-        if (scan == K_FN && km.fnC1) {   // NEX:短按 Fn 在菜单里切换收藏（不退出菜单）
+        if (scan == K_FN && (km.fnC1 || km == KM_RX100)) {   // NEX/RX100: Fn toggles the favourite (menu stays open)
             if (browser >= NSPECIAL && browser != divSel()) {   // only real films can be favorited
                 int r = filmIdx(browser);
                 String nm = names.get(r);
