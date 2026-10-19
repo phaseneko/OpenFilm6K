@@ -1528,6 +1528,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (km == KM_RX100 && !isFinishing()) {   // RX100: the firmware needs a real exit before power-off
             Logger.log("lifecycle: finish on stop");
             try { finish(); } catch (Throwable t) { Logger.log("lifecycle: finish EX " + t); }
+            Logger.log("lifecycle: exit");
+            try { Logger.flush(); } catch (Throwable t) {}
+            try { System.exit(0); } catch (Throwable t) {}
         }
         super.onStop();
     }
@@ -1549,6 +1552,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             a.zoomDir = -1;
             try { a.rig.release(); } catch (Throwable t) { Logger.log("suspend: release EX " + t); }
             try { a.finish(); } catch (Throwable t) {}
+            try { Logger.log("suspend: exit"); Logger.flush(); } catch (Throwable t) {}
+            try { System.exit(0); } catch (Throwable t) {}
         }});
     }
 
