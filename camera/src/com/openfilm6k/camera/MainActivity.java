@@ -816,12 +816,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 cv.drawRect(0, 0, q, h, hp);
                 cv.drawRect(w - q, 0, w, h, hp);
             }
-            if (wideMask) {                         // W (wide 2.7:1): black out the top/bottom bands, keep the central strip
+            if (wideMask) {                         // W (wide 2.7:1): black out the top/bottom bands inside the visible preview
                 android.graphics.Paint wp = new android.graphics.Paint();
                 wp.setColor(0xFF000000);
-                float bar = h * (1f - 1.5f / 2.7f) * 0.5f;   // native 3:2 -> 2.7:1, same full-frame reference the H mask uses
+                final int phw = (km == KM_RX100) ? (int) (w * 2f / 3f) : h;   // RX100 preview is 3:2, top-aligned
+                float bar = phw * (1f - 1.5f / 2.7f) * 0.5f;   // native 3:2 -> 2.7:1
                 cv.drawRect(0, 0, w, bar, wp);
-                cv.drawRect(0, h - bar, w, h, wp);
+                cv.drawRect(0, phw - bar, w, phw, wp);
             }
             if (pairDisp >= 0 && pairBlink) {       // H/2: blinking "[ 1 ]" / "[ 2 ]" frame counter (brackets rotated 90 deg)
                 android.graphics.Paint pp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
