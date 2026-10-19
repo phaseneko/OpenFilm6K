@@ -85,35 +85,38 @@ First connect the camera to the Wi-Fi hotspot of the phone that runs the host ap
 Every action is available on every supported body — only the key that carries it
 differs: **buttons down the left, bodies across the top.**
 
-| Button | α6000 | α7 series | NEX series |
-|---|---|---|---|
-| Shutter ½ | auto-focus (center / spot) | auto-focus | auto-focus |
-| Shutter full | shoot → grade → upload | shoot → grade → upload | shoot → grade → upload |
-| ↑ ↓ ← → | move the highlight (Mode / Shutter / Aperture / ISO / EV / Film) | move the highlight | move the highlight |
-| Center | cycle camera mode (P→A→S→M); in the film browser, load the film | cycle camera mode; in the film browser, load the film | confirm / cycle camera mode; in the film browser, load the film |
-| Fn | open the film browser | open the film browser | short: open the film browser · long: cycle favourite films · in the film browser: toggle favourite |
-| AEL | short: enter/exit focus-area adjust · long: screen-lock (3 s countdown, any key wakes) | short: focus-area adjust · long: screen-lock | “Soft key A”: short: focus-area adjust · long: screen-lock |
-| C1 | hold + a dial: cycle favourite films; in the film browser: toggle favourite | hold + a dial: cycle favourite films; in the film browser: toggle favourite | — (merged into Fn) |
-| C2 | short: cycle watermark · long: switch LCD/EVF view | short: cycle watermark · long: switch LCD/EVF view | “Soft key B”: short: cycle watermark · long: switch LCD/EVF view |
-| C3 | — | quick AF-area-mode switch | — |
-| C4 | — | same as C2 | — |
-| MENU | quit the app | quit the app | — |
-| Front dial | — | select film | — |
-| Rear dial | exposure compensation (EV) | exposure compensation (EV) | exposure compensation (EV) |
-| Control wheel | adjust the highlighted parameter | adjust the highlighted parameter | adjust the highlighted parameter |
+| Button | α6000 | α7 series | NEX series | RX100 III |
+|---|---|---|---|---|
+| Shutter ½ | auto-focus (center / spot) | auto-focus | auto-focus | auto-focus |
+| Shutter full | shoot → grade → upload | shoot → grade → upload | shoot → grade → upload | shoot → grade → upload |
+| ↑ ↓ ← → | move the highlight (Mode / Shutter / Aperture / ISO / EV / Film) | move the highlight | move the highlight | move the highlight |
+| Center | cycle camera mode (P→A→S→M); in the film browser, load the film | cycle camera mode; in the film browser, load the film | confirm / cycle camera mode; in the film browser, load the film | cycle camera mode; in the film browser, load the film |
+| Fn | open the film browser | open the film browser | short: open the film browser · long: cycle favourite films · in the film browser: toggle favourite | open the film browser · in the film browser: toggle favourite (the menu stays open) |
+| AEL | short: enter/exit focus-area adjust · long: screen-lock (3 s countdown, any key wakes) | short: focus-area adjust · long: screen-lock | “Soft key A”: short: focus-area adjust · long: screen-lock | — |
+| C1 | hold + a dial: cycle favourite films; in the film browser: toggle favourite | hold + a dial: cycle favourite films; in the film browser: toggle favourite | — (merged into Fn) | — |
+| C2 | short: cycle watermark · long: switch LCD/EVF view | short: cycle watermark · long: switch LCD/EVF view | “Soft key B”: short: cycle watermark · long: switch LCD/EVF view | short (delete key): cycle watermark · long: switch LCD/EVF view |
+| C3 | — | quick AF-area-mode switch | — | — |
+| C4 | — | same as C2 | — | — |
+| MENU | quit the app | quit the app | — | — |
+| PLAY | — | — | quit the app | quit the app |
+| Front dial | — | select film | — | — |
+| Rear dial | exposure compensation (EV) | exposure compensation (EV) | exposure compensation (EV) | — (no rear dial) |
+| Control wheel | adjust the highlighted parameter | adjust the highlighted parameter | adjust the highlighted parameter | adjust the highlighted parameter |
+| Zoom lever | — | — | — | W/T: optical zoom (wide / tele) |
 
-Watermark modes (C2 / Soft key B short press) — the status bar shows a symbol:
+Watermark modes (C2 / Soft key B / RX100 delete key short press) — the status bar shows a symbol:
 *(blank)* none · **D** date · **E** exposure · **DE** date + exposure · **B**
 white-card frame · **X** four-film collage · **F** film name · **FE** film name +
 exposure. Exposure = shutter / aperture / ISO, e.g. `1/60 F2.8 ISO400`.
 
-- The NEX series has no MENU key — the app cannot be quit from its keypad — and
-  its C1 action is merged into Fn.
-- RX100 III: the buttons follow the α6000 column. It has no rear dial — the
-  single control wheel adjusts the highlighted parameter — and its W/T zoom
-  lever drives the optical zoom. Keep the still format at JPEG (RAW is not
-  supported; the app switches it back automatically).
-- `PLAY` and `MOVIE` are consumed by the camera firmware before the app sees them.
+- The NEX series and the RX100 III have no MENU key; on both, `PLAY` quits the
+  app (handled by the firmware). The NEX's C1 action is merged into Fn.
+- RX100 III: no rear dial (the control wheel adjusts the highlighted parameter)
+  and no AEL / C1 / C3 / C4, so focus-area adjust, screen-lock and the C1
+  favourite mode are unavailable; the delete key acts as C2 and the W/T lever
+  drives the optical zoom. Keep the still format at JPEG (RAW is not supported;
+  the app switches it back automatically).
+- `MOVIE` is consumed by the camera firmware before the app sees it.
 
 ### Film browser (FN)
 
