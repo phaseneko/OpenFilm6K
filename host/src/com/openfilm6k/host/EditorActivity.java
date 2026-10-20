@@ -70,7 +70,8 @@ public class EditorActivity extends Activity {
     Spinner filmSpin, sceneSpin, addSpin;
     Button delBtn;   // enabled only for user-created films
     LinearLayout nodesBox;
-    android.widget.ImageView spyChkView;   // title-bar spy button: checkbox half (state = prefs spy_on)
+    android.widget.ImageView spyChkView;
+    android.widget.ImageView ftpChkView;   // title-bar FTP button checkbox half (state = prefs ftp_on)   // title-bar spy button: checkbox half (state = prefs spy_on)
     Spinner spyDirSpin;                    // spy dialog: watched-folder combobox
     android.app.Dialog spyDlg;             // spy dialog handle (reopened after the folder picker returns)
 
@@ -660,6 +661,35 @@ public class EditorActivity extends Activity {
         appTitle.getPaint().setFakeBoldText(true);
         appTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
         titleBar.addView(appTitle, new LinearLayout.LayoutParams(0, -2, 1f));
+        // ftp mode: same compound button as spy mode, placed to its LEFT; no permission gate
+        LinearLayout ftpBtn = new LinearLayout(this);
+        ftpBtn.setOrientation(LinearLayout.HORIZONTAL);
+        ftpBtn.setBackground(Ux.buttonDrawable());
+        ftpBtn.setGravity(android.view.Gravity.CENTER);
+        ftpBtn.setPadding(Ux.dp(8), 0, Ux.dp(8), 0);
+        ftpBtn.setContentDescription(L.s("ftpMode"));
+        ftpChkView = new android.widget.ImageView(this);
+        refreshFtpBtn();
+        ftpChkView.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);
+            boolean nv = !pf.getBoolean("ftp_on", false);
+            pf.edit().putBoolean("ftp_on", nv).commit();
+            refreshFtpBtn();
+            FtpServer.sync(getApplicationContext());
+        }});
+        ftpBtn.addView(ftpChkView);
+        TextView ftpIco = new TextView(this);
+        ftpIco.setText("\uD83D\uDCE1\uFE0F");   // 📡
+        ftpIco.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(19));
+        ftpIco.setGravity(android.view.Gravity.CENTER);
+        android.widget.LinearLayout.LayoutParams ftpilp = new android.widget.LinearLayout.LayoutParams(-2, -2);
+        ftpilp.leftMargin = Ux.dp(4);
+        ftpBtn.addView(ftpIco, ftpilp);
+        ftpBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showFtp(); }});
+        android.widget.LinearLayout.LayoutParams ftplp = new android.widget.LinearLayout.LayoutParams(-2, Ux.dp(38));
+        ftplp.gravity = android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT;
+        ftplp.leftMargin = Ux.dp(6);
+        titleBar.addView(ftpBtn, ftplp);
         // spy mode: [win98 checkbox | spy glyph] compound button; checkbox mirrors prefs spy_on, dialog owns toggling
         LinearLayout spyBtn = new LinearLayout(this);
         spyBtn.setOrientation(LinearLayout.HORIZONTAL);
@@ -1928,6 +1958,12 @@ public class EditorActivity extends Activity {
         refreshSpyBtn();                   // storage may have been granted/revoked while away: re-render
     }
 
+    /** sync the title-bar FTP button: plain checkbox (no storage requirement) */
+    private void refreshFtpBtn() {
+        if (ftpChkView == null) return;
+        ftpChkView.setImageDrawable(Ux.checkbox98(this, getSharedPreferences("of6k", 0).getBoolean("ftp_on", false)));
+    }
+
     /** sync the title-bar spy button: warning icon when storage is missing, otherwise the spy_on checkbox */
     void refreshSpyBtn() {
         if (spyChkView == null) return;
@@ -2404,6 +2440,226 @@ public class EditorActivity extends Activity {
         tb.addView(ttl, ttlp);
         Button x = new Button(this); x.setText("✕");
         Ux.styleButton(x);
+        x.setPadding(0, 0, Ux.dp(5), Ux.dp(5));
+        x.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { dlg.dismiss(); }});
+        android.widget.LinearLayout.LayoutParams xlp = new android.widget.LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34));
+        xlp.gravity = android.view.Gravity.CENTER_VERTICAL;
+        tb.addView(x, xlp);
+        box.addView(tb, 0, new LinearLayout.LayoutParams(-1, -2));
+        dlg.setContentView(box);
+        android.view.Window w = dlg.getWindow();
+        if (w != null) {
+            w.getDecorView().setPadding(0, 0, 0, 0);
+            w.setBackgroundDrawable(Ux.frame98());
+            w.setLayout(Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24)), -2);
+        }
+        showOwned(dlg);
+    }
+
+
+    // ---- FTP mode dialog: master switch + film/stamp/post pickers + connection info ----
+    private void showFtp() {
+        final android.app.Dialog dlg = new android.app.Dialog(this);
+        dlg.setCanceledOnTouchOutside(false);
+        dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        final android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setClipChildren(false);
+        int fp = Ux.dp(2);
+        box.setPadding(fp, fp, fp, fp);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setClipChildren(false);
+        body.setBackgroundColor(Ux.FACE);
+        int bp = Ux.dp(10);
+        body.setPadding(bp, bp, bp, bp);
+
+        // group: master switch (single writer of ftp_on)
+        android.widget.FrameLayout eg = new android.widget.FrameLayout(this);
+        LinearLayout egi = new LinearLayout(this);
+        egi.setOrientation(LinearLayout.HORIZONTAL);
+        egi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        egi.setBackground(new Ux.Etched());
+        egi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        CheckBox en = new CheckBox(this);
+        en.setText(L.s("ftpEnable"));
+        en.setButtonDrawable(Ux.checkbox98States(this));
+        en.setChecked(pf.getBoolean("ftp_on", false));
+        en.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
+                pf.edit().putBoolean("ftp_on", v).commit();
+                refreshFtpBtn();
+                FtpServer.sync(getApplicationContext());
+            }
+        });
+        egi.addView(en, new LinearLayout.LayoutParams(-2, -2));
+        TextView egl = new TextView(this); egl.setText(L.s("ftpMode")); Ux.styleHeader(egl);
+        eg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams egil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        egil.topMargin = Ux.dp(10);
+        eg.addView(egi, egil);
+        android.widget.FrameLayout.LayoutParams egll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        egll.leftMargin = Ux.dp(10);
+        egll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        eg.addView(egl, egll);
+        addGroup(body, eg);
+
+        // group: film combobox
+        android.widget.FrameLayout fg = new android.widget.FrameLayout(this);
+        LinearLayout fgi = new LinearLayout(this);
+        fgi.setOrientation(LinearLayout.HORIZONTAL);
+        fgi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        fgi.setBackground(new Ux.Etched());
+        fgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        Spinner fsp = new Spinner(this);
+        final java.util.List<String> films = filmChoices();
+        StdSpinnerAdapter fsA = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(films));
+        fsA.spin = fsp;
+        fsp.setAdapter(fsA);
+        String curFilm = pf.getString("ftp_film", selFilm());
+        if (curFilm != null) for (int i = 0; i < films.size(); i++) if (films.get(i).equals(curFilm)) { fsp.setSelection(i); break; }
+        fsp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (pos < 0 || pos >= films.size()) return;
+                String name = films.get(pos);
+                if (DIV.equals(name)) return;
+                if (!name.equals(pf.getString("ftp_film", null)))
+                    pf.edit().putString("ftp_film", name).commit();
+            }
+            public void onNothingSelected(AdapterView<?> p) {}
+        });
+        android.widget.FrameLayout fspW = Ux.wrapSpinner(this, fsp);
+        fgi.addView(fspW, new LinearLayout.LayoutParams(-1, Ux.dp(38)));
+        TextView fgl = new TextView(this); fgl.setText(L.s("spyFilm")); Ux.styleHeader(fgl);
+        fg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams fgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        fgil.topMargin = Ux.dp(10);
+        fg.addView(fgi, fgil);
+        android.widget.FrameLayout.LayoutParams fgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        fgll.leftMargin = Ux.dp(10);
+        fgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        fg.addView(fgl, fgll);
+        addGroup(body, fg);
+
+        // group: stamp/border mode
+        android.widget.FrameLayout sg = new android.widget.FrameLayout(this);
+        LinearLayout sgi = new LinearLayout(this);
+        sgi.setOrientation(LinearLayout.HORIZONTAL);
+        sgi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        sgi.setBackground(new Ux.Etched());
+        sgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        final int[] spyCodes = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
+        String[] spyNames = {L.s("stNone"), L.s("stD"), L.s("stE"), L.s("stDE"), L.s("stB1"), L.s("stB2"), L.s("stF"), L.s("stFE"), L.s("stHalf"), L.s("stDouble"), L.s("stCollage"), L.s("stWide"), L.s("stWB1"), L.s("stWB2"), L.s("stWB3")};
+        Spinner ssp = new Spinner(this);
+        StdSpinnerAdapter ssA = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(java.util.Arrays.asList(spyNames)));
+        ssA.spin = ssp;
+        ssp.setAdapter(ssA);
+        int curStamp = pf.getInt("ftp_stamp", 0);
+        for (int i = 0; i < spyCodes.length; i++) if (spyCodes[i] == curStamp) { ssp.setSelection(i); break; }
+        ssp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (spyCodes[pos] != pf.getInt("ftp_stamp", 0))
+                    pf.edit().putInt("ftp_stamp", spyCodes[pos]).commit();
+            }
+            public void onNothingSelected(AdapterView<?> p) {}
+        });
+        android.widget.FrameLayout sspW = Ux.wrapSpinner(this, ssp);
+        sgi.addView(sspW, new LinearLayout.LayoutParams(-1, Ux.dp(38)));
+        TextView sgl = new TextView(this); sgl.setText(L.s("spyStamp")); Ux.styleHeader(sgl);
+        sg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams sgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        sgil.topMargin = Ux.dp(10);
+        sg.addView(sgi, sgil);
+        android.widget.FrameLayout.LayoutParams sgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        sgll.leftMargin = Ux.dp(10);
+        sgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        sg.addView(sgl, sgll);
+        addGroup(body, sg);
+
+        // group: post-process, multi-select
+        android.widget.FrameLayout qg = new android.widget.FrameLayout(this);
+        java.util.HashSet<String> sel0 = new java.util.HashSet<String>();
+        for (String c : pf.getString("ftp_post", "").split(",")) if (c.trim().length() > 0) sel0.add(c.trim());
+        LinearLayout qgi = postSelector(sel0, new PostSel() {
+            public void changed(java.util.LinkedHashSet<String> s3) {
+                java.util.ArrayList<String> l2 = new java.util.ArrayList<String>(s3);
+                java.util.Collections.sort(l2);
+                StringBuilder sb2 = new StringBuilder();
+                for (String c : l2) { if (sb2.length() > 0) sb2.append(','); sb2.append(c); }
+                pf.edit().putString("ftp_post", sb2.toString()).commit();
+            }
+        });
+        TextView qgl = new TextView(this); qgl.setText(L.s("ppLabel")); Ux.styleHeader(qgl);
+        qg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams qil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        qil.topMargin = Ux.dp(10);
+        qg.addView(qgi, qil);
+        android.widget.FrameLayout.LayoutParams qll2 = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        qll2.leftMargin = Ux.dp(10);
+        qll2.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        qg.addView(qgl, qll2);
+        addGroup(body, qg);
+
+        // group: connection info (replaces the watched-folder row of spy mode)
+        android.widget.FrameLayout ig = new android.widget.FrameLayout(this);
+        LinearLayout igv = new LinearLayout(this);
+        igv.setOrientation(LinearLayout.VERTICAL);
+        igv.setBackground(new Ux.Etched());
+        igv.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        LinearLayout irow = new LinearLayout(this);
+        irow.setOrientation(LinearLayout.HORIZONTAL);
+        irow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final TextView info = new TextView(this);
+        info.setText(FtpServer.infoText());
+        info.setTextColor(Ux.TXT);
+        info.setTypeface(android.graphics.Typeface.MONOSPACE);
+        info.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY + 1));
+        info.setLineSpacing(Ux.dp(2), 1f);
+        irow.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
+        Button refresh = new Button(this); Ux.styleButton(refresh); refresh.setText("\u27F3");
+        refresh.setContentDescription(L.s("ftpInfo"));
+        android.widget.LinearLayout.LayoutParams rlp = new android.widget.LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(34));
+        rlp.leftMargin = Ux.dp(6);
+        irow.addView(refresh, rlp);
+        igv.addView(irow, new LinearLayout.LayoutParams(-1, -2));
+        TextView hint = new TextView(this);
+        hint.setText(L.s("ftpHint"));
+        hint.setTextColor(Ux.TXT);
+        hint.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY + 1));
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-1, -2);
+        hlp.topMargin = Ux.dp(6);
+        igv.addView(hint, hlp);
+        refresh.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            info.setText(FtpServer.infoText());
+        }});
+        TextView igl = new TextView(this); igl.setText(L.s("ftpInfo")); Ux.styleHeader(igl);
+        ig.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams igil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        igil.topMargin = Ux.dp(10);
+        ig.addView(igv, igil);
+        android.widget.FrameLayout.LayoutParams igll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        igll.leftMargin = Ux.dp(10);
+        igll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        ig.addView(igl, igll);
+        addGroup(body, ig);
+
+        Ux.themeTree(body);
+        box.addView(body, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout tb = new LinearLayout(this);
+        tb.setOrientation(LinearLayout.HORIZONTAL);
+        tb.setBackground(Ux.navySunkenBar());
+        tb.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        tb.setPadding(Ux.dp(6), Ux.dp(1), Ux.dp(1), Ux.dp(1));
+        TextView tico = new TextView(this); tico.setText("\uD83D\uDCE1\uFE0F"); tico.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(18)); tico.setTextColor(0xFF000000);
+        tico.setGravity(android.view.Gravity.CENTER);
+        tb.addView(tico, new android.widget.LinearLayout.LayoutParams(-2, -2));
+        TextView ttl = new TextView(this); ttl.setText(L.s("ftpMode")); ttl.setTextColor(0xFFFFFFFF);
+        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
+        android.widget.LinearLayout.LayoutParams ttlp = new android.widget.LinearLayout.LayoutParams(0, -2, 1f);
+        ttlp.leftMargin = Ux.dp(6);
+        tb.addView(ttl, ttlp);
+        Button x = new Button(this); x.setText("\u2715"); Ux.styleButton(x);
         x.setPadding(0, 0, Ux.dp(5), Ux.dp(5));
         x.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { dlg.dismiss(); }});
         android.widget.LinearLayout.LayoutParams xlp = new android.widget.LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34));

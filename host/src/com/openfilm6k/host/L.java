@@ -151,6 +151,12 @@ public class L {
         // ---- preview watermark ----
         {"pvStampLabel", "预览水印", "預覽水印", "Preview stamp", "プレビュー水印", "미리보기 워터마크", "Vorschau-Wasserzeichen", "Filigrane d'aperçu", "Marca de vista previa", "Водяной знак превью", "Marca d'água"},
         // ---- spy mode ----
+        {"ftpMode", "FTP 模式", "FTP 模式", "FTP mode", "FTPモード", "FTP 모드", "FTP-Modus", "Mode FTP", "Modo FTP", "Режим FTP", "Modo FTP"},
+        {"ftpEnable", "开启 FTP 接收", "開啟 FTP 接收", "Enable FTP receiving", "FTP受信を有効化", "FTP 수신 활성화", "FTP-Empfang aktivieren", "Activer la réception FTP", "Activar recepción FTP", "Включить приём по FTP", "Ativar recepção FTP"},
+        {"ftpInfo", "连接信息", "連線資訊", "Connection info", "接続情報", "연결 정보", "Verbindungsdaten", "Infos de connexion", "Datos de conexión", "Данные подключения", "Dados de conexão"},
+        {"ftpHint", "在相机的 FTP 传输功能中填入以上信息", "在相機的 FTP 傳輸功能中填入以上資訊", "Enter these in the camera's FTP Transfer settings", "カメラのFTP転送設定に上記を入力してください", "카메라의 FTP 전송 설정에 위 정보를 입력하세요", "Diese Daten in den FTP-Übertragungseinstellungen der Kamera eintragen", "À saisir dans les réglages de transfert FTP de l'appareil", "Introdúcelos en los ajustes de transferencia FTP de la cámara", "Введите это в настройках FTP-передачи камеры", "Insira estes dados nas configurações de transferência FTP da câmera"},
+        {"ftpUser", "用户", "使用者", "User", "ユーザー", "사용자", "Benutzer", "Utilisateur", "Usuario", "Пользователь", "Usuário"},
+        {"ftpPass", "密码", "密碼", "Password", "パスワード", "비밀번호", "Passwort", "Mot de passe", "Contraseña", "Пароль", "Senha"},
         {"spyMode", "监视模式", "監視模式", "Spy mode", "スパイモード", "스파이 모드", "Spionmodus", "Mode espion", "Modo espía", "Режим слежки", "Modo espião"},
         {"spyEnable", "开启监视模式", "開啟監視模式", "Enable spy mode", "スパイモードを有効化", "감시 모드 활성화", "Spionmodus aktivieren", "Activer le mode espion", "Activar modo espía", "Включить режим слежки", "Ativar modo espião"},
         {"spyNeedPerm", "需要存储权限才能使用监视模式", "需要儲存權限才能使用監視模式", "Storage permission is required for spy mode", "スパイモードにはストレージ権限が必要です", "스파이 모드를 사용하려면 저장소 권한이 필요합니다", "Für den Spionmodus ist Speicherberechtigung erforderlich", "L'autorisation de stockage est requise pour le mode espion", "Se requiere permiso de almacenamiento para el modo espía", "Для режима слежки требуется разрешение на хранилище", "A permissão de armazenamento é necessária para o modo espião"},

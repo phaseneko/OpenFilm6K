@@ -98,6 +98,7 @@ public class HostService extends Service {
         startForeground(1, build());
         Engine.get().start();
         Server.get().start(this);
+        FtpServer.sync(getApplicationContext());   // FTP receiving follows the persisted ftp_on flag
         h.removeCallbacks(tick);
         h.post(tick);
         return START_STICKY;

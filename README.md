@@ -150,6 +150,16 @@ The editor edits **film pipelines**: each film is a chain of nodes; each node is
 
 Each successful ingest updates the standing notification: graded thumbnail on the left, film name, exposure (`1/125s F3.5 ISO400`) and capture time on the right. Tapping opens that photo in the system gallery.
 
+### FTP mode (cameras that cannot run the camera app)
+
+Cameras without PlayMemories support can use the films too: they upload their shots over **FTP** and the phone treats each one like a camera-app shot.
+
+- Tap the FTP button in the title bar (left of the spy button), or switch on **FTP mode** in its dialog. The dialog shows the phone's address, port (2121), user and password, the same film / watermark & frame / post-process pickers as spy mode, and a refresh button that updates the address.
+- On the camera enable `FTP Transfer Func.`, enter those values in its server settings (passive mode and auto upload on). Every uploaded shot is rendered with the selected film, stored in the gallery album and shown in the notification.
+- Cameras with Sony FTP transfer include the A1, A9 II, A7S III, A7 IV, A7R V, A7C II, A7C R, A6700, FX3, FX30 and ZV-E1.
+- The port is 2121 because port 21 requires root; set the same port on the camera.
+- Keep the camera on a normal colour look: a B&W look is baked into the file and cannot be graded again.
+
 ### Films
 
 A set of film simulations is bundled (CV-250, CV-500, ET-100, ET-64, PR-100, CC-200, CS-800T, EV-500, FC-400, GD-200, LK-200, NC-200, PAN-100, PI-100, PT-400, PX-II, SP-200, UM-400). You can create your own films in the editor, or import extra `.cube` LUTs via the settings dialog.
