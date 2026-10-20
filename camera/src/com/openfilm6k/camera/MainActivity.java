@@ -70,7 +70,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             103, 108, 105, 106, 232, 514, 532, 622, 595, 0, 0, 520,
             516, 518, 595, 207,
             525, 526, 0, 0, 0, 0,
-            new int[]{}, 0, false);
+            new int[]{}, 1, false);        // ghost = 3:2 top-aligned (same framing as the preview)
     // A7 II (ILCE-7M2): 波轮(控制轮)=634/635, 后转盘=528/529, 前转盘=525/526,
     //                   C1=622 C2=623 C3=588 C4=595, AEL/AF/MF=638
     static final KeyMap KM_A7M2 = new KeyMap(
@@ -2794,6 +2794,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             }
             c2Fired = false;                                            // never leave a stale long-press flag (B would go dead)
         }
+            if (e.getAction() == KeyEvent.ACTION_UP && km == KM_RX100 && scan == K_ENTER) {
+                rxEnterHeld = false;
+                handler.removeCallbacks(rxEnterLongAction);
+                if (!rxEnterFired && viewing < 0 && browser < 0 && settings < 0 && stampMenu < 0) toggleSpot();
+                rxEnterFired = false;
+            }
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_AEL) {
                 aelHeld = false;
                 handler.removeCallbacks(aelLongAction);
@@ -2872,6 +2878,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             setStatus("AF " + rig.cycleFocusMode()); renderHud(); return true;
         }
         if (scan == K_ENTER) {
+            if (km == KM_RX100) {                      // no AEL key: short = enter/exit focus-adjust, long = recentre
+                rxEnterHeld = true; rxEnterFired = false;
+                handler.removeCallbacks(rxEnterLongAction);
+                if (spotMode) handler.postDelayed(rxEnterLongAction, 600);
+                return true;
+            }
             if (spotMode) {                            // focus-adjust: recenter the focus point
                 spotX = 0; spotY = 0; rig.setSpot(spotX, spotY);
                 if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.postInvalidate(); }
@@ -2947,6 +2959,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (fbox != null) { fbox.spotOn = spotMode; fbox.spotX = spotX; fbox.spotY = spotY; }
         renderHud();
     }
+    private boolean rxEnterHeld = false, rxEnterFired = false;
+    private final Runnable rxEnterLongAction = new Runnable() { public void run() {
+        if (!rxEnterHeld || capDim) return;
+        rxEnterFired = true;   // release will not toggle focus-adjust
+        spotX = 0; spotY = 0;
+        rig.setSpot(spotX, spotY);
+        if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.postInvalidate(); }
+        Logger.log("A: long (spot recentered)");
+    } };
     private boolean aelHeld = false, aelFired = false;
     private final Runnable aelLongAction = new Runnable() { public void run() {
         if (!aelHeld || capDim) return;

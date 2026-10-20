@@ -90,7 +90,7 @@ differs: **buttons down the left, bodies across the top.**
 | Shutter ½ | auto-focus (center / spot) | auto-focus | auto-focus | auto-focus |
 | Shutter full | shoot → grade → upload | shoot → grade → upload | shoot → grade → upload | shoot → grade → upload |
 | ↑ ↓ ← → | move the highlight (Mode / Shutter / Aperture / ISO / EV / Film) | move the highlight | move the highlight | move the highlight |
-| Center | cycle camera mode (P→A→S→M); in the film browser, load the film | cycle camera mode; in the film browser, load the film | confirm / cycle camera mode; in the film browser, load the film | cycle camera mode; in the film browser, load the film |
+| Center | cycle camera mode (P→A→S→M); in the film browser, load the film | cycle camera mode; in the film browser, load the film | confirm / cycle camera mode; in the film browser, load the film | short: enter/exit focus-area adjust · long: recentre the focus point; in the film browser, load the film |
 | Fn | open the film browser | open the film browser | short: open the film browser · long: cycle favourite films · in the film browser: toggle favourite | open the film browser · in the film browser: toggle favourite (the menu stays open) |
 | AEL | short: enter/exit focus-area adjust · long: screen-lock (3 s countdown, any key wakes) | short: focus-area adjust · long: screen-lock | “Soft key A”: short: focus-area adjust · long: screen-lock | — |
 | C1 | hold + a dial: cycle favourite films; in the film browser: toggle favourite | hold + a dial: cycle favourite films; in the film browser: toggle favourite | — (merged into Fn) | — |
@@ -112,9 +112,12 @@ exposure. Exposure = shutter / aperture / ISO, e.g. `1/60 F2.8 ISO400`.
 - The NEX series and the RX100 III have no MENU key; on both, `PLAY` quits the
   app (handled by the firmware). The NEX's C1 action is merged into Fn.
 - RX100 III: no rear dial (the control wheel adjusts the highlighted parameter)
-  and no AEL / C1 / C3 / C4, so focus-area adjust, screen-lock and the C1
-  favourite mode are unavailable; the delete key acts as C2 and the W/T lever
-  drives the optical zoom. Keep the still format at JPEG (RAW is not supported;
+  and no AEL / C1 / C3 / C4. Focus-area adjust therefore lives on the **centre
+  key** (short press enters/exits it, long press recentres the point; in that
+  mode the arrows move the point, the control wheel cycles the AF-area mode and
+  C1 exits to the film row). Screen-lock and the C1 favourite mode remain
+  unavailable; the delete key acts as C2 and the W/T lever drives the optical
+  zoom. Keep the still format at JPEG (RAW is not supported;
   the app switches it back automatically for itself and does not change the
   camera's own setting).
 - `MOVIE` is consumed by the camera firmware before the app sees it.
