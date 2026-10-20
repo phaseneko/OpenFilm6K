@@ -2797,18 +2797,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (e.getAction() == KeyEvent.ACTION_UP && scan == K_AEL) {
                 aelHeld = false;
                 handler.removeCallbacks(aelLongAction);
-                if (!aelFired) {
-                    spotMode = !spotMode;
-                    Logger.log("A: spotMode=" + (spotMode ? "on" : "off"));
-                    if (spotMode) {                                     // entering adjust: refresh from system
-                        try {
-                            int[] spt2 = CameraRig.readSystemSpot(rig.camera().getParameters());
-                            if (spt2 != null) { rig.adoptSpot(spt2[0], spt2[1]); spotX = spt2[0]; spotY = spt2[1]; }
-                        } catch (Throwable ig) {}
-                    }
-                    if (fbox != null) { fbox.spotOn = spotMode; fbox.spotX = spotX; fbox.spotY = spotY; }
-                    renderHud();
-                }
+                if (!aelFired) toggleSpot();
                 aelFired = false;
             }
             return true;   // consume ALL keys, never let firmware/system handle PLAY etc.
@@ -2888,6 +2877,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.postInvalidate(); }
                 return true;
             }
+            if (km == KM_RX100) { toggleSpot(); return true; }   // no AEL key on the RX100: centre enters focus-adjust
             sceneIdx = (sceneIdx + 1) % 4;
             rig.setSceneMode(SCENE_MODES[sceneIdx]);
             renderOverlay(); renderHud();
@@ -2944,6 +2934,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private int stampMenu = -1;   // >=0: two-column menu open; cursor 0..14 = stamp, 15..18 = post
     private int lastPost = 0;     // remembered right-column cursor (post), for L/R column switching
     private boolean spotMode = false;
+    /** toggle focus-adjust (AEL on bodies that have the key; centre button on the RX100) */
+    private void toggleSpot() {
+        spotMode = !spotMode;
+        Logger.log("A: spotMode=" + (spotMode ? "on" : "off"));
+        if (spotMode) {                                     // entering adjust: refresh from system
+            try {
+                int[] spt2 = CameraRig.readSystemSpot(rig.camera().getParameters());
+                if (spt2 != null) { rig.adoptSpot(spt2[0], spt2[1]); spotX = spt2[0]; spotY = spt2[1]; }
+            } catch (Throwable ig) {}
+        }
+        if (fbox != null) { fbox.spotOn = spotMode; fbox.spotX = spotX; fbox.spotY = spotY; }
+        renderHud();
+    }
     private boolean aelHeld = false, aelFired = false;
     private final Runnable aelLongAction = new Runnable() { public void run() {
         if (!aelHeld || capDim) return;
