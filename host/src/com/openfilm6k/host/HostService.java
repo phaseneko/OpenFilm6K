@@ -88,6 +88,7 @@ public class HostService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         SpyWatcher.sync(getApplicationContext());   // spy mode survives activity death: prefs are the truth
+        CameraBeacon.start(getApplicationContext()); // PS135 UDP registration listener
         nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         NotificationChannel ch = new NotificationChannel("of6k", "OpenFilm6K", NotificationManager.IMPORTANCE_LOW);
         nm.createNotificationChannel(ch);
@@ -99,12 +100,14 @@ public class HostService extends Service {
         Engine.get().start();
         Server.get().start(this);
         FtpServer.sync(getApplicationContext());   // FTP receiving follows the persisted ftp_on flag
+        RewindSync.sync(getApplicationContext());  // PS135 Rewind sync follows the persisted rewind_on flag
         h.removeCallbacks(tick);
         h.post(tick);
         return START_STICKY;
     }
     @Override public void onDestroy() {
         try { unregisterReceiver(tap); } catch (Throwable ig) {}
+        CameraBeacon.stop();
         self = null;
         super.onDestroy();
     }

@@ -72,6 +72,7 @@ public class EditorActivity extends Activity {
     LinearLayout nodesBox;
     android.widget.ImageView spyChkView;
     android.widget.ImageView ftpChkView;   // title-bar FTP button checkbox half (state = prefs ftp_on)   // title-bar spy button: checkbox half (state = prefs spy_on)
+    android.widget.ImageView rewindChkView; // title-bar Rewind button checkbox half (state = prefs rewind_on)
     Spinner spyDirSpin;                    // spy dialog: watched-folder combobox
     android.app.Dialog spyDlg;             // spy dialog handle (reopened after the folder picker returns)
 
@@ -661,6 +662,35 @@ public class EditorActivity extends Activity {
         appTitle.getPaint().setFakeBoldText(true);
         appTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
         titleBar.addView(appTitle, new LinearLayout.LayoutParams(0, -2, 1f));
+        // rewind mode: PS135 sync; the checkbox toggles rewind_on, the rest opens the config dialog
+        LinearLayout rewindBtn = new LinearLayout(this);
+        rewindBtn.setOrientation(LinearLayout.HORIZONTAL);
+        rewindBtn.setBackground(Ux.buttonDrawable());
+        rewindBtn.setGravity(android.view.Gravity.CENTER);
+        rewindBtn.setPadding(Ux.dp(6), 0, Ux.dp(6), 0);
+        rewindBtn.setContentDescription(L.s("rewindMode"));
+        rewindChkView = new android.widget.ImageView(this);
+        refreshRewindBtn();
+        rewindChkView.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);
+            boolean nv = !pf.getBoolean("rewind_on", false);
+            pf.edit().putBoolean("rewind_on", nv).commit();
+            refreshRewindBtn();
+            RewindSync.sync(getApplicationContext());
+        }});
+        rewindBtn.addView(rewindChkView);
+        TextView rewindIco = new TextView(this);
+        rewindIco.setText("\uD83C\uDF9E\uFE0F");   // 🎞️
+        rewindIco.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(18));
+        rewindIco.setGravity(android.view.Gravity.CENTER);
+        android.widget.LinearLayout.LayoutParams rewindilp = new android.widget.LinearLayout.LayoutParams(-2, -2);
+        rewindilp.leftMargin = Ux.dp(3);
+        rewindBtn.addView(rewindIco, rewindilp);
+        rewindBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showRewind(); }});
+        android.widget.LinearLayout.LayoutParams rewindlp = new android.widget.LinearLayout.LayoutParams(-2, Ux.dp(38));
+        rewindlp.gravity = android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT;
+        rewindlp.leftMargin = Ux.dp(6);
+        titleBar.addView(rewindBtn, rewindlp);
         // ftp mode: same compound button as spy mode, placed to its LEFT; no permission gate
         LinearLayout ftpBtn = new LinearLayout(this);
         ftpBtn.setOrientation(LinearLayout.HORIZONTAL);
@@ -1958,6 +1988,12 @@ public class EditorActivity extends Activity {
         refreshSpyBtn();                   // storage may have been granted/revoked while away: re-render
     }
 
+    /** sync the title-bar Rewind button checkbox */
+    private void refreshRewindBtn() {
+        if (rewindChkView == null) return;
+        rewindChkView.setImageDrawable(Ux.checkbox98(this, getSharedPreferences("of6k", 0).getBoolean("rewind_on", false)));
+    }
+
     /** sync the title-bar FTP button: plain checkbox (no storage requirement) */
     private void refreshFtpBtn() {
         if (ftpChkView == null) return;
@@ -2456,6 +2492,443 @@ public class EditorActivity extends Activity {
         showOwned(dlg);
     }
 
+
+    private String rewindAutoLabel(String film) {
+        if (film == null) return "FILM";
+        String s = film.toUpperCase(java.util.Locale.US).replaceAll("[^A-Z0-9_. -]", "-").replace(' ', '-').trim();
+        if (s.length() == 0) s = "FILM";
+        return s.length() > 10 ? s.substring(0, 10) : s;
+    }
+
+    private String rewindUniqueLabel(String base, int idx, android.content.SharedPreferences pf) {
+        String b = base;
+        int n = 2;
+        while (true) {
+            boolean dup = false;
+            for (int j = 0; j < 3; j++) {
+                if (j == idx) continue;
+                String o = pf.getString("rewind_label" + (j + 1), "");
+                if (o != null && o.equalsIgnoreCase(b)) { dup = true; break; }
+            }
+            if (!dup) return b;
+            String suf = "-" + n++;
+            b = suf.length() >= b.length() ? suf : b.substring(0, 10 - suf.length()) + suf;
+        }
+    }
+
+    private String rewindComboDefault(int stamp, String post, int idx) {
+        String[] st = {"N", "D", "E", "DE", "B1", "B2", "F", "FE", "H", "2", "X", "W", "WB1", "WB2", "WB3"};
+        String s = stamp >= 0 && stamp < st.length ? st[stamp] : "N";
+        StringBuilder p = new StringBuilder();
+        if (post != null) for (String c : post.split(",")) {
+            c = c.trim();
+            if (c.equals("leak")) p.append('L');
+            else if (c.equals("scratch")) p.append('S');
+            else if (c.equals("dust")) p.append('D');
+            else if (c.equals("veiling")) p.append('V');
+            else if (c.equals("softfocus")) p.append("SF");
+            else if (c.equals("hdf")) p.append('H');
+        }
+        String out = p.length() > 0 ? s + "+" + p : s;
+        if (out.length() == 0) out = "C" + (idx + 1);
+        return out.length() > 8 ? out.substring(0, 8) : out;
+    }
+
+    private String rewindComboSummary(android.content.SharedPreferences pf) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < 3; i++) {
+            String l = pf.getString("rewind_combo_label" + (i + 1), "");
+            if (l == null || l.length() == 0)
+                l = rewindComboDefault(pf.getInt("rewind_stamp" + (i + 1), 0), pf.getString("rewind_post" + (i + 1), ""), i);
+            if (i > 0) b.append("   ");
+            b.append("C").append(i + 1).append(' ').append(l);
+        }
+        return b.toString();
+    }
+
+    private void rebuildComboEditor(final android.widget.LinearLayout host, final android.content.SharedPreferences pf,
+                                    final int idx, final android.widget.TextView summary) {
+        host.removeAllViews();
+        final int n = idx + 1;
+        final int[] spyCodes = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
+        final String[] spyNames = {L.s("stNone"), L.s("stD"), L.s("stE"), L.s("stDE"), L.s("stB1"), L.s("stB2"),
+                L.s("stF"), L.s("stFE"), L.s("stHalf"), L.s("stDouble"), L.s("stCollage"), L.s("stWide"),
+                L.s("stWB1"), L.s("stWB2"), L.s("stWB3")};
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final android.widget.EditText lab = new android.widget.EditText(this);
+        lab.setHint(L.s("rewindComboLabel"));
+        lab.setSingleLine(true);
+        lab.setBackground(Ux.sunkenField());
+        lab.setPadding(Ux.dp(8), Ux.dp(8), Ux.dp(8), Ux.dp(8));
+        lab.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        lab.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(8),
+                new android.text.InputFilter.AllCaps()});
+        String lv = pf.getString("rewind_combo_label" + n, "");
+        int cur = pf.getInt("rewind_stamp" + n, n - 1);
+        if (lv == null || lv.length() == 0) {
+            lv = rewindComboDefault(cur, pf.getString("rewind_post" + n, ""), idx);
+            pf.edit().putString("rewind_combo_label" + n, lv).commit();
+        }
+        lab.setText(lv);
+        lab.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence cs, int a, int b, int c) {}
+            public void onTextChanged(CharSequence cs, int a, int b, int c) {}
+            public void afterTextChanged(android.text.Editable e) {
+                pf.edit().putString("rewind_combo_label" + n, e.toString()).commit();
+                summary.setText(rewindComboSummary(pf));
+            }
+        });
+        row.addView(lab, new LinearLayout.LayoutParams(0, -2, 0.40f));
+
+        final android.widget.Spinner sp = new android.widget.Spinner(this);
+        StdSpinnerAdapter sa = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(java.util.Arrays.asList(spyNames)));
+        sa.spin = sp;
+        sp.setAdapter(sa);
+        int sel = 0;
+        for (int i = 0; i < spyCodes.length; i++) if (spyCodes[i] == cur) { sel = i; break; }
+        sp.setSelection(sel);
+        sp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
+                int code = spyCodes[pos];
+                pf.edit().putInt("rewind_stamp" + n, code).commit();
+                if (lab.getText().toString().trim().length() == 0) {
+                    String d = rewindComboDefault(code, pf.getString("rewind_post" + n, ""), idx);
+                    lab.setText(d);
+                }
+                summary.setText(rewindComboSummary(pf));
+            }
+            public void onNothingSelected(android.widget.AdapterView<?> p) {}
+        });
+        android.widget.FrameLayout spW = Ux.wrapSpinner(this, sp);
+        android.widget.LinearLayout.LayoutParams slp = new android.widget.LinearLayout.LayoutParams(0, -2, 0.60f);
+        slp.leftMargin = Ux.dp(6);
+        row.addView(spW, slp);
+        host.addView(row, new LinearLayout.LayoutParams(-1, -2));
+
+        android.widget.TextView ph = new android.widget.TextView(this);
+        ph.setText(L.s("ppLabel"));
+        ph.setTextColor(Ux.TXT);
+        ph.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        LinearLayout.LayoutParams php = new LinearLayout.LayoutParams(-1, -2);
+        php.topMargin = Ux.dp(6);
+        host.addView(ph, php);
+
+        java.util.HashSet<String> sel0 = new java.util.HashSet<String>();
+        for (String c : pf.getString("rewind_post" + n, "").split(",")) if (c.trim().length() > 0) sel0.add(c.trim());
+        android.widget.LinearLayout qgi = postSelector(sel0, new PostSel() {
+            public void changed(java.util.LinkedHashSet<String> sel) {
+                java.util.ArrayList<String> l2 = new java.util.ArrayList<String>(sel);
+                java.util.Collections.sort(l2);
+                StringBuilder sb = new StringBuilder();
+                for (String c : l2) { if (sb.length() > 0) sb.append(','); sb.append(c); }
+                pf.edit().putString("rewind_post" + n, sb.toString()).commit();
+                if (lab.getText().toString().trim().length() == 0) {
+                    String d = rewindComboDefault(pf.getInt("rewind_stamp" + n, 0), sb.toString(), idx);
+                    lab.setText(d);
+                }
+                summary.setText(rewindComboSummary(pf));
+            }
+        });
+        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(-1, -2);
+        qlp.topMargin = Ux.dp(6);
+        host.addView(qgi, qlp);
+        Ux.themeTree(host);
+    }
+
+    // ---- Rewind mode dialog (PS135): 3 film slots + 3 stamp/post combos + camera sync ----
+    private void showRewind() {
+        final android.app.Dialog dlg = new android.app.Dialog(this);
+        dlg.setCanceledOnTouchOutside(false);
+        dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        final android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setClipChildren(false);
+        int fp = Ux.dp(2);
+        box.setPadding(fp, fp, fp, fp);
+        box.setBackgroundColor(Ux.FACE);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setClipChildren(false);
+        body.setBackgroundColor(Ux.FACE);
+        int bp = Ux.dp(10);
+        body.setPadding(bp, bp, bp, bp);
+
+        // group: master switch
+        android.widget.FrameLayout eg = new android.widget.FrameLayout(this);
+        LinearLayout egi = new LinearLayout(this);
+        egi.setOrientation(LinearLayout.HORIZONTAL);
+        egi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        egi.setBackground(new Ux.Etched());
+        egi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        CheckBox en = new CheckBox(this);
+        en.setText(L.s("rewindEnable"));
+        en.setButtonDrawable(Ux.checkbox98States(this));
+        en.setChecked(pf.getBoolean("rewind_on", false));
+        en.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
+                pf.edit().putBoolean("rewind_on", v).commit();
+                refreshRewindBtn();
+                RewindSync.sync(getApplicationContext());
+            }
+        });
+        egi.addView(en, new LinearLayout.LayoutParams(-2, -2));
+        TextView egl = new TextView(this); egl.setText(L.s("rewindMode")); Ux.styleHeader(egl);
+        eg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams egil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        egil.topMargin = Ux.dp(10);
+        eg.addView(egi, egil);
+        android.widget.FrameLayout.LayoutParams egll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        egll.leftMargin = Ux.dp(10);
+        egll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        eg.addView(egl, egll);
+        addGroup(body, eg);
+
+        // group: three film slots
+        final java.util.List<String> films = filmChoices();
+        films.remove(DIV);
+        if (films.isEmpty()) films.add("LK-200");   // the dialog must always have a selectable row
+        android.widget.FrameLayout fg = new android.widget.FrameLayout(this);
+        LinearLayout fgi = new LinearLayout(this);
+        fgi.setOrientation(LinearLayout.VERTICAL);
+        fgi.setBackground(new Ux.Etched());
+        fgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        for (int i = 0; i < 3; i++) {
+            final int idx = i;
+            final int slot = i + 1;
+            String fv = pf.getString("rewind_film" + slot, "");
+            if (fv.length() == 0) {
+                fv = films.get(Math.min(i, films.size() - 1));
+                pf.edit().putString("rewind_film" + slot, fv).commit();
+            }
+            String lv = pf.getString("rewind_label" + slot, "");
+            if (lv.length() == 0) {
+                lv = rewindUniqueLabel(rewindAutoLabel(fv), i, pf);
+                pf.edit().putString("rewind_label" + slot, lv).commit();
+            }
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            final android.widget.EditText lab = new android.widget.EditText(this);
+            lab.setHint(L.s("rewindLabel"));
+            lab.setSingleLine(true);
+            lab.setBackground(Ux.sunkenField());
+            lab.setPadding(Ux.dp(8), Ux.dp(8), Ux.dp(8), Ux.dp(8));
+            lab.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+            lab.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(10),
+                    new android.text.InputFilter.AllCaps()});
+            lab.setText(lv);
+            lab.addTextChangedListener(new android.text.TextWatcher() {
+                public void beforeTextChanged(CharSequence cs, int a, int b, int c) {}
+                public void onTextChanged(CharSequence cs, int a, int b, int c) {}
+                public void afterTextChanged(android.text.Editable e) {
+                    pf.edit().putString("rewind_label" + slot, e.toString()).commit();
+                }
+            });
+            row.addView(lab, new LinearLayout.LayoutParams(0, -2, 0.38f));
+
+            final android.widget.Spinner sp = new android.widget.Spinner(this);
+            StdSpinnerAdapter a = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(films));
+            a.spin = sp;
+            sp.setAdapter(a);
+            int sel = 0;
+            for (int k = 0; k < films.size(); k++) if (films.get(k).equals(fv)) { sel = k; break; }
+            sp.setSelection(sel);
+            final boolean[] first = {true};
+            sp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
+                    String name = films.get(pos);
+                    pf.edit().putString("rewind_film" + slot, name).commit();
+                    if (first[0]) { first[0] = false; return; }
+                    if (lab.getText().toString().trim().length() == 0) {
+                        String auto = rewindUniqueLabel(rewindAutoLabel(name), idx, pf);
+                        lab.setText(auto);
+                        pf.edit().putString("rewind_label" + slot, auto).commit();
+                    }
+                }
+                public void onNothingSelected(android.widget.AdapterView<?> p) {}
+            });
+            android.widget.FrameLayout spW = Ux.wrapSpinner(this, sp);
+            android.widget.LinearLayout.LayoutParams slp = new android.widget.LinearLayout.LayoutParams(0, -2, 0.62f);
+            slp.leftMargin = Ux.dp(6);
+            row.addView(spW, slp);
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
+            if (i > 0) rlp.topMargin = Ux.dp(6);
+            fgi.addView(row, rlp);
+        }
+        TextView fgl = new TextView(this); fgl.setText(L.s("rewindFilms")); Ux.styleHeader(fgl);
+        fg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams fgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        fgil.topMargin = Ux.dp(10);
+        fg.addView(fgi, fgil);
+        android.widget.FrameLayout.LayoutParams fgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        fgll.leftMargin = Ux.dp(10);
+        fgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        fg.addView(fgl, fgll);
+        addGroup(body, fg);
+
+        if (!pf.contains("rewind_stamp1")) {
+            pf.edit()
+                    .putInt("rewind_stamp1", 1).putString("rewind_post1", "leak").putString("rewind_combo_label1", "D+LEAK")
+                    .putInt("rewind_stamp2", 2).putString("rewind_post2", "dust").putString("rewind_combo_label2", "E+DUST")
+                    .putInt("rewind_stamp3", 6).putString("rewind_post3", "scratch").putString("rewind_combo_label3", "F+SCR")
+                    .commit();
+        }
+
+        // group: three combos, one editor at a time (switching the C spinner commits the visible edits)
+        android.widget.FrameLayout cg = new android.widget.FrameLayout(this);
+        LinearLayout cgi = new LinearLayout(this);
+        cgi.setOrientation(LinearLayout.VERTICAL);
+        cgi.setBackground(new Ux.Etched());
+        cgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final android.widget.Spinner csp = new android.widget.Spinner(this);
+        StdSpinnerAdapter ca = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(
+                java.util.Arrays.asList("C1", "C2", "C3")));
+        ca.spin = csp;
+        csp.setAdapter(ca);
+        csp.setSelection(0);
+        top.addView(Ux.wrapSpinner(this, csp), new LinearLayout.LayoutParams(0, -2, 0.28f));
+        final android.widget.TextView sum = new android.widget.TextView(this);
+        sum.setText(rewindComboSummary(pf));
+        sum.setTextColor(Ux.TXT);
+        sum.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 1));
+        sum.setSingleLine(true);
+        LinearLayout.LayoutParams sumlp = new LinearLayout.LayoutParams(0, -2, 0.72f);
+        sumlp.leftMargin = Ux.dp(6);
+        top.addView(sum, sumlp);
+        cgi.addView(top, new LinearLayout.LayoutParams(-1, -2));
+        final LinearLayout editor = new LinearLayout(this);
+        editor.setOrientation(LinearLayout.VERTICAL);
+        cgi.addView(editor, new LinearLayout.LayoutParams(-1, -2));
+        final int[] csel = {0};
+        csp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
+                csel[0] = pos;
+                rebuildComboEditor(editor, pf, pos, sum);
+            }
+            public void onNothingSelected(android.widget.AdapterView<?> p) {}
+        });
+        rebuildComboEditor(editor, pf, 0, sum);
+        TextView cgl = new TextView(this); cgl.setText(L.s("rewindCombo")); Ux.styleHeader(cgl);
+        cg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams cgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        cgil.topMargin = Ux.dp(10);
+        cg.addView(cgi, cgil);
+        android.widget.FrameLayout.LayoutParams cgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        cgll.leftMargin = Ux.dp(10);
+        cgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        cg.addView(cgl, cgll);
+        addGroup(body, cg);
+
+        // group: camera status + sync
+        android.widget.FrameLayout ig = new android.widget.FrameLayout(this);
+        LinearLayout igv = new LinearLayout(this);
+        igv.setOrientation(LinearLayout.VERTICAL);
+        igv.setBackground(new Ux.Etched());
+        igv.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        final android.widget.TextView st = new android.widget.TextView(this);
+        st.setText(RewindSync.statusText());
+        st.setTextColor(Ux.TXT);
+        st.setTypeface(android.graphics.Typeface.MONOSPACE);
+        st.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 1));
+        st.setLineSpacing(Ux.dp(2), 1f);
+        igv.addView(st, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout brow = new LinearLayout(this);
+        brow.setOrientation(LinearLayout.HORIZONTAL);
+        Button sync = new Button(this); Ux.styleButton(sync); sync.setText(L.s("rewindSyncNow"));
+        sync.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            if (!pf.getBoolean("rewind_on", false)) { MainActivity.say(L.s("rewindNeedOn")); return; }
+            RewindSync.requestSync(getApplicationContext());
+            st.setText(RewindSync.statusText());
+        }});
+        brow.addView(sync, new LinearLayout.LayoutParams(0, -2, 0.5f));
+        Button refresh = new Button(this); Ux.styleButton(refresh); refresh.setText(L.s("rewindRefresh"));
+        refresh.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            st.setText(RewindSync.statusText());
+        }});
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(0, -2, 0.5f);
+        rlp.leftMargin = Ux.dp(6);
+        brow.addView(refresh, rlp);
+        LinearLayout.LayoutParams browp = new LinearLayout.LayoutParams(-1, -2);
+        browp.topMargin = Ux.dp(6);
+        igv.addView(brow, browp);
+        Button all = new Button(this); Ux.styleButton(all); all.setText(L.s("rewindPullAll"));
+        all.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            RewindSync.resetSeen(getApplicationContext());
+            st.setText(RewindSync.statusText());
+        }});
+        LinearLayout.LayoutParams allp = new LinearLayout.LayoutParams(-1, -2);
+        allp.topMargin = Ux.dp(6);
+        igv.addView(all, allp);
+        TextView hint = new TextView(this);
+        hint.setText(L.s("rewindHint"));
+        hint.setTextColor(Ux.TXT);
+        hint.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 1));
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-1, -2);
+        hlp.topMargin = Ux.dp(6);
+        igv.addView(hint, hlp);
+        TextView igl = new TextView(this); igl.setText(L.s("rewindCamera")); Ux.styleHeader(igl);
+        ig.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams igil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        igil.topMargin = Ux.dp(10);
+        ig.addView(igv, igil);
+        android.widget.FrameLayout.LayoutParams igll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        igll.leftMargin = Ux.dp(10);
+        igll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        ig.addView(igl, igll);
+        addGroup(body, ig);
+
+        Ux.themeTree(body);
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.setBackgroundColor(Ux.FACE);
+        sv.addView(body, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        box.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        LinearLayout tb = new LinearLayout(this);
+        tb.setOrientation(LinearLayout.HORIZONTAL);
+        tb.setBackground(Ux.navySunkenBar());
+        tb.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        tb.setPadding(Ux.dp(6), Ux.dp(1), Ux.dp(1), Ux.dp(1));
+        TextView tico = new TextView(this); tico.setText("\uD83C\uDF9E\uFE0F"); tico.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(18)); tico.setTextColor(0xFF000000);
+        tico.setGravity(android.view.Gravity.CENTER);
+        tb.addView(tico, new LinearLayout.LayoutParams(-2, -2));
+        TextView ttl = new TextView(this); ttl.setText(L.s("rewindMode")); ttl.setTextColor(0xFFFFFFFF);
+        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
+        android.widget.LinearLayout.LayoutParams ttlp = new LinearLayout.LayoutParams(0, -2, 1f);
+        ttlp.leftMargin = Ux.dp(6);
+        tb.addView(ttl, ttlp);
+        Button x = new Button(this); x.setText("\u2715"); Ux.styleButton(x);
+        x.setPadding(0, 0, Ux.dp(5), Ux.dp(5));
+        x.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { dlg.dismiss(); }});
+        android.widget.LinearLayout.LayoutParams xlp = new LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34));
+        xlp.gravity = android.view.Gravity.CENTER_VERTICAL;
+        tb.addView(x, xlp);
+        box.addView(tb, 0, new LinearLayout.LayoutParams(-1, -2));
+        dlg.setContentView(box);
+        android.view.Window w = dlg.getWindow();
+        if (w != null) {
+            w.getDecorView().setPadding(0, 0, 0, 0);
+            w.setBackgroundDrawable(Ux.frame98());
+            int wp = Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24));
+            int hp = (int) (getResources().getDisplayMetrics().heightPixels * 0.86f);
+            w.setLayout(wp, hp);
+        }
+        showOwned(dlg);
+        final android.os.Handler h = new android.os.Handler();
+        final Runnable tick = new Runnable() { public void run() {
+            if (!dlg.isShowing()) return;
+            st.setText(RewindSync.statusText());
+            h.postDelayed(this, 1000);
+        }};
+        h.postDelayed(tick, 1000);
+    }
 
     // ---- FTP mode dialog: master switch + film/stamp/post pickers + connection info ----
     private void showFtp() {
