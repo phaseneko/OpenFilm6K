@@ -2,6 +2,7 @@ package com.openfilm6k.host;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.SystemClock;
 import android.net.Uri;
 
 import java.io.BufferedInputStream;
@@ -50,6 +51,7 @@ public class RewindSync {
     private static volatile long lastSync;
     private static volatile int lastPulled;
     private static volatile boolean baselineThisRun;
+    private static volatile long beaconAt;
 
     private Thread thread;
     private static Context ctx;
@@ -75,6 +77,7 @@ public class RewindSync {
         if (ctx == null) ctx = c.getApplicationContext();
         if (ip == null || ip.length() == 0) return;
         camIp = ip;
+        beaconAt = SystemClock.elapsedRealtime();
         prefs().edit().putString("rewind_cam_ip", ip).commit();
         status = "beacon " + ip + (payload == null ? "" : " " + payload);
     }
@@ -145,101 +148,13 @@ public class RewindSync {
 
     // ---------------------------------------------------------------- camera discovery
 
-    /** try the last IP first, then scan each private /24 the phone is on */
+    /** UDP-only discovery: accept only a fresh PS135 beacon, never actively scan. */
     private String findCamera() {
-        String saved = prefs().getString("rewind_cam_ip", "");
-        Set<String> tried = new HashSet<String>();
-        if (saved.length() > 0) {
-            tried.add(saved);
-            if (probe(saved, 500, 700)) return saved;
-        }
-
-        final Set<String> prefixes = new LinkedHashSet<String>();
-        for (String e : FtpServer.addresses()) {
-            int i = e.indexOf('=');
-            if (i <= 0) continue;
-            String name = e.substring(0, i).toLowerCase(Locale.US);
-            String ip = e.substring(i + 1);
-            if (!isPrivate(ip)) continue;
-            boolean hotspot = name.startsWith("ap") || name.contains("softap") || name.contains("swlan")
-                    || name.equals("wlan1") || name.equals("wlan2");
-            if (hotspot) prefixes.add(ip.substring(0, ip.lastIndexOf('.') + 1));
-        }
-        if (prefixes.isEmpty()) {
-            for (String ip : localIPv4s()) if (isPrivate(ip)) prefixes.add(ip.substring(0, ip.lastIndexOf('.') + 1));
-        }
-        if (prefixes.isEmpty()) return null;
-
-        status = L.s("rewindSearching");
-        // The camera is a single-client HTTP server: probe neighbors/saved IP first, then scan
-        // strictly one request at a time. Never fan out concurrent requests at it.
-        for (String ip : arpCandidates(prefixes)) {
-            if (!up) return null;
-            if (!tried.add(ip)) continue;
-            if (probe(ip, 500, 700)) {
-                prefs().edit().putString("rewind_cam_ip", ip).commit();
-                return ip;
-            }
-        }
-        for (String pre : prefixes) {
-            for (int n = 1; n < 255; n++) {
-                if (!up) return null;
-                String ip = pre + n;
-                if (!tried.add(ip)) continue;
-                if (probe(ip, 120, 300)) {
-                    prefs().edit().putString("rewind_cam_ip", ip).commit();
-                    return ip;
-                }
-            }
-        }
+        if (!up) return null;
+        long now = SystemClock.elapsedRealtime();
+        if (camIp != null && beaconAt > 0 && now - beaconAt <= 15000L) return camIp;
+        status = L.s("rewindSearching") + " (UDP)";
         return null;
-    }
-
-    /** IPs already in the phone's ARP table on the hotspot /24 — usually the camera after DHCP. */
-    private static List<String> arpCandidates(Set<String> prefixes) {
-        List<String> out = new ArrayList<String>();
-        try {
-            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader("/proc/net/arp"));
-            String line = r.readLine();
-            while ((line = r.readLine()) != null) {
-                String[] p = line.trim().split("\\s+");
-                if (p.length < 4) continue;
-                String ip = p[0];
-                if (!isPrivate(ip)) continue;
-                if (prefixes.contains(ip.substring(0, ip.lastIndexOf('.') + 1)) && !out.contains(ip)) out.add(ip);
-            }
-            r.close();
-        } catch (Throwable ig) {}
-        return out;
-    }
-
-    private static boolean isPrivate(String ip) {
-        return ip.startsWith("10.") || ip.startsWith("192.168.") || ip.startsWith("172.");
-    }
-
-    private static List<String> localIPv4s() {
-        List<String> out = new ArrayList<String>();
-        try {
-            Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces();
-            while (en.hasMoreElements()) {
-                NetworkInterface ni = en.nextElement();
-                if (!ni.isUp() || ni.isLoopback()) continue;
-                Enumeration<InetAddress> as = ni.getInetAddresses();
-                while (as.hasMoreElements()) {
-                    InetAddress a = as.nextElement();
-                    if (!(a instanceof Inet4Address) || a.isLoopbackAddress() || a.isLinkLocalAddress()) continue;
-                    out.add(a.getHostAddress());
-                }
-            }
-        } catch (Throwable ig) {}
-        return out;
-    }
-
-    private static boolean probe(String ip, int ct, int rt) {
-        try {
-            String x = camGet(ip, 8018, null, null, ct, rt);
-            return x != null && x.contains("PS135");
-        } catch (Throwable t) { return false; }
     }
 
     // ---------------------------------------------------------------- push config

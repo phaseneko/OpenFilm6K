@@ -1,15 +1,22 @@
 package com.openfilm6k.host;
 
 import android.content.Context;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetSocketAddress;
+import android.util.Log;
 
-/** Listens for the PS135 camera's UDP beacon on port 8765. */
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.net.StandardProtocolFamily;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+import java.nio.charset.StandardCharsets;
+
+/** Listens for the PS135 camera's UDP beacon on IPv4 port 8765. */
 public final class CameraBeacon {
     public static final int PORT = 8765;
+    private static final String TAG = "CameraBeacon";
     private static volatile boolean running;
-    private static DatagramSocket sock;
+    private static DatagramChannel channel;
 
     private CameraBeacon() {}
 
@@ -18,26 +25,35 @@ public final class CameraBeacon {
         running = true;
         final Context app = c.getApplicationContext();
         Thread t = new Thread(new Runnable() { public void run() {
+            DatagramChannel ch = null;
             try {
-                DatagramSocket s = new DatagramSocket(null);
-                s.setReuseAddress(true);
-                s.bind(new InetSocketAddress(PORT));
-                sock = s;
-                byte[] buf = new byte[256];
+                ch = DatagramChannel.open(StandardProtocolFamily.INET);
+                ch.setOption(java.net.StandardSocketOptions.SO_REUSEADDR, true);
+                ch.bind(new InetSocketAddress(InetAddress.getByName("0.0.0.0"), PORT));
+                ch.configureBlocking(true);
+                channel = ch;
+                Log.i(TAG, "IPv4 UDP listening on 0.0.0.0:" + PORT);
+                ByteBuffer buf = ByteBuffer.allocate(256);
                 while (running) {
-                    DatagramPacket p = new DatagramPacket(buf, buf.length);
-                    s.receive(p);
-                    String msg = new String(p.getData(), 0, p.getLength(), "UTF-8").trim();
+                    buf.clear();
+                    SocketAddress src = ch.receive(buf);
+                    if (src == null) continue;
+                    buf.flip();
+                    byte[] data = new byte[buf.remaining()];
+                    buf.get(data);
+                    String msg = new String(data, StandardCharsets.UTF_8).trim();
+                    String ip = ((InetSocketAddress) src).getAddress().getHostAddress();
+                    Log.i(TAG, "packet from " + ip + ": " + msg);
                     if (!msg.startsWith("PS135")) continue;
-                    String ip = p.getAddress().getHostAddress();
                     RewindSync.noteBeacon(app, ip, msg);
                 }
             } catch (Throwable t) {
+                Log.e(TAG, "beacon failed", t);
                 RewindSync.noteBeaconError(app, t.toString());
             } finally {
                 running = false;
-                try { if (sock != null) sock.close(); } catch (Throwable ig) {}
-                sock = null;
+                try { if (ch != null) ch.close(); } catch (Throwable ig) {}
+                channel = null;
             }
         } }, "camera-beacon");
         t.setDaemon(true);
@@ -46,7 +62,7 @@ public final class CameraBeacon {
 
     public static synchronized void stop() {
         running = false;
-        try { if (sock != null) sock.close(); } catch (Throwable ig) {}
-        sock = null;
+        try { if (channel != null) channel.close(); } catch (Throwable ig) {}
+        channel = null;
     }
 }
