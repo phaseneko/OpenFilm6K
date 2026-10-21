@@ -2656,12 +2656,16 @@ public class EditorActivity extends Activity {
                                 final int idx, final TextView summary) {
         host.removeAllViews();
         final int n = idx + 1;
+        RewindSync.ensureDefaults();
         final java.util.List<String> films = filmChoices();
-        films.remove(DIV);
         if (films.isEmpty()) films.add("LK-200");
         String fv = pf.getString("rewind_film" + n, "");
-        if (fv == null || fv.length() == 0) {
-            fv = films.get(Math.min(idx, films.size() - 1));
+        if (fv == null || fv.length() == 0 || DIV.equals(fv)) {
+            fv = RewindSync.defaultFilm(idx);
+            if (!films.contains(fv)) {
+                for (String x : films) if (!DIV.equals(x)) { fv = x; break; }
+            }
+            if (fv == null) fv = "CC-200";
             pf.edit().putString("rewind_film" + n, fv).commit();
         }
         LinearLayout frow = new LinearLayout(this);
@@ -2675,12 +2679,15 @@ public class EditorActivity extends Activity {
         final android.widget.Spinner fsp = new android.widget.Spinner(this);
         StdSpinnerAdapter fa = new CompactSpinnerAdapter(this, new java.util.ArrayList<String>(films));
         fa.spin = fsp;
+        applyDiv(fa, films);
         fsp.setAdapter(fa);
-        int fsel = 0;
+        int fsel = -1;
         for (int i = 0; i < films.size(); i++) if (films.get(i).equals(fv)) { fsel = i; break; }
-        fsp.setSelection(fsel);
+        if (fsel < 0) for (int i = 0; i < films.size(); i++) if (!DIV.equals(films.get(i))) { fsel = i; break; }
+        fsp.setSelection(Math.max(0, fsel));
         fsp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
+                if (pos < 0 || pos >= films.size() || DIV.equals(films.get(pos))) return;
                 pf.edit().putString("rewind_film" + n, films.get(pos)).commit();
                 summary.setText(RewindSync.slotLabel(idx));
             }
@@ -2878,9 +2885,9 @@ public class EditorActivity extends Activity {
         if (films.isEmpty()) films.add("LK-200");
         if (!pf.contains("rewind_stamp1")) {
             pf.edit()
-                    .putInt("rewind_stamp1", 1).putString("rewind_post1", "leak").putString("rewind_combo_label1", "D+LEAK")
-                    .putInt("rewind_stamp2", 2).putString("rewind_post2", "dust").putString("rewind_combo_label2", "E+DUST")
-                    .putInt("rewind_stamp3", 6).putString("rewind_post3", "scratch").putString("rewind_combo_label3", "F+SCR")
+                    .putInt("rewind_stamp1", 0).putString("rewind_post1", "").putString("rewind_combo_label1", "N")
+                    .putInt("rewind_stamp2", 0).putString("rewind_post2", "").putString("rewind_combo_label2", "N")
+                    .putInt("rewind_stamp3", 0).putString("rewind_post3", "").putString("rewind_combo_label3", "N")
                     .commit();
         }
         final android.widget.FrameLayout rg = new android.widget.FrameLayout(this);

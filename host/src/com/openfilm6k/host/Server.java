@@ -976,37 +976,63 @@ public class Server {
      *  spy mode has a single film, so double always takes the same-film physics path
      *  (merge in light, develop once); half grades both and places the two halves. */
     static String spyPairIngest(java.io.File src0, java.io.File src1, String film, boolean half) {
+        return spyPairIngest(src0, src1, film, film, half, "");
+    }
+
+    /** Rewind variant: the two exposures may belong to different slots/films, and each slot has
+     *  its own post spec.  Lens-level post (dust/veiling/softfocus/hdf) and leak are applied to
+     *  each exposure before grading; scratch is a film-surface overlay on the composed frame. */
+    static String spyPairIngest(java.io.File src0, java.io.File src1, String film0, String film1,
+                                boolean half, String post) {
         try {
+            if (film0 == null || film0.length() == 0) film0 = "LK-200";
+            if (film1 == null || film1.length() == 0) film1 = film0;
             String mode = half ? "half" : "double";
             String name = src0.getName();
             String base = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
             byte[] exifApp1 = Exif.app1Of(src0);
+            String lens = postSubset(post, "dust", "veiling", "softfocus", "hdf");
+            String leak = postSubset(post, "leak");
+            String scratch = postSubset(post, "scratch");
+            java.util.ArrayList<java.io.File> ptmp = new java.util.ArrayList<java.io.File>();
+            java.io.File p0 = src0, p1 = src1;
+            if (!lens.isEmpty()) {
+                p0 = postTmp(p0, "a_" + base + ".jpg", lens, ptmp);
+                p1 = postTmp(p1, "b_" + base + ".jpg", lens, ptmp);
+            }
+            if (!leak.isEmpty()) {
+                p0 = postTmp(p0, "c_" + base + ".jpg", leak, ptmp);
+                p1 = postTmp(p1, "d_" + base + ".jpg", leak, ptmp);
+            }
             galDir.mkdirs();
             java.io.File out = new java.io.File(galDir, "graded_" + base + "_pair.jpg");
             String r;
-            if (!half) {
+            if (!half && film0.equals(film1)) {
                 java.io.File merged = new java.io.File(workDir, "m_" + base + ".jpg");
-                String rm = mergeLight(src0, src1, merged);
+                String rm = mergeLight(p0, p1, merged);
                 if (rm != null && !rm.startsWith("ERR") && merged.exists())
-                    r = Engine.get().process(merged.getAbsolutePath(), film, out.getAbsolutePath());
+                    r = Engine.get().process(merged.getAbsolutePath(), film0, out.getAbsolutePath());
                 else r = "ERR merge " + rm;
                 merged.delete();
             } else {
                 java.io.File g0 = new java.io.File(workDir, "p0_" + base + ".jpg");
                 java.io.File g1 = new java.io.File(workDir, "p1_" + base + ".jpg");
-                String r0 = Engine.get().process(src0.getAbsolutePath(), film, g0.getAbsolutePath());
-                String r1 = Engine.get().process(src1.getAbsolutePath(), film, g1.getAbsolutePath());
-                if (r0 != null && !r0.startsWith("ERR") && g0.exists() && r1 != null && !r1.startsWith("ERR") && g1.exists())
+                String r0 = Engine.get().process(p0.getAbsolutePath(), film0, g0.getAbsolutePath());
+                String r1 = Engine.get().process(p1.getAbsolutePath(), film1, g1.getAbsolutePath());
+                if (r0 != null && !r0.startsWith("ERR") && g0.exists()
+                        && r1 != null && !r1.startsWith("ERR") && g1.exists())
                     r = composePair(mode, g0, g1, out);
                 else r = "ERR render " + r0 + " / " + r1;
                 g0.delete(); g1.delete();
             }
+            if (!scratch.isEmpty() && r != null && !r.startsWith("ERR") && out.exists())
+                r = scratchColorized(out, film0, scratch);
             if (exifApp1 != null && r != null && !r.startsWith("ERR") && out.exists())
                 Exif.carryBytes(out, exifApp1);
             boolean ok = r != null && !r.startsWith("ERR") && out.exists();
             try {
                 if (ok) {
-                    final String filmF = film + " + " + film;
+                    final String filmF = film0.equals(film1) ? film0 : film0 + " + " + film1;
                     final String expoF = readExposure(src0);
                     final String timeF = readTime(src0);
                     final android.graphics.Bitmap thumbF = decodeThumb(out);
@@ -1020,6 +1046,7 @@ public class Server {
                         });
                 }
             } catch (Throwable ig) {}
+            for (java.io.File t : ptmp) if (t != null && t.exists()) t.delete();
             return ok ? "OK " + out.getName() : "ERR " + r;
         } catch (Throwable t) { return "ERR " + t; }
     }

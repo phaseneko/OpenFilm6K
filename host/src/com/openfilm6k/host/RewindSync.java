@@ -40,6 +40,7 @@ import java.util.regex.Pattern;
  *  It serializes every camera request with a small gap: the camera is single-client and wedges
  *  under concurrent requests. */
 public class RewindSync {
+    private static final String[] DEFAULT_REWIND_FILMS = {"CC-200", "UM-400", "PAN-100"};
     private static final int GAP_MS = 120;
     private static final String NEUTRAL = "0:0:0:0:0:0:0";
     private static final RewindSync I = new RewindSync();
@@ -213,9 +214,7 @@ public class RewindSync {
         SharedPreferences pf = prefs();
         String film = pf.getString("rewind_film" + n, "");
         if (film == null || film.trim().length() == 0) film = "FILM" + n;
-        String border = borderCode(pf.getInt("rewind_stamp" + n, idx));
-        String s = "C" + n + "-" + film + "-" + border;
-        s = s.toUpperCase(Locale.US).replaceAll("[^A-Z0-9_. -]", "-").trim();
+        String s = ("C" + n + "-" + film).toUpperCase(Locale.US).replaceAll("[^A-Z0-9_. -]", "-").trim();
         if (s.length() > 40) s = s.substring(0, 40);
         return s;
     }
@@ -230,7 +229,15 @@ public class RewindSync {
         String s = label.trim().toUpperCase(Locale.US);
         if (s.length() >= 2 && s.charAt(0) == 'C'
                 && s.charAt(1) >= '1' && s.charAt(1) <= '3') {
-            return s.charAt(1) - '1';
+            return s.charAt(1) - '1';                 // legacy C1-… filenames
+        }
+        if (s.length() >= 2 && s.charAt(0) >= '1' && s.charAt(0) <= '3'
+                && s.charAt(1) == '-') {
+            return s.charAt(0) - '1';                 // current 1-FILM filenames
+        }
+        String[] f = films();
+        for (int i = 0; i < f.length; i++) {
+            if (f[i] != null && s.equalsIgnoreCase(f[i].trim().toUpperCase(Locale.US))) return i;
         }
         return -1;
     }
@@ -241,17 +248,41 @@ public class RewindSync {
         return out;
     }
 
+    static String defaultFilm(int idx) {
+        return idx >= 0 && idx < DEFAULT_REWIND_FILMS.length ? DEFAULT_REWIND_FILMS[idx] : "CC-200";
+    }
+
+    /** One-time migrations from the old first-user-film/combo defaults. */
+    static void ensureDefaults() {
+        SharedPreferences pf = prefs();
+        if (!pf.getBoolean("rewind_combo_defaults_v3", false)) {
+            boolean old = pf.getInt("rewind_stamp1", -1) == 1
+                    && pf.getInt("rewind_stamp2", -1) == 2
+                    && pf.getInt("rewind_stamp3", -1) == 6;
+            if (old) {
+                pf.edit().putInt("rewind_stamp1", 0).putString("rewind_post1", "").putString("rewind_combo_label1", "N")
+                        .putInt("rewind_stamp2", 0).putString("rewind_post2", "").putString("rewind_combo_label2", "N")
+                        .putInt("rewind_stamp3", 0).putString("rewind_post3", "").putString("rewind_combo_label3", "N").commit();
+            }
+            pf.edit().putBoolean("rewind_combo_defaults_v3", true).commit();
+        }
+        if (pf.getBoolean("rewind_film_defaults_v2", false)) return;
+        String a = pf.getString("rewind_film1", ""), b = pf.getString("rewind_film2", ""), c = pf.getString("rewind_film3", "");
+        if ("Fuyuno".equals(a) && "Harubeni".equals(b) && "Katen".equals(c)) {
+            pf.edit().putString("rewind_film1", DEFAULT_REWIND_FILMS[0])
+                    .putString("rewind_film2", DEFAULT_REWIND_FILMS[1])
+                    .putString("rewind_film3", DEFAULT_REWIND_FILMS[2]).commit();
+        }
+        pf.edit().putBoolean("rewind_film_defaults_v2", true).commit();
+    }
+
     private static String[] films() {
+        ensureDefaults();
         SharedPreferences pf = prefs();
         String[] out = new String[3];
-        List<String> all = null;
-        try { all = Films.listUserFirst(); } catch (Throwable ig) {}
         for (int i = 0; i < 3; i++) {
             out[i] = pf.getString("rewind_film" + (i + 1), "");
-            if (out[i] == null || out[i].length() == 0) {
-                if (all != null && i < all.size()) out[i] = all.get(i);
-                else out[i] = "";
-            }
+            if (out[i] == null || out[i].length() == 0) out[i] = defaultFilm(i);
         }
         return out;
     }
@@ -282,11 +313,12 @@ public class RewindSync {
     private void pull(String ip) throws Exception {
         String xml = camGet(ip, 3015, null, null, 3000, 10000);
         if (xml == null) return;
-        Set<String> seen = new HashSet<String>(prefs().getStringSet("rewind_seen", new HashSet<String>()));
+        SharedPreferences pf = prefs();
+        Set<String> seen = new HashSet<String>(pf.getStringSet("rewind_seen", new HashSet<String>()));
         File dir = new File("/sdcard/OpenFilm6K/rewind");
         dir.mkdirs();
         Matcher m = Pattern.compile("<File>(.*?)</File>", Pattern.DOTALL).matcher(xml);
-        if (!prefs().getBoolean("rewind_baseline", false)) {
+        if (!pf.getBoolean("rewind_baseline", false)) {
             int n = 0;
             while (m.find()) {
                 String block = m.group(1);
@@ -298,7 +330,7 @@ public class RewindSync {
                 if (!un.endsWith(".JPG") && !un.endsWith(".JPEG")) continue;
                 if (seen.add(fpath)) n++;
             }
-            prefs().edit().putStringSet("rewind_seen", seen).putBoolean("rewind_baseline", true).commit();
+            pf.edit().putStringSet("rewind_seen", seen).putBoolean("rewind_baseline", true).commit();
             baselineThisRun = true;
             status = L.s("rewindBaseline") + " " + n;
             return;
@@ -306,6 +338,18 @@ public class RewindSync {
         progressDone = 0;
         progressTotal = 0;
         progressName = "";
+        if (pf.getBoolean("rewind_roll_pending", false) && resetRoll(ip))
+            pf.edit().putBoolean("rewind_roll_pending", false).commit();
+        // A half-frame / double-exposure pair is one output.  The first exposure is downloaded
+        // but not marked seen; the next matching exposure completes the pair (same approach as
+        // SpyWatcher, but persisted so a restart doesn't lose the first frame).
+        String pendingFpath = pf.getString("rewind_pair_fpath", null);
+        File pendingFile = pendingFpath == null ? null : new File(pf.getString("rewind_pair_path", ""));
+        if (pendingFile != null && (!pendingFile.exists() || pendingFile.length() == 0)) {
+            clearPair(pf);
+            pendingFpath = null;
+            pendingFile = null;
+        }
         while (m.find()) {
             String block = m.group(1);
             String fpath = tag(block, "FPATH");
@@ -314,22 +358,67 @@ public class RewindSync {
             if (!isPullFolder(fpath)) continue;
             String un = name.toUpperCase(Locale.US);
             if (!un.endsWith(".JPG") && !un.endsWith(".JPEG")) continue;
+            if (pendingFpath != null && fpath.equals(pendingFpath)) continue;   // already staged
             if (seen.contains(fpath)) continue;
-            progressTotal++;
             progressName = name;
             File dest = new File(dir, name);
             try {
+                int combo = comboForFile(ip, name);
+                int stamp = pf.getInt("rewind_stamp" + combo, 1);
+                String post = pf.getString("rewind_post" + combo, "");
+                boolean pairMode = stamp == 8 || stamp == 9;
+                if (pendingFile != null && pairMode) {
+                    // second exposure: compose ONE graded image, then mark BOTH originals seen
+                    progressTotal++;
+                    download(ip, fpath, dest);
+                    if (dest.length() == 0) { dest.delete(); continue; }
+                    String film = filmForFile(name);
+                    String pendingFilm = pf.getString("rewind_pair_film", film);
+                    String pendingPost = pf.getString("rewind_pair_post", post);
+                    boolean half = pf.getInt("rewind_pair_stamp", stamp) == 8;
+                    String r = Server.spyPairIngest(pendingFile, dest, pendingFilm, film, half, pendingPost);
+                    if (r != null && r.startsWith("OK")) {
+                        seen.add(pendingFpath);
+                        seen.add(fpath);
+                        lastPulled++;
+                        progressDone++;
+                        // roll reset is done once after the whole pull, not per frame
+                        status = L.s("rewindPulled") + lastPulled + " " + dest.getName() + " [pair]";
+                        pendingFile.delete();
+                        dest.delete();
+                        clearPair(pf);
+                        pendingFpath = null;
+                        pendingFile = null;
+                    } else {
+                        dest.delete();
+                        status = "pair ERR " + r;
+                    }
+                    continue;
+                }
+                if (pairMode) {
+                    // first exposure: keep locally, wait for the second; do NOT mark seen yet
+                    download(ip, fpath, dest);
+                    if (dest.length() == 0) { dest.delete(); continue; }
+                    pf.edit().putString("rewind_pair_fpath", fpath)
+                            .putString("rewind_pair_path", dest.getAbsolutePath())
+                            .putString("rewind_pair_film", filmForFile(name))
+                            .putInt("rewind_pair_stamp", stamp)
+                            .putString("rewind_pair_post", post).commit();
+                    pendingFpath = fpath;
+                    pendingFile = dest;
+                    status = L.s("spyPairWait") + " " + name;
+                    continue;
+                }
+                progressTotal++;
                 download(ip, fpath, dest);
                 if (dest.length() == 0) { dest.delete(); continue; }
                 String film = filmForFile(name);
-                int combo = comboForFile(ip, name);
-                int stamp = prefs().getInt("rewind_stamp" + combo, 1);
-                String post = prefs().getString("rewind_post" + combo, "");
                 String r = Server.spyIngest(dest, film, stamp, post);
                 if (r != null && r.startsWith("OK")) {
                     seen.add(fpath);
                     lastPulled++;
                     progressDone++;
+                    // roll reset is done once after the whole pull, not per frame
                     status = L.s("rewindPulled") + lastPulled + " " + name;
                     dest.delete();
                 } else {
@@ -339,7 +428,34 @@ public class RewindSync {
                 status = "ERR " + name + ": " + t;
             }
         }
-        prefs().edit().putStringSet("rewind_seen", seen).commit();
+        pf.edit().putStringSet("rewind_seen", seen).commit();
+        if (lastPulled > 0) {
+            boolean ok = resetRoll(ip);
+            pf.edit().putBoolean("rewind_roll_pending", !ok).commit();
+        }
+    }
+
+    /** A roll is a frame budget, not just a max value.  Writing 99 over an active roll only
+     *  changes the budget; clearing it (0) and then setting 99 starts a fresh 99-frame roll,
+     *  which is what the camera's film counter shows. */
+    private static boolean resetRoll(String ip) {
+        for (int i = 0; i < 2; i++) {
+            try {
+                String a = camGet(ip, 8004, "0", null, 2000, 3000);
+                Thread.sleep(150);
+                String b = camGet(ip, 8004, "99", null, 2000, 3000);
+                if (a != null && a.indexOf("<Status>0</Status>") >= 0
+                        && b != null && b.indexOf("<Status>0</Status>") >= 0) return true;
+            } catch (Throwable ig) {}
+            try { Thread.sleep(150); } catch (InterruptedException ig) {}
+        }
+        return false;
+    }
+
+    private static void clearPair(SharedPreferences pf) {
+        pf.edit().remove("rewind_pair_fpath").remove("rewind_pair_path")
+                .remove("rewind_pair_film").remove("rewind_pair_stamp")
+                .remove("rewind_pair_post").commit();
     }
 
     private static boolean isPullFolder(String fpath) {
