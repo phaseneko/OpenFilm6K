@@ -165,6 +165,7 @@ public class L {
         {"spyStamp", "水印与边框", "水印與邊框", "Watermark & frame", "ウォーターマークと枠", "워터마크 및 프레임", "Wasserzeichen & Rahmen", "Filigrane et cadre", "Marca y marco", "Водяной знак и рамка", "Marca e moldura"},
         // ---- rewind mode (PS135) ----
         {"rewindMode", "Rewind 模式", "Rewind 模式", "Rewind mode", "Rewindモード", "Rewind 모드", "Rewind-Modus", "Mode Rewind", "Modo Rewind", "Режим Rewind", "Modo Rewind"},
+        {"rewindGroup", "胶卷 / 水印边框 / 后期", "膠卷 / 水印邊框 / 後期", "Film / Frame / Post", "フィルム / 枠 / 後処理", "필름 / 프레임 / 후처리", "Film / Rahmen / Nachbearbeitung", "Film / cadre / post", "Película / marco / post", "Плёнка / рамка / пост", "Filme / moldura / pós"},
         {"rewindEnable", "开启 Rewind 同步", "開啟 Rewind 同步", "Enable Rewind sync", "Rewind同期を有効化", "Rewind 동기화 활성화", "Rewind-Sync aktivieren", "Activer la synchro Rewind", "Activar sincronización Rewind", "Включить синхронизацию Rewind", "Ativar sincronização Rewind"},
         {"rewindFilms", "三个胶卷槽位", "三個膠卷槽位", "Three film slots", "3つのフィルムスロット", "필름 슬롯 3개", "Drei Film-Slots", "Trois emplacements de film", "Tres ranuras de película", "Три слота плёнки", "Três slots de filme"},
         {"rewindCombo", "三个水印 + 后期组合", "三個浮水印 + 後期組合", "Three stamp + post combos", "3つのスタンプ+後処理", "스탬프+후처리 3개", "Drei Stempel+Post-Kombis", "Trois combos filigrane+post", "Tres combos de marca+post", "Три комбо штамп+пост", "Três combos de marca+post"},

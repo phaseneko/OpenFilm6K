@@ -52,6 +52,9 @@ public class RewindSync {
     private static volatile int lastPulled;
     private static volatile boolean baselineThisRun;
     private static volatile long beaconAt;
+    private static volatile long lastCfgPushAt;
+    private static volatile int progressDone, progressTotal;
+    private static volatile String progressName = "";
 
     private Thread thread;
     private static Context ctx;
@@ -146,6 +149,19 @@ public class RewindSync {
         if (!baselineThisRun && lastPulled == 0 && !status.startsWith("pull ERR")) status = L.s("rewindPulled") + "0";
     }
 
+    /** one-line camera/status summary for the Rewind dialog */
+    static String statusLine() {
+        String cam = camIp != null ? camIp : L.s("rewindNotFound");
+        String st = status == null ? "" : status.replace('\n', ' ').replace('\r', ' ');
+        return L.s("rewindCamera") + ": " + cam + "   " + L.s("rewindStatus") + ": " + st;
+    }
+
+    static int[] progress() {
+        return new int[]{progressDone, progressTotal};
+    }
+
+    static String progressName() { return progressName == null ? "" : progressName; }
+
     // ---------------------------------------------------------------- camera discovery
 
     /** UDP-only discovery: accept only a fresh PS135 beacon, never actively scan. */
@@ -163,10 +179,10 @@ public class RewindSync {
         String cfg = buildCfg();
         String hash = Integer.toHexString(cfg.hashCode());
         SharedPreferences pf = prefs();
-        boolean need = !hash.equals(pf.getString("rewind_cfg_hash", ""))
-                || !ip.equals(pf.getString("rewind_cfg_ip", ""));
-
         long now = System.currentTimeMillis();
+        boolean need = !hash.equals(pf.getString("rewind_cfg_hash", ""))
+                || !ip.equals(pf.getString("rewind_cfg_ip", ""))
+                || now - lastCfgPushAt > 30000L;
         if (now - pf.getLong("rewind_clock_at", 0) > 3600000L) {
             try {
                 String d = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date(now));
@@ -187,19 +203,41 @@ public class RewindSync {
         for (int i = 0; i < 3; i++) camGet(ip, 8006 + i * 2, null, NEUTRAL, 2000, 3000);
         camGet(ip, 3001, "0", null, 2000, 3000);
         uploadCfg(ip, cfg);
+        lastCfgPushAt = now;
         pf.edit().putString("rewind_cfg_hash", hash).putString("rewind_cfg_ip", ip).commit();
     }
 
-    private static String[] labels() {
+    /** label sent to the camera: slot-film-border, e.g. C1-LK-200-WB2 */
+    static String slotLabel(int idx) {
+        int n = idx + 1;
         SharedPreferences pf = prefs();
-        String[] out = new String[3];
-        for (int i = 0; i < 3; i++) {
-            String s = pf.getString("rewind_label" + (i + 1), "");
-            if (s == null || s.trim().length() == 0) s = "FILM" + (i + 1);
-            s = s.toUpperCase(Locale.US).replaceAll("[^A-Z0-9_. -]", "-").trim();
-            if (s.length() > 10) s = s.substring(0, 10);
-            out[i] = s.length() == 0 ? "FILM" + (i + 1) : s;
+        String film = pf.getString("rewind_film" + n, "");
+        if (film == null || film.trim().length() == 0) film = "FILM" + n;
+        String border = borderCode(pf.getInt("rewind_stamp" + n, idx));
+        String s = "C" + n + "-" + film + "-" + border;
+        s = s.toUpperCase(Locale.US).replaceAll("[^A-Z0-9_. -]", "-").trim();
+        if (s.length() > 40) s = s.substring(0, 40);
+        return s;
+    }
+
+    private static String borderCode(int stamp) {
+        String[] st = {"N", "D", "E", "DE", "B1", "B2", "F", "FE", "H", "2", "X", "W", "WB1", "WB2", "WB3"};
+        return stamp >= 0 && stamp < st.length ? st[stamp] : "N";
+    }
+
+    private static int slotFromLabel(String label) {
+        if (label == null) return -1;
+        String s = label.trim().toUpperCase(Locale.US);
+        if (s.length() >= 2 && s.charAt(0) == 'C'
+                && s.charAt(1) >= '1' && s.charAt(1) <= '3') {
+            return s.charAt(1) - '1';
         }
+        return -1;
+    }
+
+    private static String[] labels() {
+        String[] out = new String[3];
+        for (int i = 0; i < 3; i++) out[i] = slotLabel(i);
         return out;
     }
 
@@ -265,6 +303,9 @@ public class RewindSync {
             status = L.s("rewindBaseline") + " " + n;
             return;
         }
+        progressDone = 0;
+        progressTotal = 0;
+        progressName = "";
         while (m.find()) {
             String block = m.group(1);
             String fpath = tag(block, "FPATH");
@@ -274,6 +315,8 @@ public class RewindSync {
             String un = name.toUpperCase(Locale.US);
             if (!un.endsWith(".JPG") && !un.endsWith(".JPEG")) continue;
             if (seen.contains(fpath)) continue;
+            progressTotal++;
+            progressName = name;
             File dest = new File(dir, name);
             try {
                 download(ip, fpath, dest);
@@ -286,6 +329,7 @@ public class RewindSync {
                 if (r != null && r.startsWith("OK")) {
                     seen.add(fpath);
                     lastPulled++;
+                    progressDone++;
                     status = L.s("rewindPulled") + lastPulled + " " + name;
                     dest.delete();
                 } else {
@@ -336,10 +380,8 @@ public class RewindSync {
         for (int i = 0; i < 3; i++) {
             if (label.equalsIgnoreCase(labs[i])) return fil[i];
         }
-        if (label.length() == 2 && (label.equalsIgnoreCase("C1") || label.equalsIgnoreCase("C2") || label.equalsIgnoreCase("C3"))) {
-            int k = label.charAt(1) - '1';
-            if (k >= 0 && k < 3) return fil[k];
-        }
+        int sk = slotFromLabel(label);
+        if (sk >= 0) return fil[sk];
         // the in-camera bank has fixed names; the slot order is C1/C2/C3
         String lb = label.toUpperCase(Locale.US).replace(' ', '-');
         if (lb.equals("SUNNY-WARM")) return fil[0];
@@ -355,6 +397,8 @@ public class RewindSync {
 
     /** per-shot sidecar written by the patched firmware: DCIM/R<counter>.TXT with combo=N */
     private static int comboForFile(String ip, String name) {
+        int fromName = slotFromLabel(labelFromName(name));
+        if (fromName >= 0) return fromName + 1;
         Matcher m = Pattern.compile("_(\\d{4})\\.(?:JPG|JPEG)$", Pattern.CASE_INSENSITIVE).matcher(name);
         if (!m.find()) return 1;
         String path = "A:\\DCIM\\R" + m.group(1) + ".TXT";

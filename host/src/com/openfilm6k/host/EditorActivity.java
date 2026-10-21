@@ -1035,6 +1035,20 @@ public class EditorActivity extends Activity {
         }
     }
 
+    static class CompactSpinnerAdapter extends StdSpinnerAdapter {
+        CompactSpinnerAdapter(android.content.Context c, java.util.List<String> items) { super(c, items); }
+        @Override public View getView(int pos, View cv, android.view.ViewGroup pg) {
+            TextView v = (TextView) super.getView(pos, cv, pg);
+            v.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 2));
+            return v;
+        }
+        @Override public View getDropDownView(int pos, View cv, android.view.ViewGroup pg) {
+            View v = super.getDropDownView(pos, cv, pg);
+            if (v instanceof TextView) ((TextView) v).setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 1));
+            return v;
+        }
+    }
+
     /** ✕ delete button: disabled + dimmed unless the selected film is user-created */
     private void updateDelBtn() {
         if (delBtn == null) return;
@@ -2638,6 +2652,176 @@ public class EditorActivity extends Activity {
         Ux.themeTree(host);
     }
 
+    private void bindRewindSlot(final LinearLayout host, final android.content.SharedPreferences pf,
+                                final int idx, final TextView summary) {
+        host.removeAllViews();
+        final int n = idx + 1;
+        final java.util.List<String> films = filmChoices();
+        films.remove(DIV);
+        if (films.isEmpty()) films.add("LK-200");
+        String fv = pf.getString("rewind_film" + n, "");
+        if (fv == null || fv.length() == 0) {
+            fv = films.get(Math.min(idx, films.size() - 1));
+            pf.edit().putString("rewind_film" + n, fv).commit();
+        }
+        LinearLayout frow = new LinearLayout(this);
+        frow.setOrientation(LinearLayout.HORIZONTAL);
+        frow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView fl = new TextView(this);
+        fl.setText(L.s("spyFilm"));
+        fl.setTextColor(Ux.TXT);
+        fl.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 1));
+        frow.addView(fl, new LinearLayout.LayoutParams(0, -2, 0.40f));
+        final android.widget.Spinner fsp = new android.widget.Spinner(this);
+        StdSpinnerAdapter fa = new CompactSpinnerAdapter(this, new java.util.ArrayList<String>(films));
+        fa.spin = fsp;
+        fsp.setAdapter(fa);
+        int fsel = 0;
+        for (int i = 0; i < films.size(); i++) if (films.get(i).equals(fv)) { fsel = i; break; }
+        fsp.setSelection(fsel);
+        fsp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
+                pf.edit().putString("rewind_film" + n, films.get(pos)).commit();
+                summary.setText(RewindSync.slotLabel(idx));
+            }
+            public void onNothingSelected(android.widget.AdapterView<?> p) {}
+        });
+        android.widget.FrameLayout fwrap = Ux.wrapSpinner(this, fsp);
+        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(0, -2, 0.60f);
+        flp.leftMargin = Ux.dp(6);
+        frow.addView(fwrap, flp);
+        host.addView(frow, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout srow = new LinearLayout(this);
+        srow.setOrientation(LinearLayout.HORIZONTAL);
+        srow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView sl = new TextView(this);
+        sl.setText(L.s("spyStamp"));
+        sl.setTextColor(Ux.TXT);
+        sl.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 1));
+        srow.addView(sl, new LinearLayout.LayoutParams(0, -2, 0.40f));
+        final int[] codes = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
+        final String[] names = {L.s("stNone"), L.s("stD"), L.s("stE"), L.s("stDE"), L.s("stB1"), L.s("stB2"),
+                L.s("stF"), L.s("stFE"), L.s("stHalf"), L.s("stDouble"), L.s("stCollage"), L.s("stWide"),
+                L.s("stWB1"), L.s("stWB2"), L.s("stWB3")};
+        final android.widget.Spinner ssp = new android.widget.Spinner(this);
+        StdSpinnerAdapter sa2 = new CompactSpinnerAdapter(this, new java.util.ArrayList<String>(java.util.Arrays.asList(names)));
+        sa2.spin = ssp;
+        ssp.setAdapter(sa2);
+        int cur = pf.getInt("rewind_stamp" + n, n - 1);
+        int ssel = 0;
+        for (int i = 0; i < codes.length; i++) if (codes[i] == cur) { ssel = i; break; }
+        ssp.setSelection(ssel);
+        ssp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
+                pf.edit().putInt("rewind_stamp" + n, codes[pos]).commit();
+                summary.setText(RewindSync.slotLabel(idx));
+            }
+            public void onNothingSelected(android.widget.AdapterView<?> p) {}
+        });
+        android.widget.FrameLayout swrap = Ux.wrapSpinner(this, ssp);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0, -2, 0.60f);
+        slp.leftMargin = Ux.dp(6);
+        srow.addView(swrap, slp);
+        LinearLayout.LayoutParams srowp = new LinearLayout.LayoutParams(-1, -2);
+        srowp.topMargin = Ux.dp(6);
+        host.addView(srow, srowp);
+
+        TextView ph = new TextView(this);
+        ph.setText(L.s("ppLabel"));
+        ph.setTextColor(Ux.TXT);
+        ph.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        LinearLayout.LayoutParams php = new LinearLayout.LayoutParams(-1, -2);
+        php.topMargin = Ux.dp(6);
+        host.addView(ph, php);
+
+        java.util.HashSet<String> sel0 = new java.util.HashSet<String>();
+        for (String c : pf.getString("rewind_post" + n, "").split(",")) if (c.trim().length() > 0) sel0.add(c.trim());
+        android.widget.LinearLayout qgi = postSelector(sel0, new PostSel() {
+            public void changed(java.util.LinkedHashSet<String> sel) {
+                java.util.ArrayList<String> l2 = new java.util.ArrayList<String>(sel);
+                java.util.Collections.sort(l2);
+                StringBuilder sb = new StringBuilder();
+                for (String c : l2) { if (sb.length() > 0) sb.append(','); sb.append(c); }
+                pf.edit().putString("rewind_post" + n, sb.toString()).commit();
+                summary.setText(RewindSync.slotLabel(idx));
+            }
+        });
+        qgi.setBackground(null);
+        qgi.setPadding(0, 0, 0, 0);
+        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(-1, -2);
+        qlp.topMargin = Ux.dp(6);
+        host.addView(qgi, qlp);
+        summary.setText(RewindSync.slotLabel(idx));
+        Ux.themeTree(host);
+    }
+
+    /** Compact Win98-style spinner for the Rewind dialog only: 34dp body, small arrow. */
+    private android.widget.FrameLayout wrapRewindSpinner(final android.widget.Spinner sp) {
+        return wrapRewindSpinner(sp, Ux.dp(24));
+    }
+
+    private android.widget.FrameLayout wrapRewindSpinner(final android.widget.Spinner sp, int arrowPx) {
+        sp.setBackground(null);
+        sp.setPadding(Ux.dp(6), 0, arrowPx + Ux.dp(4), 0);
+        sp.setPopupBackgroundDrawable(Ux.popup98());
+        sp.setDropDownVerticalOffset(Ux.dp(34));
+        sp.setMinimumHeight(0);
+        android.widget.FrameLayout wrap = new android.widget.FrameLayout(this);
+        wrap.setBackground(Ux.sunkenField());
+        wrap.addView(sp, new android.widget.FrameLayout.LayoutParams(-1, Ux.dp(26), android.view.Gravity.CENTER_VERTICAL));
+        TextView arrow = new TextView(this);
+        arrow.setText("\u25BC");
+        arrow.setTextColor(Ux.TXT);
+        arrow.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(7));
+        arrow.setGravity(android.view.Gravity.CENTER);
+        arrow.setBackground(Ux.raised());
+        int arrowW = Math.max(Ux.dp(1), arrowPx - Ux.dp(4));
+        int arrowH = Math.max(Ux.dp(1), arrowPx - Ux.dp(8));
+        android.widget.FrameLayout.LayoutParams ap = new android.widget.FrameLayout.LayoutParams(arrowW, arrowH,
+                android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL);
+        ap.rightMargin = -Ux.dp(1);
+        wrap.addView(arrow, ap);
+        return wrap;
+    }
+
+    private void styleRewindSpinner(android.widget.Spinner sp) {
+        sp.setBackground(null);
+        sp.setPadding(Ux.dp(6), 0, Ux.dp(42), 0);
+        sp.setPopupBackgroundDrawable(Ux.popup98());
+        sp.setDropDownVerticalOffset(Ux.dp(34));
+        sp.setMinimumHeight(0);
+        if (sp.getParent() instanceof android.widget.FrameLayout)
+            ((android.widget.FrameLayout) sp.getParent()).setBackground(Ux.sunkenField());
+    }
+
+    /** Win98-style progress: sunken white trough with segmented navy blocks. */
+    private static class Progress98 extends android.view.View {
+        private int max = 1, prog = 0;
+        private final android.graphics.Paint paint = new android.graphics.Paint();
+        Progress98(android.content.Context c) {
+            super(c);
+            setBackground(Ux.sunkenField());
+        }
+        void setMax(int m) { max = Math.max(1, m); invalidate(); }
+        void setProgress(int p) { prog = Math.max(0, Math.min(max, p)); invalidate(); }
+        @Override protected void onDraw(android.graphics.Canvas c) {
+            int inset = Ux.dp(3);
+            int w = getWidth() - inset * 2;
+            int h = getHeight() - inset * 2;
+            if (w <= 0 || h <= 0) return;
+            paint.setColor(android.graphics.Color.WHITE);
+            c.drawRect(inset, inset, inset + w, inset + h, paint);
+            int filled = w * prog / Math.max(1, max);
+            int block = Ux.dp(8), gap = Ux.dp(2);
+            paint.setColor(0xFF000080);
+            for (int x = 0; x < filled; x += block + gap) {
+                int right = Math.min(filled, x + block);
+                c.drawRect(inset + x, inset, inset + right, inset + h, paint);
+            }
+        }
+    }
+
     // ---- Rewind mode dialog (PS135): 3 film slots + 3 stamp/post combos + camera sync ----
     private void showRewind() {
         final android.app.Dialog dlg = new android.app.Dialog(this);
@@ -2688,89 +2872,10 @@ public class EditorActivity extends Activity {
         eg.addView(egl, egll);
         addGroup(body, eg);
 
-        // group: three film slots
+        // one group: film / frame / post, with the C1-C3 switcher on its border
         final java.util.List<String> films = filmChoices();
         films.remove(DIV);
-        if (films.isEmpty()) films.add("LK-200");   // the dialog must always have a selectable row
-        android.widget.FrameLayout fg = new android.widget.FrameLayout(this);
-        LinearLayout fgi = new LinearLayout(this);
-        fgi.setOrientation(LinearLayout.VERTICAL);
-        fgi.setBackground(new Ux.Etched());
-        fgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
-        for (int i = 0; i < 3; i++) {
-            final int idx = i;
-            final int slot = i + 1;
-            String fv = pf.getString("rewind_film" + slot, "");
-            if (fv.length() == 0) {
-                fv = films.get(Math.min(i, films.size() - 1));
-                pf.edit().putString("rewind_film" + slot, fv).commit();
-            }
-            String lv = pf.getString("rewind_label" + slot, "");
-            if (lv.length() == 0) {
-                lv = rewindUniqueLabel(rewindAutoLabel(fv), i, pf);
-                pf.edit().putString("rewind_label" + slot, lv).commit();
-            }
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            final android.widget.EditText lab = new android.widget.EditText(this);
-            lab.setHint(L.s("rewindLabel"));
-            lab.setSingleLine(true);
-            lab.setBackground(Ux.sunkenField());
-            lab.setPadding(Ux.dp(8), Ux.dp(8), Ux.dp(8), Ux.dp(8));
-            lab.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
-            lab.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(10),
-                    new android.text.InputFilter.AllCaps()});
-            lab.setText(lv);
-            lab.addTextChangedListener(new android.text.TextWatcher() {
-                public void beforeTextChanged(CharSequence cs, int a, int b, int c) {}
-                public void onTextChanged(CharSequence cs, int a, int b, int c) {}
-                public void afterTextChanged(android.text.Editable e) {
-                    pf.edit().putString("rewind_label" + slot, e.toString()).commit();
-                }
-            });
-            row.addView(lab, new LinearLayout.LayoutParams(0, -2, 0.38f));
-
-            final android.widget.Spinner sp = new android.widget.Spinner(this);
-            StdSpinnerAdapter a = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(films));
-            a.spin = sp;
-            sp.setAdapter(a);
-            int sel = 0;
-            for (int k = 0; k < films.size(); k++) if (films.get(k).equals(fv)) { sel = k; break; }
-            sp.setSelection(sel);
-            final boolean[] first = {true};
-            sp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
-                    String name = films.get(pos);
-                    pf.edit().putString("rewind_film" + slot, name).commit();
-                    if (first[0]) { first[0] = false; return; }
-                    if (lab.getText().toString().trim().length() == 0) {
-                        String auto = rewindUniqueLabel(rewindAutoLabel(name), idx, pf);
-                        lab.setText(auto);
-                        pf.edit().putString("rewind_label" + slot, auto).commit();
-                    }
-                }
-                public void onNothingSelected(android.widget.AdapterView<?> p) {}
-            });
-            android.widget.FrameLayout spW = Ux.wrapSpinner(this, sp);
-            android.widget.LinearLayout.LayoutParams slp = new android.widget.LinearLayout.LayoutParams(0, -2, 0.62f);
-            slp.leftMargin = Ux.dp(6);
-            row.addView(spW, slp);
-            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
-            if (i > 0) rlp.topMargin = Ux.dp(6);
-            fgi.addView(row, rlp);
-        }
-        TextView fgl = new TextView(this); fgl.setText(L.s("rewindFilms")); Ux.styleHeader(fgl);
-        fg.setClipChildren(false);
-        android.widget.FrameLayout.LayoutParams fgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
-        fgil.topMargin = Ux.dp(10);
-        fg.addView(fgi, fgil);
-        android.widget.FrameLayout.LayoutParams fgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
-        fgll.leftMargin = Ux.dp(10);
-        fgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
-        fg.addView(fgl, fgll);
-        addGroup(body, fg);
-
+        if (films.isEmpty()) films.add("LK-200");
         if (!pf.contains("rewind_stamp1")) {
             pf.edit()
                     .putInt("rewind_stamp1", 1).putString("rewind_post1", "leak").putString("rewind_combo_label1", "D+LEAK")
@@ -2778,102 +2883,107 @@ public class EditorActivity extends Activity {
                     .putInt("rewind_stamp3", 6).putString("rewind_post3", "scratch").putString("rewind_combo_label3", "F+SCR")
                     .commit();
         }
+        final android.widget.FrameLayout rg = new android.widget.FrameLayout(this);
+        LinearLayout rgi = new LinearLayout(this);
+        rgi.setOrientation(LinearLayout.VERTICAL);
+        rgi.setBackground(new Ux.Etched());
+        rgi.setPadding(Ux.dp(8), Ux.dp(24), Ux.dp(8), Ux.dp(8));
+        final LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        rgi.addView(content, new LinearLayout.LayoutParams(-1, -2));
+        final TextView summary = new TextView(this);
+        summary.setTextColor(Ux.TXT);
+        summary.setTypeface(android.graphics.Typeface.MONOSPACE);
+        summary.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 1));
+        summary.setSingleLine(true);
+        summary.setGravity(android.view.Gravity.CENTER);
+        summary.getPaint().setFakeBoldText(true);
+        LinearLayout.LayoutParams sump = new LinearLayout.LayoutParams(-1, -2);
+        sump.topMargin = Ux.dp(4);
+        rgi.addView(summary, sump);
 
-        // group: three combos, one editor at a time (switching the C spinner commits the visible edits)
-        android.widget.FrameLayout cg = new android.widget.FrameLayout(this);
-        LinearLayout cgi = new LinearLayout(this);
-        cgi.setOrientation(LinearLayout.VERTICAL);
-        cgi.setBackground(new Ux.Etched());
-        cgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        final android.widget.Spinner csp = new android.widget.Spinner(this);
-        StdSpinnerAdapter ca = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(
+        final int[] slot = {0};
+        final android.widget.Spinner slotSp = new android.widget.Spinner(this);
+        StdSpinnerAdapter sa = new CompactSpinnerAdapter(this, new java.util.ArrayList<String>(
                 java.util.Arrays.asList("C1", "C2", "C3")));
-        ca.spin = csp;
-        csp.setAdapter(ca);
-        csp.setSelection(0);
-        top.addView(Ux.wrapSpinner(this, csp), new LinearLayout.LayoutParams(0, -2, 0.28f));
-        final android.widget.TextView sum = new android.widget.TextView(this);
-        sum.setText(rewindComboSummary(pf));
-        sum.setTextColor(Ux.TXT);
-        sum.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 1));
-        sum.setSingleLine(true);
-        LinearLayout.LayoutParams sumlp = new LinearLayout.LayoutParams(0, -2, 0.72f);
-        sumlp.leftMargin = Ux.dp(6);
-        top.addView(sum, sumlp);
-        cgi.addView(top, new LinearLayout.LayoutParams(-1, -2));
-        final LinearLayout editor = new LinearLayout(this);
-        editor.setOrientation(LinearLayout.VERTICAL);
-        cgi.addView(editor, new LinearLayout.LayoutParams(-1, -2));
-        final int[] csel = {0};
-        csp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+        sa.spin = slotSp;
+        slotSp.setAdapter(sa);
+        slotSp.setSelection(0);
+        Button left = new Button(this); Ux.styleButton(left); left.setText("◀");
+        Button right = new Button(this); Ux.styleButton(right); right.setText("▶");
+        LinearLayout slotBar = new LinearLayout(this);
+        slotBar.setOrientation(LinearLayout.HORIZONTAL);
+        slotBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        slotBar.addView(left, new LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(38)));
+        android.widget.FrameLayout slotWrap = wrapRewindSpinner(slotSp, Ux.dp(38));
+        LinearLayout.LayoutParams swlp = new LinearLayout.LayoutParams(Ux.dp(92), Ux.dp(30));
+        swlp.leftMargin = 0; swlp.rightMargin = 0;
+        slotBar.addView(slotWrap, swlp);
+        slotBar.addView(right, new LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(38)));
+        android.widget.FrameLayout.LayoutParams sblp = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        sblp.gravity = android.view.Gravity.RIGHT;
+        sblp.rightMargin = Ux.dp(10);
+        sblp.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+
+        TextView rgl = new TextView(this); rgl.setText(L.s("rewindGroup")); Ux.styleHeader(rgl);
+        rg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams rgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        rgil.topMargin = Ux.dp(21);
+        rg.addView(rgi, rgil);
+        android.widget.FrameLayout.LayoutParams rgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        rgll.leftMargin = Ux.dp(10);
+        rgll.topMargin = Ux.dp(21) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        rg.addView(rgl, rgll);
+        rg.addView(slotBar, sblp);
+        addGroup(body, rg);
+
+        final Runnable showSlot = new Runnable() { public void run() {
+            bindRewindSlot(content, pf, slot[0], summary);
+        }};
+        left.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            slot[0] = (slot[0] + 2) % 3; slotSp.setSelection(slot[0]);
+        }});
+        right.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            slot[0] = (slot[0] + 1) % 3; slotSp.setSelection(slot[0]);
+        }});
+        slotSp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
-                csel[0] = pos;
-                rebuildComboEditor(editor, pf, pos, sum);
+                slot[0] = pos; showSlot.run();
             }
             public void onNothingSelected(android.widget.AdapterView<?> p) {}
         });
-        rebuildComboEditor(editor, pf, 0, sum);
-        TextView cgl = new TextView(this); cgl.setText(L.s("rewindCombo")); Ux.styleHeader(cgl);
-        cg.setClipChildren(false);
-        android.widget.FrameLayout.LayoutParams cgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
-        cgil.topMargin = Ux.dp(10);
-        cg.addView(cgi, cgil);
-        android.widget.FrameLayout.LayoutParams cgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
-        cgll.leftMargin = Ux.dp(10);
-        cgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
-        cg.addView(cgl, cgll);
-        addGroup(body, cg);
+        bindRewindSlot(content, pf, 0, summary);
 
-        // group: camera status + sync
+        // group: one-line camera/status + transfer progress
         android.widget.FrameLayout ig = new android.widget.FrameLayout(this);
         LinearLayout igv = new LinearLayout(this);
         igv.setOrientation(LinearLayout.VERTICAL);
         igv.setBackground(new Ux.Etched());
         igv.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
         final android.widget.TextView st = new android.widget.TextView(this);
-        st.setText(RewindSync.statusText());
+        st.setText(RewindSync.statusLine());
         st.setTextColor(Ux.TXT);
         st.setTypeface(android.graphics.Typeface.MONOSPACE);
         st.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 1));
-        st.setLineSpacing(Ux.dp(2), 1f);
+        st.setSingleLine(true);
+        st.setEllipsize(android.text.TextUtils.TruncateAt.END);
         igv.addView(st, new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout brow = new LinearLayout(this);
-        brow.setOrientation(LinearLayout.HORIZONTAL);
-        Button sync = new Button(this); Ux.styleButton(sync); sync.setText(L.s("rewindSyncNow"));
-        sync.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-            if (!pf.getBoolean("rewind_on", false)) { MainActivity.say(L.s("rewindNeedOn")); return; }
-            RewindSync.requestSync(getApplicationContext());
-            st.setText(RewindSync.statusText());
-        }});
-        brow.addView(sync, new LinearLayout.LayoutParams(0, -2, 0.5f));
-        Button refresh = new Button(this); Ux.styleButton(refresh); refresh.setText(L.s("rewindRefresh"));
-        refresh.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-            st.setText(RewindSync.statusText());
-        }});
-        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(0, -2, 0.5f);
-        rlp.leftMargin = Ux.dp(6);
-        brow.addView(refresh, rlp);
-        LinearLayout.LayoutParams browp = new LinearLayout.LayoutParams(-1, -2);
-        browp.topMargin = Ux.dp(6);
-        igv.addView(brow, browp);
-        Button all = new Button(this); Ux.styleButton(all); all.setText(L.s("rewindPullAll"));
-        all.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-            RewindSync.resetSeen(getApplicationContext());
-            st.setText(RewindSync.statusText());
-        }});
-        LinearLayout.LayoutParams allp = new LinearLayout.LayoutParams(-1, -2);
-        allp.topMargin = Ux.dp(6);
-        igv.addView(all, allp);
-        TextView hint = new TextView(this);
-        hint.setText(L.s("rewindHint"));
-        hint.setTextColor(Ux.TXT);
-        hint.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 1));
-        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-1, -2);
-        hlp.topMargin = Ux.dp(6);
-        igv.addView(hint, hlp);
+        final Progress98 pb = new Progress98(this);
+        pb.setMax(1);
+        pb.setProgress(0);
+        LinearLayout.LayoutParams pbp = new LinearLayout.LayoutParams(-1, Ux.dp(18));
+        pbp.topMargin = Ux.dp(8);
+        igv.addView(pb, pbp);
+        final android.widget.TextView prog = new android.widget.TextView(this);
+        prog.setTextColor(Ux.TXT);
+        prog.setTypeface(android.graphics.Typeface.MONOSPACE);
+        prog.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 2));
+        prog.setSingleLine(true);
+        prog.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        prog.setText("0 / 0");
+        LinearLayout.LayoutParams progP = new LinearLayout.LayoutParams(-1, -2);
+        progP.topMargin = Ux.dp(4);
+        igv.addView(prog, progP);
         TextView igl = new TextView(this); igl.setText(L.s("rewindCamera")); Ux.styleHeader(igl);
         ig.setClipChildren(false);
         android.widget.FrameLayout.LayoutParams igil = new android.widget.FrameLayout.LayoutParams(-1, -2);
@@ -2886,6 +2996,7 @@ public class EditorActivity extends Activity {
         addGroup(body, ig);
 
         Ux.themeTree(body);
+        styleRewindSpinner(slotSp);
         android.widget.ScrollView sv = new android.widget.ScrollView(this);
         sv.setBackgroundColor(Ux.FACE);
         sv.addView(body, new android.widget.FrameLayout.LayoutParams(-1, -2));
@@ -2917,14 +3028,22 @@ public class EditorActivity extends Activity {
             w.getDecorView().setPadding(0, 0, 0, 0);
             w.setBackgroundDrawable(Ux.frame98());
             int wp = Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24));
-            int hp = (int) (getResources().getDisplayMetrics().heightPixels * 0.86f);
-            w.setLayout(wp, hp);
+            int maxH = (int) (getResources().getDisplayMetrics().heightPixels * 0.86f);
+            body.measure(android.view.View.MeasureSpec.makeMeasureSpec(wp, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+            int hp = Math.min(maxH, body.getMeasuredHeight() + Ux.dp(64));
+            w.setLayout(wp, Math.max(Ux.dp(280), hp));
         }
         showOwned(dlg);
         final android.os.Handler h = new android.os.Handler();
         final Runnable tick = new Runnable() { public void run() {
             if (!dlg.isShowing()) return;
-            st.setText(RewindSync.statusText());
+            st.setText(RewindSync.statusLine());
+            int[] p = RewindSync.progress();
+            pb.setMax(Math.max(1, p[1]));
+            pb.setProgress(p[0]);
+            String name = RewindSync.progressName();
+            prog.setText(p[0] + " / " + p[1] + (name.length() == 0 ? "" : "  " + name));
             h.postDelayed(this, 1000);
         }};
         h.postDelayed(tick, 1000);
@@ -3135,7 +3254,7 @@ public class EditorActivity extends Activity {
         Button x = new Button(this); x.setText("\u2715"); Ux.styleButton(x);
         x.setPadding(0, 0, Ux.dp(5), Ux.dp(5));
         x.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { dlg.dismiss(); }});
-        android.widget.LinearLayout.LayoutParams xlp = new android.widget.LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34));
+        android.widget.LinearLayout.LayoutParams xlp = new android.widget.LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(38));
         xlp.gravity = android.view.Gravity.CENTER_VERTICAL;
         tb.addView(x, xlp);
         box.addView(tb, 0, new LinearLayout.LayoutParams(-1, -2));
