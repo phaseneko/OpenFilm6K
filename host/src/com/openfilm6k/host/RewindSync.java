@@ -41,7 +41,7 @@ import java.util.regex.Pattern;
  *  under concurrent requests. */
 public class RewindSync {
     private static final String[] DEFAULT_REWIND_FILMS = {"CC-200", "UM-400", "PAN-100"};
-    private static final int GAP_MS = 120;
+    private static final int GAP_MS = 300;
     private static final String NEUTRAL = "0:0:0:0:0:0:0";
     private static final Object CAM_LOCK = new Object();
     private static final RewindSync I = new RewindSync();
@@ -188,6 +188,14 @@ public class RewindSync {
         if (!up) return null;
         long now = SystemClock.elapsedRealtime();
         if (camIp != null && beaconAt > 0 && now - beaconAt <= 15000L) return camIp;
+        // The camera advertises itself only occasionally.  After an app restart the fresh
+        // beacon may be missed; retry the last address it announced before giving up.
+        String saved = prefs().getString("rewind_cam_ip", "");
+        if (saved != null && saved.trim().length() > 0) {
+            camIp = saved.trim();
+            status = L.s("rewindSearching") + " (" + camIp + ")";
+            return camIp;
+        }
         status = L.s("rewindSearching") + " (UDP)";
         return null;
     }
@@ -195,13 +203,23 @@ public class RewindSync {
     // ---------------------------------------------------------------- push config
 
     private void pushIfNeeded(String ip) throws Exception {
+        pushIfNeeded(ip, false, -1);
+    }
+
+    private void pushIfNeeded(String ip, boolean force) throws Exception {
+        pushIfNeeded(ip, force, -1);
+    }
+
+    private void pushIfNeeded(String ip, boolean force, int budget) throws Exception {
         String cfg = buildCfg();
         String hash = Integer.toHexString(cfg.hashCode());
         SharedPreferences pf = prefs();
         long now = System.currentTimeMillis();
-        boolean need = !hash.equals(pf.getString("rewind_cfg_hash", ""))
+        boolean need = force
+                || !hash.equals(pf.getString("rewind_cfg_hash", ""))
                 || !ip.equals(pf.getString("rewind_cfg_ip", ""))
-                || now - lastCfgPushAt > 30000L;
+                || lastCfgPushAt == 0L;
+        if (budget < 0 && lastCfgPushAt == 0L) budget = 99;   // first push after app start: reload a full roll
         if (now - pf.getLong("rewind_clock_at", 0) > 3600000L) {
             try {
                 String d = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date(now));
@@ -215,13 +233,16 @@ public class RewindSync {
 
         status = L.s("rewindPushing");
         String[] labels = labels();
+        if (budget >= 0) deleteFilmCopies(ip);   // finish old roll before loading a fresh one
         camGet(ip, 3001, "2", null, 2000, 3000);
         camGet(ip, 3001, "0", null, 2000, 3000);
+        if (budget >= 0) camGet(ip, 8004, String.valueOf(budget), null, 2000, 3000);
         camGet(ip, 8002, null, labels[0] + ":" + labels[1] + ":" + labels[2], 2000, 3000);
         for (int i = 0; i < 3; i++) camGet(ip, 8012 + i * 2, null, NEUTRAL, 2000, 3000);
         for (int i = 0; i < 3; i++) camGet(ip, 8006 + i * 2, null, NEUTRAL, 2000, 3000);
         camGet(ip, 3001, "0", null, 2000, 3000);
-        uploadCfg(ip, cfg);
+        // The camera does not consume rewind.cfg; avoid a multipart POST that can wedge its
+        // single-client HTTP server and make the following pull time out.
         lastCfgPushAt = now;
         pf.edit().putString("rewind_cfg_hash", hash).putString("rewind_cfg_ip", ip).commit();
     }
@@ -356,11 +377,8 @@ public class RewindSync {
         progressDone = 0;
         progressTotal = 0;
         progressName = "";
-        if (pf.getBoolean("rewind_roll_pending", false) && resetRoll(ip))
-            pf.edit().putBoolean("rewind_roll_pending", false).commit();
-        // A half-frame / double-exposure pair is one output.  The first exposure is downloaded
-        // but not marked seen; the next matching exposure completes the pair (same approach as
-        // SpyWatcher, but persisted so a restart doesn't lose the first frame).
+
+        // Pairing state must be loaded before any download/reset decision.
         String pendingFpath = pf.getString("rewind_pair_fpath", null);
         File pendingFile = pendingFpath == null ? null : new File(pf.getString("rewind_pair_path", ""));
         if (pendingFile != null && (!pendingFile.exists() || pendingFile.length() == 0)) {
@@ -368,6 +386,10 @@ public class RewindSync {
             pendingFpath = null;
             pendingFile = null;
         }
+
+        // Download the whole batch first.  Rendering can take a while; the camera may drop
+        // Wi-Fi after the last transfer, so reset the roll while it is still serving files.
+        ArrayList<Item> items = new ArrayList<Item>();
         while (m.find()) {
             String block = m.group(1);
             String fpath = tag(block, "FPATH");
@@ -376,98 +398,130 @@ public class RewindSync {
             if (!isPullFolder(fpath)) continue;
             String un = name.toUpperCase(Locale.US);
             if (!un.endsWith(".JPG") && !un.endsWith(".JPEG")) continue;
-            if (pendingFpath != null && fpath.equals(pendingFpath)) continue;   // already staged
+            if (pendingFpath != null && fpath.equals(pendingFpath)) continue;
             if (seen.contains(fpath)) continue;
-            progressName = name;
             File dest = new File(dir, name);
             try {
-                int combo = comboForFile(ip, name);
-                int stamp = pf.getInt("rewind_stamp" + combo, 1);
-                String post = pf.getString("rewind_post" + combo, "");
-                boolean pairMode = stamp == 8 || stamp == 9;
+                download(ip, fpath, dest);
+                if (dest.length() == 0) { dest.delete(); continue; }
+                Item it = new Item();
+                it.fpath = fpath;
+                it.name = name;
+                it.file = dest;
+                it.combo = comboForFile(ip, name);
+                it.stamp = pf.getInt("rewind_stamp" + it.combo, 1);
+                it.post = pf.getString("rewind_post" + it.combo, "");
+                items.add(it);
+            } catch (Throwable t) {
+                dest.delete();
+                status = "ERR " + name + ": " + t;
+            }
+        }
+
+        boolean resetDone = false;
+        if (!items.isEmpty() || pf.getBoolean("rewind_roll_pending", false)) {
+            resetDone = resetRoll(ip);
+            pf.edit().putBoolean("rewind_roll_pending", !resetDone).commit();
+            // Clearing the roll can unload Film Mode.  Re-apply the slot names and neutral
+            // parameters immediately so the camera keeps writing Original_Film copies.
+            if (resetDone) {
+                try { pushIfNeeded(ip, true); } catch (Throwable t) { status = "push ERR " + t; }
+            }
+        }
+
+        for (Item it : items) {
+            progressTotal++;
+            progressName = it.name;
+            boolean pairMode = it.stamp == 8 || it.stamp == 9;
+            try {
                 if (pendingFile != null && pairMode) {
                     // second exposure: compose ONE graded image, then mark BOTH originals seen
-                    progressTotal++;
-                    download(ip, fpath, dest);
-                    if (dest.length() == 0) { dest.delete(); continue; }
-                    String film = filmForFile(name);
+                    String film = filmForFile(it.name);
                     String pendingFilm = pf.getString("rewind_pair_film", film);
-                    String pendingPost = pf.getString("rewind_pair_post", post);
-                    boolean half = pf.getInt("rewind_pair_stamp", stamp) == 8;
-                    String r = Server.spyPairIngest(pendingFile, dest, pendingFilm, film, half, pendingPost);
+                    String pendingPost = pf.getString("rewind_pair_post", it.post);
+                    boolean half = pf.getInt("rewind_pair_stamp", it.stamp) == 8;
+                    String r = Server.spyPairIngest(pendingFile, it.file, pendingFilm, film, half, pendingPost);
                     if (r != null && r.startsWith("OK")) {
                         seen.add(pendingFpath);
-                        seen.add(fpath);
+                        seen.add(it.fpath);
                         lastPulled++;
                         progressDone++;
-                        // roll reset is done once after the whole pull, not per frame
-                        status = L.s("rewindPulled") + lastPulled + " " + dest.getName() + " [pair]";
+                        status = L.s("rewindPulled") + lastPulled + " " + it.name + " [pair]";
                         pendingFile.delete();
-                        dest.delete();
+                        it.file.delete();
                         clearPair(pf);
                         pendingFpath = null;
                         pendingFile = null;
                     } else {
-                        dest.delete();
+                        it.file.delete();
                         status = "pair ERR " + r;
                     }
                     continue;
                 }
                 if (pairMode) {
-                    // first exposure: keep locally, wait for the second; do NOT mark seen yet
-                    download(ip, fpath, dest);
-                    if (dest.length() == 0) { dest.delete(); continue; }
-                    pf.edit().putString("rewind_pair_fpath", fpath)
-                            .putString("rewind_pair_path", dest.getAbsolutePath())
-                            .putString("rewind_pair_film", filmForFile(name))
-                            .putInt("rewind_pair_stamp", stamp)
-                            .putString("rewind_pair_post", post).commit();
-                    pendingFpath = fpath;
-                    pendingFile = dest;
-                    status = L.s("spyPairWait") + " " + name;
+                    // first exposure: keep locally, wait for the second; do NOT mark seen
+                    pf.edit().putString("rewind_pair_fpath", it.fpath)
+                            .putString("rewind_pair_path", it.file.getAbsolutePath())
+                            .putString("rewind_pair_film", filmForFile(it.name))
+                            .putInt("rewind_pair_stamp", it.stamp)
+                            .putString("rewind_pair_post", it.post).commit();
+                    pendingFpath = it.fpath;
+                    pendingFile = it.file;
+                    status = L.s("spyPairWait") + " " + it.name;
                     continue;
                 }
-                progressTotal++;
-                download(ip, fpath, dest);
-                if (dest.length() == 0) { dest.delete(); continue; }
-                String film = filmForFile(name);
-                String r = Server.spyIngest(dest, film, stamp, post);
+                String film = filmForFile(it.name);
+                String r = Server.spyIngest(it.file, film, it.stamp, it.post);
                 if (r != null && r.startsWith("OK")) {
-                    seen.add(fpath);
+                    seen.add(it.fpath);
                     lastPulled++;
                     progressDone++;
-                    // roll reset is done once after the whole pull, not per frame
-                    status = L.s("rewindPulled") + lastPulled + " " + name;
-                    dest.delete();
+                    status = L.s("rewindPulled") + lastPulled + " " + it.name;
+                    it.file.delete();
                 } else {
                     status = "render ERR " + r;
                 }
             } catch (Throwable t) {
-                status = "ERR " + name + ": " + t;
+                status = "ERR " + it.name + ": " + t;
             }
         }
         pf.edit().putStringSet("rewind_seen", seen).commit();
-        if (lastPulled > 0) {
-            boolean ok = resetRoll(ip);
-            pf.edit().putBoolean("rewind_roll_pending", !ok).commit();
-        }
+        if (resetDone) pf.edit().putBoolean("rewind_roll_pending", false).commit();
     }
 
-    /** A roll is a frame budget, not just a max value.  Writing 99 over an active roll only
-     *  changes the budget; clearing it (0) and then setting 99 starts a fresh 99-frame roll,
-     *  which is what the camera's film counter shows. */
+    private static final class Item {
+        String fpath, name, post;
+        File file;
+        int combo, stamp;
+    }
+
+    /** Official film-loading sequence: enter the slot editor, set a fresh 99-frame budget,
+     *  write the three slot names/params, then leave the editor.  This is a reload, not a
+     *  separate max-only write. */
+    /** Delete the current-roll ._FILM working copies. Originals stay untouched; this is the
+     *  finish-roll step required before a fresh roll can show a full 99-frame count. */
+    private static void deleteFilmCopies(String ip) {
+        try {
+            String xml = camGet(ip, 3015, null, null, 3000, 10000);
+            if (xml == null) return;
+            Matcher m = Pattern.compile("<File>(.*?)</File>", Pattern.DOTALL).matcher(xml);
+            while (m.find()) {
+                String block = m.group(1);
+                String fpath = tag(block, "FPATH");
+                if (fpath == null || !"._FILM".equals(folderOf(fpath))) continue;
+                try { camGet(ip, 4003, null, fpath, 2000, 4000); } catch (Throwable ig) {}
+            }
+        } catch (Throwable ig) {}
+    }
+
     private static boolean resetRoll(String ip) {
-        for (int i = 0; i < 2; i++) {
-            try {
-                String a = camGet(ip, 8004, "0", null, 2000, 3000);
-                Thread.sleep(150);
-                String b = camGet(ip, 8004, "99", null, 2000, 3000);
-                if (a != null && a.indexOf("<Status>0</Status>") >= 0
-                        && b != null && b.indexOf("<Status>0</Status>") >= 0) return true;
-            } catch (Throwable ig) {}
-            try { Thread.sleep(150); } catch (InterruptedException ig) {}
+        try {
+            I.pushIfNeeded(ip, true, 99);
+            return true;
+        } catch (Throwable t) {
+            status = "reload ERR " + t;
+            return false;
         }
-        return false;
     }
 
     private static void clearPair(SharedPreferences pf) {
@@ -569,6 +623,20 @@ public class RewindSync {
 
     private static byte[] httpBody(String ip, String path, byte[] body, String contentType,
                                    int ct, int rt) throws Exception {
+        Throwable last = null;
+        for (int attempt = 0; attempt < 4; attempt++) {
+            try {
+                byte[] r = httpBodyOnce(ip, path, body, contentType, ct, rt);
+                if (r != null) return r;
+            } catch (Throwable t) { last = t; }
+            try { Thread.sleep(350); } catch (InterruptedException ig) {}
+        }
+        if (last instanceof Exception) throw (Exception) last;
+        return null;
+    }
+
+    private static byte[] httpBodyOnce(String ip, String path, byte[] body, String contentType,
+                                       int ct, int rt) throws Exception {
         java.net.Socket s = new java.net.Socket();
         try {
             s.connect(new java.net.InetSocketAddress(ip, 80), ct);
