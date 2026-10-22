@@ -1,6 +1,6 @@
 # Rewindpix × OpenFilm6K 相机端胶卷同步 — 实施计划
 
-> **For agentic workers:** 本计划是跨固件逆向 + OpenFilm6K 相机端功能的研究/实施路线图。执行前先读本文件顶部的「当前状态」和「未决问题」；每完成一个 Task 更新本文件的 Checklist。
+> **For agentic workers:** 本计划是跨固件分析 + OpenFilm6K 相机端功能的研究/实施路线图。执行前先读本文件顶部的「当前状态」和「未决问题」；每完成一个 Task 更新本文件的 Checklist。
 
 **Goal:** 让 Rewindpix PS135 相机通过 WiFi 从 OpenFilm6K 拉取胶卷列表与胶卷数据，在相机上通过实体按键选择胶卷并直接拍摄，最终把原片和所选胶卷名交给 OpenFilm6K 后期流水线。
 
@@ -9,7 +9,7 @@
 **Tech Stack:** Novatek RTOS / ARM Cortex-A9 / BCL1+LZMA 固件包；OpenFilm6K Android 主机（Java + C++/GL ES3，`:8800` HTTP）；`.properties` 管线 + `.cube` LUT；相机端可能复用 RTOS 内置 libcurl（`NVT_CURL_SSL_OPENSSL`）或自写最小 HTTP 客户端。
 
 **Spec / 上下文:**
-- 固件逆向现场：PC `~/rw-re/`（官方 1.2.1D、解压 RTOS、`build_sd.py`、`camera_pull.py`）
+- 固件分析现场：PC `~/rw-re/`（官方 1.2.1D、解压 RTOS、`build_sd.py`、`camera_pull.py`）
 - OpenFilm6K 主仓库：PC `~/code/openfilm6k-public/`
 - 现有相机端参考实现（Sony A6000）：`camera/src/com/openfilm6k/camera/MainActivity.java`
 - 主机服务：`host/src/com/openfilm6k/host/Server.java`（`/films`、`/process`、`/ingest`）
@@ -21,7 +21,7 @@
 
 ### 已完成
 
-- 官方固件 1.2.1D 逆向：
+- 官方固件 1.2.1D 分析：
   - Novatek NA51089，Cortex-A9，纯 RTOS（`cardv`），不是 Linux。
   - 全量包 = NVT FW2 all-in-one：FDT `0xb0`、ISP 调参 `0x41f0`、U-Boot `0x270b0`、RTOS `0x7f530`。
   - RTOS = BCL1 + LZMA（algorithm 11），解压后 9,475,304 字节，装载地址 `0x10000`。
@@ -49,7 +49,7 @@
 
 - 定制固件未上机；`DELAY=50` 的 tick 频率是估计值；相机若连不上 AP 会停在 STA 模式，删 `wifi.txt` 重启可回退 AP。
 - 原厂 HTTP 服务在 STA 模式下是否仍监听未验证。
-- Rewindpix 的 Film Mode 胶卷格式、上传协议、按键处理、LUT 引擎能力均未逆向。
+- Rewindpix 的 Film Mode 胶卷格式、上传协议、按键处理、LUT 引擎能力均未分析。
 - 相机是否支持同时 AP+STA 未确认；当前方案是单模式（STA 时不发原厂 AP）。
 
 ---
@@ -72,7 +72,7 @@
 - `host/src/com/openfilm6k/host/CameraFilmExport.java`（新）— 胶卷清单、烘焙 LUT、hash、缓存。
 - `camera_rewindpix/`（新，可选）— Rewindpix 相机端协议/格式文档、测试包、构建脚本。
 - `docs/plans/2026-10-20-rewindpix-camera-film-sync.md` — 本计划。
-- `docs/rewindpix-film-format.md` — 逆向结论（Task 2/3 产出）。
+- `docs/rewindpix-film-format.md` — 分析结论（Task 2/3 产出）。
 
 **固件工作区（PC `~/rw-re/`）**
 - `FW_X94A_sd.bin` — 当前联网固件。
@@ -107,14 +107,14 @@
 
 ---
 
-## Task 2: 逆向 Rewindpix 胶卷加载协议
+## Task 2: 分析 Rewindpix 胶卷加载协议
 
 **目标:** 搞清楚官方 App 如何把“胶卷/滤镜”加载进相机，以及相机把胶卷存在哪里、格式是什么。
 
 **入口**
 - 官方 App（Rewindpix）未装在测试手机；优先拿 APK：
   - [ ] 从用户手机/Play Store/APKPure 获取 APK。
-  - [ ] PC `~/tools/jadx/bin/jadx` 反编译；搜 `film`、`lut`、`cube`、`filter`、`upload`、`wifi`、`http`、`8080`、`query.xml`。
+  - [ ] PC `~/tools/jadx/bin/jadx` 代码分析；搜 `film`、`lut`、`cube`、`filter`、`upload`、`wifi`、`http`、`8080`、`query.xml`。
 - 或抓包：
   - [ ] 手机连相机 AP，开 mitmproxy/PCAP，操作 App 加载/切换胶卷。
   - [ ] 记录请求 URL、方法、body、文件扩展名、相机返回。
@@ -309,7 +309,7 @@
 - 原片拉取：`~/rw-re/camera_pull.py`（Novatek `cmd=3015` + 直接下载）。
 - OpenFilm6K 参考实现：`camera/src/com/openfilm6k/camera/MainActivity.java` 的 `pullFilmList()`、胶卷浏览、`selfilm` 持久化、`/ingest`。
 - 胶卷烘焙：`~/.config/opencode/skills/iterating-film-pipelines/tools/bake_grade_into_cube.py`。
-- 逆向/反编译：PC `~/.local/bin/rea` + Ghidra 12.1.4；`rtos121d.elf` 可分析 14,710 个函数。
+- 固件分析：PC `~/.local/bin/rea` + Ghidra 12.1.4；`rtos121d.elf` 可分析 14,710 个函数。
 
 ---
 
