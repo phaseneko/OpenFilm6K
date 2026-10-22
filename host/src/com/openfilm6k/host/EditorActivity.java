@@ -1322,16 +1322,32 @@ public class EditorActivity extends Activity {
         Toast.makeText(this, L.s("saved") + (memSplit ? L.s("savedSplit") : ""), Toast.LENGTH_SHORT).show();
     }
 
+    /** Properties.load() reads ISO-8859-1; escape non-ASCII so a Chinese LUT filename survives
+     *  the temporary EDITTMP configuration and resolves during preview. */
+    private static String propEsc(String s) {
+        if (s == null) return "";
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\\') b.append("\\\\");
+            else if (c == '\n') b.append("\\n");
+            else if (c == '\r') b.append("\\r");
+            else if (c < 0x20 || c > 0x7e) b.append(String.format(java.util.Locale.US, "\\u%04x", (int) c));
+            else b.append(c);
+        }
+        return b.toString();
+    }
+
     /** write an in-memory slot (or flag-only base) into a pipelines key — preview staging, not user config */
     private void writeTmpPipeline(String key, ArrayList<Node> slot, String lutName, boolean splitFlag) throws Exception {
         StringBuilder sb = new StringBuilder();
-        if (splitFlag) { sb.append("daynight=split\n").append("lut=").append(lutName).append('\n'); }
+        if (splitFlag) { sb.append("daynight=split\n").append("lut=").append(propEsc(lutName)).append('\n'); }
         else {
             ArrayList<Node> keep = nodes; nodes = slot;
-            sb.append("lut=").append(lutName).append('\n').append("chain=").append(chainStr()).append('\n');
+            sb.append("lut=").append(propEsc(lutName)).append('\n').append("chain=").append(chainStr()).append('\n');
             for (Map.Entry<String, Float> e : allParams().entrySet()) sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
             for (Node nd2 : slot) if (nd2.type.equals("overlay") && nd2.list.length() > 0)
-                sb.append("overlay@").append(nd2.id).append(".list=").append(nd2.list).append('\n');
+                sb.append("overlay@").append(nd2.id).append(".list=").append(propEsc(nd2.list)).append('\n');
             nodes = keep;
         }
         FileOutputStream fo = new FileOutputStream(new File(Films.PIPE, key + ".properties"));
@@ -3529,9 +3545,9 @@ public class EditorActivity extends Activity {
                 for (Map.Entry<String, Float> e : prm.entrySet())
                     props.append(e.getKey()).append('=').append(e.getValue()).append('\n');
                 for (Node nd2 : nodes) if (nd2.type.equals("overlay") && nd2.list.length() > 0)
-                    props.append("overlay@").append(nd2.id).append(".list=").append(nd2.list).append('\n');
+                    props.append("overlay@").append(nd2.id).append(".list=").append(propEsc(nd2.list)).append('\n');
                 for (Node nd2 : nodes) if (nd2.type.equals("lut") && nd2.file != null)
-                    props.append("lut@").append(nd2.id).append(".file=").append(nd2.file).append('\n');
+                    props.append("lut@").append(nd2.id).append(".file=").append(propEsc(nd2.file)).append('\n');
                 FileOutputStream fo = new FileOutputStream(new File(Films.PIPE, "EDITTMP.properties"));
                 fo.write(props.toString().getBytes()); fo.close();
                 Films.reload("EDITTMP");

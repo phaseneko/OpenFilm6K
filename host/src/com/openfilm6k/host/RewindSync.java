@@ -143,14 +143,14 @@ public class RewindSync {
             return;
         }
         camIp = ip;
-        lastPulled = 0;
         baselineThisRun = false;
         synchronized (CAM_LOCK) {
             try { pushIfNeeded(ip); } catch (Throwable t) { status = "push ERR " + t; }
             try { pull(ip); } catch (Throwable t) { status = "pull ERR " + t; }
         }
         lastSync = System.currentTimeMillis();
-        if (!baselineThisRun && lastPulled == 0 && !status.startsWith("pull ERR")) status = L.s("rewindPulled") + "0";
+        if (!baselineThisRun && !status.startsWith("pull ERR"))
+            status = L.s("rewindPulled") + lastPulled;   // cumulative for this app session
     }
 
     /** Push the current Rewind configuration immediately when it is edited while the camera is online. */
@@ -219,7 +219,6 @@ public class RewindSync {
                 || !hash.equals(pf.getString("rewind_cfg_hash", ""))
                 || !ip.equals(pf.getString("rewind_cfg_ip", ""))
                 || lastCfgPushAt == 0L;
-        if (budget < 0 && lastCfgPushAt == 0L) budget = 99;   // first push after app start: reload a full roll
         if (now - pf.getLong("rewind_clock_at", 0) > 3600000L) {
             try {
                 String d = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date(now));
@@ -239,7 +238,6 @@ public class RewindSync {
         if (budget >= 0) camGet(ip, 8004, String.valueOf(budget), null, 2000, 3000);
         camGet(ip, 8002, null, labels[0] + ":" + labels[1] + ":" + labels[2], 2000, 3000);
         for (int i = 0; i < 3; i++) camGet(ip, 8012 + i * 2, null, NEUTRAL, 2000, 3000);
-        for (int i = 0; i < 3; i++) camGet(ip, 8006 + i * 2, null, NEUTRAL, 2000, 3000);
         camGet(ip, 3001, "0", null, 2000, 3000);
         // The camera does not consume rewind.cfg; avoid a multipart POST that can wedge its
         // single-client HTTP server and make the following pull time out.
