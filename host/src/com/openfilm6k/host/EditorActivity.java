@@ -73,6 +73,22 @@ public class EditorActivity extends Activity {
     android.widget.ImageView spyChkView;
     android.widget.ImageView ftpChkView;   // title-bar FTP button checkbox half (state = prefs ftp_on)   // title-bar spy button: checkbox half (state = prefs spy_on)
     android.widget.ImageView rewindChkView; // title-bar Rewind button checkbox half (state = prefs rewind_on)
+    private final android.os.Handler rewindPushHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable rewindPushRunnable = new Runnable() {
+        public void run() { RewindSync.pushNow(getApplicationContext()); }
+    };
+
+    /** Coalesce a burst of slot edits into one immediate camera config push. */
+    private void scheduleRewindPush() {
+        rewindPushHandler.removeCallbacks(rewindPushRunnable);
+        rewindPushHandler.postDelayed(rewindPushRunnable, 350);
+    }
+
+    @Override
+    protected void onDestroy() {
+        rewindPushHandler.removeCallbacks(rewindPushRunnable);
+        super.onDestroy();
+    }
     Spinner spyDirSpin;                    // spy dialog: watched-folder combobox
     android.app.Dialog spyDlg;             // spy dialog handle (reopened after the folder picker returns)
 
@@ -2690,6 +2706,7 @@ public class EditorActivity extends Activity {
                 if (pos < 0 || pos >= films.size() || DIV.equals(films.get(pos))) return;
                 pf.edit().putString("rewind_film" + n, films.get(pos)).commit();
                 summary.setText(RewindSync.slotLabel(idx));
+                scheduleRewindPush();
             }
             public void onNothingSelected(android.widget.AdapterView<?> p) {}
         });
@@ -2723,6 +2740,7 @@ public class EditorActivity extends Activity {
             public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
                 pf.edit().putInt("rewind_stamp" + n, codes[pos]).commit();
                 summary.setText(RewindSync.slotLabel(idx));
+                scheduleRewindPush();
             }
             public void onNothingSelected(android.widget.AdapterView<?> p) {}
         });
@@ -2752,6 +2770,7 @@ public class EditorActivity extends Activity {
                 for (String c : l2) { if (sb.length() > 0) sb.append(','); sb.append(c); }
                 pf.edit().putString("rewind_post" + n, sb.toString()).commit();
                 summary.setText(RewindSync.slotLabel(idx));
+                scheduleRewindPush();
             }
         });
         qgi.setBackground(null);

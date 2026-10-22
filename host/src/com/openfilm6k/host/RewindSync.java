@@ -43,6 +43,7 @@ public class RewindSync {
     private static final String[] DEFAULT_REWIND_FILMS = {"CC-200", "UM-400", "PAN-100"};
     private static final int GAP_MS = 120;
     private static final String NEUTRAL = "0:0:0:0:0:0:0";
+    private static final Object CAM_LOCK = new Object();
     private static final RewindSync I = new RewindSync();
 
     private static volatile boolean up;
@@ -144,10 +145,27 @@ public class RewindSync {
         camIp = ip;
         lastPulled = 0;
         baselineThisRun = false;
-        try { pushIfNeeded(ip); } catch (Throwable t) { status = "push ERR " + t; }
-        try { pull(ip); } catch (Throwable t) { status = "pull ERR " + t; }
+        synchronized (CAM_LOCK) {
+            try { pushIfNeeded(ip); } catch (Throwable t) { status = "push ERR " + t; }
+            try { pull(ip); } catch (Throwable t) { status = "pull ERR " + t; }
+        }
         lastSync = System.currentTimeMillis();
         if (!baselineThisRun && lastPulled == 0 && !status.startsWith("pull ERR")) status = L.s("rewindPulled") + "0";
+    }
+
+    /** Push the current Rewind configuration immediately when it is edited while the camera is online. */
+    static void pushNow(Context c) {
+        if (c != null) ctx = c.getApplicationContext();
+        final String ip = camIp;
+        if (ip == null) return;
+        Thread t = new Thread(new Runnable() { public void run() {
+            synchronized (CAM_LOCK) {
+                try { I.pushIfNeeded(ip); }
+                catch (Throwable e) { status = "push ERR " + e; }
+            }
+        } }, "rewind-config-push");
+        t.setDaemon(true);
+        t.start();
     }
 
     /** one-line camera/status summary for the Rewind dialog */
