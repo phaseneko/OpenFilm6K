@@ -1370,6 +1370,10 @@ public class Server {
     // perforation rects of the LAST film-edge render, so the surface post (scratch) can be masked out of the
     // sprocket holes — the holes are punched through the film, so no post-process may appear inside them.
     private static final java.util.List<android.graphics.RectF> g_holeRects = new java.util.ArrayList<android.graphics.RectF>();
+    /** photo region of the last film-edge render (output coords); the screen layer must stay
+     *  pure black there — colour nodes lift LUT black points (e.g. teal shadows), which would
+     *  double-grade the photo through PorterDuff SCREEN. */
+    private static android.graphics.RectF g_photoRect = null;
     private static int g_holeW = 0, g_holeH = 0;
     private static void recordHoles(int oW, int oH, int count, float x0, float pitch, float hw, float hh, float inset, float top, float bot, int dx) {
         g_holeRects.clear(); g_holeW = oW; g_holeH = oH;
@@ -1414,7 +1418,8 @@ public class Server {
             final int W = Wp, H = Hp;
             int rl = Math.round(U * 0.05f);
             int rb = Math.round(U * 0.16f);
-            int CW = fills ? Wp : Wp + 2 * rl, CH = fills ? Hp : Hp + 2 * rb;   // WB3 keeps the photo's own 2.7:1 frame
+            int CW = fills ? Wp : Wp + 2 * rl, CH = fills ? Hp : Hp + 2 * rb;
+            g_photoRect = fills ? new android.graphics.RectF(0, 0, Wp, Hp) : new android.graphics.RectF(rl, rb, rl + Wp, rb + Hp);   // WB3 keeps the photo's own 2.7:1 frame
             ob = android.graphics.Bitmap.createBitmap(CW, CH, android.graphics.Bitmap.Config.ARGB_8888);
             android.graphics.Canvas cv = new android.graphics.Canvas(ob);
             cv.drawColor(0xFF000000);                        // film rebate
@@ -1775,9 +1780,44 @@ public class Server {
                 String bp2 = Engine.get().processColor(bp, film, bpg.getAbsolutePath());
                 if (bp2 != null && new java.io.File(bp2).exists()) bp = bp2;
             }
+            {   // colour nodes lift the LUT black point -> the "black" photo region is no longer black, and
+                // PorterDuff SCREEN would re-grade the photo a second time. Paint the photo rect back to
+                // pure black (screen identity) so the photo keeps exactly one pass of the film pipeline.
+                if (g_photoRect != null) {
+                    try {
+                        android.graphics.Bitmap bpb = android.graphics.BitmapFactory.decodeFile(bp);
+                        if (bpb != null) {
+                            android.graphics.Bitmap bpo = bpb.copy(android.graphics.Bitmap.Config.ARGB_8888, true);
+                            android.graphics.Canvas pc = new android.graphics.Canvas(bpo);
+                            android.graphics.Paint blk = new android.graphics.Paint();
+                            blk.setColor(0xFF000000);
+                            blk.setStyle(android.graphics.Paint.Style.FILL);
+                            pc.drawRect(g_photoRect, blk);
+                            java.io.FileOutputStream pf2 = new java.io.FileOutputStream(bp);
+                            bpo.compress(android.graphics.Bitmap.CompressFormat.JPEG, 96, pf2); pf2.close();
+                            bpb.recycle(); bpo.recycle();
+                        }
+                    } catch (Throwable tt) { Engine.dbg("photoRect blackout ex " + tt); }
+                }
+            }
             android.graphics.Bitmap A = android.graphics.BitmapFactory.decodeFile(gradedCanvas.getAbsolutePath());
             android.graphics.Bitmap B = android.graphics.BitmapFactory.decodeFile(bp);
             if (A == null || B == null) { if (A != null) A.recycle(); if (B != null) B.recycle(); if (blackF.exists()) blackF.delete(); return gradedCanvas.getAbsolutePath(); }
+            // the rebate (everything outside the photo rect) is colour-graded TWICE otherwise: once in A
+            // (black canvas through the full pipeline -> LUT black point) and once in B (processColor).
+            // Blank A's rebate to pure black before the screen so the film base carries exactly ONE pass
+            // of the film colour — the photo keeps A, the base keeps B.
+            if (g_photoRect != null) {
+                try {
+                    android.graphics.Bitmap A2 = android.graphics.Bitmap.createBitmap(A.getWidth(), A.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+                    android.graphics.Canvas c2 = new android.graphics.Canvas(A2);
+                    c2.drawColor(0xFF000000);
+                    android.graphics.Rect pr = new android.graphics.Rect((int) g_photoRect.left, (int) g_photoRect.top, (int) g_photoRect.right, (int) g_photoRect.bottom);
+                    c2.drawBitmap(A, pr, pr, null);
+                    A.recycle();
+                    A = A2;
+                } catch (Throwable tr) { Engine.dbg("rebate blackout ex " + tr); }
+            }
             android.graphics.Bitmap ob = A.copy(android.graphics.Bitmap.Config.ARGB_8888, true);
             android.graphics.Canvas c = new android.graphics.Canvas(ob);
             android.graphics.Paint p = new android.graphics.Paint();
@@ -1814,6 +1854,7 @@ public class Server {
             int W = bm.getWidth(), H = bm.getHeight();
             int rb = Math.round(W * 0.16f);   // rebate geometry scales with the FILM WIDTH (35mm), not the frame aspect
             int rl = Math.round(W * 0.05f);   // black frame-line border on the left and right
+            g_photoRect = new android.graphics.RectF(rl, rb, rl + W, rb + H);
             android.graphics.Bitmap ob = android.graphics.Bitmap.createBitmap(W + rl * 2, H + rb * 2, android.graphics.Bitmap.Config.ARGB_8888);
             android.graphics.Canvas cv = new android.graphics.Canvas(ob);
             cv.drawColor(0xFF000000);                             // film rebate: near-black

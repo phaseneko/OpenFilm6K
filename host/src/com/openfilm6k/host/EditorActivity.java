@@ -2957,10 +2957,16 @@ public class EditorActivity extends Activity {
         dgi.addView(addDir, new android.widget.LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(34)));
         final TextView camAdd = new TextView(this);
         camAdd.setText(L.s("spyAddCamPath"));
+        final TextView labAdd = new TextView(this);
+        labAdd.setText(L.s("spyAddLabPath"));
         camAdd.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
         camAdd.setTextColor(0xFF0000EE);
         camAdd.getPaint().setUnderlineText(true);
         camAdd.setClickable(true);
+        labAdd.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        labAdd.setTextColor(0xFF0000EE);
+        labAdd.getPaint().setUnderlineText(true);
+        labAdd.setClickable(true);
         spyDirSpin = new Spinner(this);
         final Runnable[] refill = new Runnable[1];
         refill[0] = new Runnable() { public void run() {
@@ -2975,6 +2981,7 @@ public class EditorActivity extends Activity {
             da.spin = spyDirSpin;
             spyDirSpin.setAdapter(da);
             camAdd.setVisibility(hasCamDir(spyDirs(pf)) ? View.GONE : View.VISIBLE);   // stays in sync on add/remove/rebuild
+            if (labAdd != null) labAdd.setVisibility(hasLabDir(spyDirs(pf)) ? View.GONE : View.VISIBLE);
         }};
         refill[0].run();
         android.widget.FrameLayout dspW = Ux.wrapSpinner(this, spyDirSpin);
@@ -3002,9 +3009,20 @@ public class EditorActivity extends Activity {
             refill[0].run();
             camAdd.setVisibility(View.GONE);
         }});
+        labAdd.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            java.util.ArrayList<String> l2 = spyDirs(pf);
+            if (!hasLabDir(l2)) {
+                l2.add(LAB_DIR);
+                pf.edit().putString("spy_dirs", android.text.TextUtils.join("\n", l2)).commit();
+            }
+            refill[0].run();
+            labAdd.setVisibility(View.GONE);
+        }});
         LinearLayout.LayoutParams calp = new LinearLayout.LayoutParams(-2, -2);   // inside the etched box, under the row
         calp.topMargin = Ux.dp(6);
         dgv.addView(camAdd, calp);
+        labAdd.setLayoutParams(calp);
+        dgv.addView(labAdd);
         dg.setClipChildren(false);
         android.widget.FrameLayout.LayoutParams dgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
         dgil.topMargin = Ux.dp(10);
@@ -3017,7 +3035,12 @@ public class EditorActivity extends Activity {
         Ux.themeTree(body);   // theme BEFORE mounting the title bar: themeTree would recolor the white title text
         camAdd.setTextColor(0xFF0000EE);   // themeTree repaints TextViews with TXT; keep the link blue + underlined
         camAdd.getPaint().setUnderlineText(true);
-        box.addView(body, new LinearLayout.LayoutParams(-1, -2));
+        labAdd.setTextColor(0xFF0000EE);
+        labAdd.getPaint().setUnderlineText(true);
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.setBackgroundColor(Ux.FACE);
+        sv.addView(body, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        box.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
         LinearLayout tb = new LinearLayout(this);
         tb.setOrientation(LinearLayout.HORIZONTAL);
         tb.setBackground(Ux.navySunkenBar());
@@ -3044,7 +3067,11 @@ public class EditorActivity extends Activity {
         if (w != null) {
             w.getDecorView().setPadding(0, 0, 0, 0);
             w.setBackgroundDrawable(Ux.frame98());
-            w.setLayout(Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24)), -2);
+            int wp2 = Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24));
+            body.measure(android.view.View.MeasureSpec.makeMeasureSpec(wp2, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+            int maxH2 = (int) (getResources().getDisplayMetrics().heightPixels * 0.86f);
+            w.setLayout(wp2, Math.min(maxH2, body.getMeasuredHeight() + Ux.dp(64)));
         }
         showOwned(dlg);
     }
@@ -3843,20 +3870,24 @@ public class EditorActivity extends Activity {
 
     /** Android system camera default output folder — offered as a one-tap entry in the spy dialog */
     static final String CAM_DIR = "/sdcard/DCIM/Camera";
+    static final String LAB_DIR = "/sdcard/DCIM/LUMIXLab";   // LUMIX Lab app's saved-photo folder
 
-    /** true when the watched list already covers the camera folder (also matches /storage/emulated/0/DCIM/Camera) */
-    static boolean hasCamDir(java.util.List<String> dirs) {
+    /** true when the watched list already covers the given shortcut folder (also matches /storage/emulated/0/...) */
+    static boolean hasShortcutDir(java.util.List<String> dirs, String want) {
         for (String p : dirs) {
             if (p == null) continue;
             String q = p.trim();
             if (q.endsWith("/")) q = q.substring(0, q.length() - 1);
-            if (q.equals(CAM_DIR)) return true;
+            if (q.equals(want)) return true;
             try {
-                if (new java.io.File(q).getCanonicalPath().equals(new java.io.File(CAM_DIR).getCanonicalPath())) return true;
+                if (new java.io.File(q).getCanonicalPath().equals(new java.io.File(want).getCanonicalPath())) return true;
             } catch (Throwable ignored) {}
         }
         return false;
     }
+
+    static boolean hasCamDir(java.util.List<String> dirs) { return hasShortcutDir(dirs, CAM_DIR); }
+    static boolean hasLabDir(java.util.List<String> dirs) { return hasShortcutDir(dirs, LAB_DIR); }
 
     @Override protected void onActivityResult(int req, int res, android.content.Intent data) {
         super.onActivityResult(req, res, data);

@@ -200,6 +200,7 @@ public class L {
         {"rewindNeedOn", "请先开启 Rewind 同步", "請先開啟 Rewind 同步", "Enable Rewind sync first", "先にRewind同期を有効にしてください", "먼저 Rewind 동기화를 켜세요", "Zuerst Rewind-Sync aktivieren", "Activez d'abord la synchro Rewind", "Activa primero la sincronización Rewind", "Сначала включите синхронизацию Rewind", "Ative primeiro a sincronização Rewind"},
         {"spyDirs", "监视目录", "監視目錄", "Watched folders", "監視フォルダ", "감시 폴더", "Überwachte Ordner", "Dossiers surveillés", "Carpetas vigiladas", "Отслеживаемые папки", "Pastas vigiadas"},
         {"spyAddCamPath", "一键添加相机路径", "一鍵新增相機路徑", "Add camera folder", "カメラフォルダを追加", "카메라 폴더 추가", "Kameraordner hinzufügen", "Ajouter le dossier caméra", "Añadir carpeta de cámara", "Добавить папку камеры", "Adicionar pasta da câmera"},
+        {"spyAddLabPath", "一键添加 LUMIX Lab 保存目录", "一鍵添加 LUMIX Lab 儲存目錄", "Add LUMIX Lab save folder", "LUMIX Lab保存先を追加", "LUMIX Lab 저장 폴더 추가", "LUMIX Lab-Ordner hinzufügen", "Ajouter le dossier LUMIX Lab", "Añadir carpeta LUMIX Lab", "Добавить папку LUMIX Lab", "Adicionar pasta LUMIX Lab"},
         {"stB1", "白卡边框", "白卡邊框", "White border", "白カード枠", "화이트 카드 프레임", "Weißkarten-Rahmen", "Cadre carte blanche", "Marco tarjeta blanca", "Белая рамка", "Moldura cartão branco"},
         {"stB2", "胶片边框", "膠片邊框", "Film edge", "フィルムエッジ", "필름 에지", "Filmkante", "Bordure de film", "Borde de película", "Край плёнки", "Borda de filme"},
         {"stCollage", "四宫格拼贴", "四宮格拼貼", "4-shot collage", "4コマコラージュ", "4컷 콜라주", "4er-Collage", "Collage 4 vues", "Collage de 4", "Коллаж 4 кадра", "Colagem 4 fotos"},
