@@ -451,7 +451,14 @@ public class EditorActivity extends Activity {
         } catch (Throwable t) { MainActivity.say("annSave " + t); }
     }
 
+    @Override protected void onNewIntent(android.content.Intent it) {
+        super.onNewIntent(it);
+        if (it != null && android.content.Intent.ACTION_SEND.equals(it.getAction())) postShare(it);
+    }
+
     @Override protected void onCreate(Bundle b) {
+        if (getIntent() != null && android.content.Intent.ACTION_SEND.equals(getIntent().getAction()))
+            postShare(getIntent());
         super.onCreate(b);
         L.init(this);   // resolve saved/system language before any UI is built
         MainActivity.firstRunFlow(this);   // EditorActivity IS the launcher: permission + first data install
@@ -2564,6 +2571,168 @@ public class EditorActivity extends Activity {
         }});
     }
 
+    /** import a LUT stream: plain .cube saved as-is; .zip auto-extracted, every .cube entry imported.
+     *  Returns the first imported cube file name (null on failure / nothing found). */
+    private String importLutStream(android.net.Uri uri, String displayName) {
+        java.util.List<String> done = new java.util.ArrayList<String>();
+        String low = displayName == null ? "" : displayName.toLowerCase(java.util.Locale.US);
+        try {
+            java.io.File dirL = new java.io.File(CUSTOM_LUTS);
+            dirL.mkdirs();
+            java.io.InputStream in = getContentResolver().openInputStream(uri);
+            if (low.endsWith(".zip")) {
+                java.util.zip.ZipInputStream z = new java.util.zip.ZipInputStream(in);
+                java.util.zip.ZipEntry e;
+                byte[] buf = new byte[65536];
+                while ((e = z.getNextEntry()) != null) {
+                    String en = e.getName();
+                    int slash = en.lastIndexOf('/');
+                    String base = slash >= 0 ? en.substring(slash + 1) : en;
+                    if (base.toLowerCase(java.util.Locale.US).endsWith(".cube") && !e.isDirectory()) {
+                        base = base.replaceAll("[/\\:]", "_");
+                        java.io.File dst = new java.io.File(dirL, base);
+                        java.io.FileOutputStream fo = new java.io.FileOutputStream(dst);
+                        int n;
+                        while ((n = z.read(buf)) > 0) fo.write(buf, 0, n);
+                        fo.close();
+                        done.add(base);
+                    }
+                }
+                z.close();
+            } else {
+                String base = (displayName == null || displayName.trim().isEmpty()) ? "imported.cube" : displayName.replaceAll("[/\\:]", "_");
+                if (!base.toLowerCase(java.util.Locale.US).endsWith(".cube")) base = base + ".cube";
+                java.io.File dst = new java.io.File(dirL, base);
+                java.io.FileOutputStream fo = new java.io.FileOutputStream(dst);
+                byte[] buf = new byte[65536]; int n;
+                while ((n = in.read(buf)) > 0) fo.write(buf, 0, n);
+                fo.close(); in.close();
+                done.add(base);
+            }
+        } catch (Throwable t) {
+            MainActivity.say(L.s("importFail") + t);
+            return null;
+        }
+        if (done.isEmpty()) { MainActivity.say(L.s("notCube") + displayName); return null; }
+        MainActivity.say(L.s("imported") + android.text.TextUtils.join(", ", done));
+        return done.get(0);
+    }
+
+    /** defer share handling until the window is attached (dialogs need a view root) */
+    private void postShare(final android.content.Intent it) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() { public void run() {
+            handleShare(it);
+        }}, 600);
+    }
+
+    /** post-import question: create a custom film from the CC-200 template using this LUT? */
+    private void askCreateFilm(final String cubeFile, final boolean fromSettings) {
+        final boolean wasFromSettings = fromSettings;
+        final String fname = cubeFile.contains(".") ? cubeFile.substring(0, cubeFile.lastIndexOf('.')) : cubeFile;
+        java.io.File pf = new java.io.File(Films.PIPE, fname + ".properties");
+        if (pf.exists()) { MainActivity.say(fname + ": " + L.s("filmExists")); return; }
+        final android.app.Dialog dlg = new android.app.Dialog(this);
+        dlg.setCanceledOnTouchOutside(false);
+        dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int fp2 = Ux.dp(2);
+        box.setPadding(fp2, fp2, fp2, fp2);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setBackgroundColor(Ux.FACE);
+        body.setPadding(Ux.dp(14), Ux.dp(16), Ux.dp(14), Ux.dp(14));
+        TextView q = new TextView(this);
+        q.setText(L.s("askCreateFilm") + "“" + fname + "”?");
+        q.setTextColor(Ux.TXT);
+        q.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        body.addView(q, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout rowB = new LinearLayout(this);
+        rowB.setOrientation(LinearLayout.HORIZONTAL);
+        rowB.setGravity(android.view.Gravity.RIGHT);
+        Button no = new Button(this); Ux.styleButton(no); no.setText(L.s("btnCancel"));
+        no.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { dlg.dismiss(); if (wasFromSettings) { showSettings(); preselectLut(fname); } }});
+        rowB.addView(no, new LinearLayout.LayoutParams(-2, Ux.dp(34)));
+        Button yes = new Button(this); Ux.styleButton(yes); yes.setText(L.s("btnOk"));
+        yes.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            try {
+                java.io.File tpl = new java.io.File(Films.PIPE, "CC-200.properties");
+                String txt = new String(java.nio.file.Files.readAllBytes(tpl.toPath()), "UTF-8");
+                txt = txt.replace("lut=CC-200.cube", "lut=" + fname + ".cube");
+                txt = txt.replace("lut@1.file=CC-200.cube", "lut@1.file=" + fname + ".cube");
+                java.io.File out = new java.io.File(Films.PIPE, fname + ".properties");
+                java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
+                fo.write(txt.getBytes("UTF-8"));
+                fo.write(("\norigin=user\n").getBytes("UTF-8"));
+                fo.close();
+                Films.reload(fname);
+                rebuildFilmSpinner(fname);   // new film appears in the dropdown immediately
+                refreshSceneSpinner(sceneTag());
+                MainActivity.say(fname + ": " + L.s("filmCreated"));
+            } catch (Throwable t) { MainActivity.say(L.s("importFail") + t); }
+            dlg.dismiss();
+            if (wasFromSettings) { showSettings(); preselectLut(fname); }   // reopen refreshed, dropdown lands on the new LUT
+        }});
+        android.widget.LinearLayout.LayoutParams ylp = new LinearLayout.LayoutParams(-2, Ux.dp(34));
+        ylp.leftMargin = Ux.dp(8);
+        rowB.addView(yes, ylp);
+        android.widget.LinearLayout.LayoutParams rbp = new LinearLayout.LayoutParams(-1, -2);
+        rbp.topMargin = Ux.dp(14);
+        body.addView(rowB, rbp);
+        Ux.themeTree(body);
+        box.addView(body, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout tb = new LinearLayout(this);
+        tb.setOrientation(LinearLayout.HORIZONTAL);
+        tb.setBackground(Ux.navySunkenBar());
+        tb.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        tb.setPadding(Ux.dp(6), Ux.dp(1), Ux.dp(1), Ux.dp(1));
+        TextView ttl2 = new TextView(this); ttl2.setText(L.s("askCreateFilmTitle")); ttl2.setTextColor(0xFFFFFFFF);
+        ttl2.getPaint().setFakeBoldText(true); ttl2.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
+        tb.addView(ttl2, new android.widget.LinearLayout.LayoutParams(0, -2, 1f));
+        Button x2 = new Button(this); x2.setText("✕"); Ux.styleButton(x2); x2.setPadding(0, 0, Ux.dp(5), Ux.dp(5));
+        x2.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { dlg.dismiss(); if (wasFromSettings) { showSettings(); preselectLut(fname); } }});
+        tb.addView(x2, new android.widget.LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34)));
+        box.addView(tb, 0, new LinearLayout.LayoutParams(-1, -2));
+        dlg.setContentView(box);
+        android.view.Window w2 = dlg.getWindow();
+        if (w2 != null) {
+            w2.getDecorView().setPadding(0, 0, 0, 0);
+            w2.setBackgroundDrawable(Ux.frame98());
+            w2.setLayout(Math.min(Ux.dp(360), getResources().getDisplayMetrics().widthPixels - Ux.dp(24)), -2);
+        }
+        showOwned(dlg);
+    }
+
+    /** put the settings dialog's LUT combobox on the given imported cube (bare name) */
+    private void preselectLut(String bare) {
+        Spinner sp = setLutSpin;
+        if (sp == null || sp.getAdapter() == null) return;
+        for (int i = 0; i < sp.getAdapter().getCount(); i++) {
+            String it = String.valueOf(sp.getAdapter().getItem(i));
+            if (bare.equals(it)) { sp.setSelection(i, true); break; }
+        }
+    }
+
+    /** shared-intent entry: a .cube/.zip arrived from another app (e.g. QQ share) */
+    private void handleShare(android.content.Intent it) {
+        if (it == null) return;
+        android.net.Uri u = it.getParcelableExtra(android.content.Intent.EXTRA_STREAM);
+        if (u == null) {   // plain-text share with a path? ignore quietly
+            return;
+        }
+        String name = null;
+        android.database.Cursor c = null;
+        try {
+            c = getContentResolver().query(u, null, null, null, null);
+            if (c != null && c.moveToFirst()) {
+                int ci = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (ci >= 0) name = c.getString(ci);
+            }
+        } catch (Throwable ig) {} finally { if (c != null) c.close(); }
+        final String cube = importLutStream(u, name);
+        if (cube != null) askCreateFilm(cube, false);
+    }
+
     /** worker thread: link camera -> pull new photos -> spy ingest each -> restore network */
     private void runLuma(String ssid, String pass, String film, int mode, String post, final Button go) {
         lumaProg(0);
@@ -3724,8 +3893,16 @@ public class EditorActivity extends Activity {
         } catch (Throwable ig) {} finally { if (c != null) c.close(); }
         if (name == null) name = "imported" + ext;
         name = name.replaceAll("[/\\\\:]", "_");
-        if (req == 1002 && !name.toLowerCase(java.util.Locale.US).endsWith(".cube")) {
+        String low1002 = name.toLowerCase(java.util.Locale.US);
+        if (req == 1002 && !low1002.endsWith(".cube") && !low1002.endsWith(".zip")) {
             MainActivity.say(L.s("notCube") + name);
+            return;
+        }
+        if (req == 1002 && low1002.endsWith(".zip")) {   // zip: extract every .cube inside, then offer the film
+            String cube0 = importLutStream(data.getData(), name);
+            try { if (settingsDlg != null) settingsDlg.dismiss(); } catch (Throwable ig) {}
+            settingsDlg = null;
+            if (cube0 != null) askCreateFilm(cube0, true);
             return;
         }
         if (req == 1001 && !name.toLowerCase(java.util.Locale.US).endsWith(".jpg")
@@ -3744,6 +3921,12 @@ public class EditorActivity extends Activity {
             MainActivity.say(L.s("imported") + name);
         } catch (Throwable t) { MainActivity.say(L.s("importFail") + t); return; }
         String selName = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
+        if (req == 1002) {   // ask first; the settings dialog reopens (refreshed) after the answer
+            try { if (settingsDlg != null) settingsDlg.dismiss(); } catch (Throwable ig) {}
+            settingsDlg = null;
+            askCreateFilm(name, true);
+            return;
+        }
         if (settingsDlg != null && settingsDlg.isShowing()) {   // stay in the dialog, rebuild + preselect the new asset
             settingsDlg.dismiss();
             showSettings();

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.openfilm6k.host"
-    android:versionCode="31" android:versionName="0.11.0">
+    android:versionCode="34" android:versionName="0.11.2">
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -22,6 +22,11 @@
         <activity android:name=".LicensesActivity" android:exported="false" />
         <activity android:name=".EditorActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
         </activity>
         <service android:name=".HostService" android:exported="false" />
         <service android:name=".HostAccessibility"
