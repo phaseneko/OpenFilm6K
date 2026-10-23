@@ -91,6 +91,12 @@ public class EditorActivity extends Activity {
     }
     Spinner spyDirSpin;                    // spy dialog: watched-folder combobox
     android.app.Dialog spyDlg;             // spy dialog handle (reopened after the folder picker returns)
+    android.widget.TextView lumaProgView;
+    Progress98 lumaBar;
+    android.widget.TextView lumaCntView;
+    volatile int lumaBarMax = 1;   // luma dialog: n / total counter like rewind      // luma dialog: win98 segmented bar over the log pane   // luma dialog: transfer log pane (updated from the worker thread via UI thread)
+    volatile boolean lumaBusy;              // one transfer session at a time
+    volatile boolean lumaCancel;            // set by dialog dismiss; worker polls it
 
     // renderBtn/annBtn removed with the render group: preview refreshes automatically, annotation kept separate
     // ---------- region annotation ----------
@@ -678,12 +684,25 @@ public class EditorActivity extends Activity {
         appTitle.getPaint().setFakeBoldText(true);
         appTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
         titleBar.addView(appTitle, new LinearLayout.LayoutParams(0, -2, 1f));
-        // rewind mode: PS135 sync; the checkbox toggles rewind_on, the rest opens the config dialog
+// luma mode: drawn L badge icon — leftmost of the mode buttons, 38dp wide like settings, manual trigger only
+        LinearLayout lumaBtn = new LinearLayout(this);
+        lumaBtn.setOrientation(LinearLayout.HORIZONTAL);
+        lumaBtn.setBackground(Ux.buttonDrawable());
+        lumaBtn.setGravity(android.view.Gravity.CENTER);
+        lumaBtn.setContentDescription(L.s("lumaMode"));
+        android.widget.ImageView lumaIco = new android.widget.ImageView(this);
+        lumaIco.setImageDrawable(Ux.lumaIcon98(this));
+        lumaBtn.addView(lumaIco, new android.widget.LinearLayout.LayoutParams(-2, -2));
+        lumaBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showLuma(); }});
+        android.widget.LinearLayout.LayoutParams lumalp = new android.widget.LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(38));
+        lumalp.gravity = android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT;
+        titleBar.addView(lumaBtn, lumalp);
+                // rewind mode: PS135 sync; the checkbox toggles rewind_on, the rest opens the config dialog
         LinearLayout rewindBtn = new LinearLayout(this);
         rewindBtn.setOrientation(LinearLayout.HORIZONTAL);
         rewindBtn.setBackground(Ux.buttonDrawable());
         rewindBtn.setGravity(android.view.Gravity.CENTER);
-        rewindBtn.setPadding(Ux.dp(6), 0, Ux.dp(6), 0);
+        rewindBtn.setPadding(Ux.dp(8), 0, Ux.dp(8), 0);
         rewindBtn.setContentDescription(L.s("rewindMode"));
         rewindChkView = new android.widget.ImageView(this);
         refreshRewindBtn();
@@ -697,7 +716,7 @@ public class EditorActivity extends Activity {
         rewindBtn.addView(rewindChkView);
         TextView rewindIco = new TextView(this);
         rewindIco.setText("\uD83C\uDF9E\uFE0F");   // 🎞️
-        rewindIco.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(18));
+        rewindIco.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(19));
         rewindIco.setGravity(android.view.Gravity.CENTER);
         android.widget.LinearLayout.LayoutParams rewindilp = new android.widget.LinearLayout.LayoutParams(-2, -2);
         rewindilp.leftMargin = Ux.dp(3);
@@ -705,7 +724,7 @@ public class EditorActivity extends Activity {
         rewindBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showRewind(); }});
         android.widget.LinearLayout.LayoutParams rewindlp = new android.widget.LinearLayout.LayoutParams(-2, Ux.dp(38));
         rewindlp.gravity = android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT;
-        rewindlp.leftMargin = Ux.dp(6);
+        rewindlp.leftMargin = Ux.dp(0.5f);
         titleBar.addView(rewindBtn, rewindlp);
         // ftp mode: same compound button as spy mode, placed to its LEFT; no permission gate
         LinearLayout ftpBtn = new LinearLayout(this);
@@ -734,7 +753,7 @@ public class EditorActivity extends Activity {
         ftpBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showFtp(); }});
         android.widget.LinearLayout.LayoutParams ftplp = new android.widget.LinearLayout.LayoutParams(-2, Ux.dp(38));
         ftplp.gravity = android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT;
-        ftplp.leftMargin = Ux.dp(6);
+        ftplp.leftMargin = Ux.dp(0.5f);
         titleBar.addView(ftpBtn, ftplp);
         // spy mode: [win98 checkbox | spy glyph] compound button; checkbox mirrors prefs spy_on, dialog owns toggling
         LinearLayout spyBtn = new LinearLayout(this);
@@ -756,7 +775,7 @@ public class EditorActivity extends Activity {
         spyBtn.addView(spyChkView);
         TextView spyIco = new TextView(this);
         spyIco.setText("\uD83D\uDD75\uFE0F");   // 🕵️ detective emoji (replaced the hand-drawn pixel glyph per user)
-        spyIco.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(20));
+        spyIco.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(19));
         spyIco.setGravity(android.view.Gravity.CENTER);
         android.widget.LinearLayout.LayoutParams spyilp = new android.widget.LinearLayout.LayoutParams(-2, -2);
         spyilp.leftMargin = Ux.dp(4);
@@ -764,13 +783,13 @@ public class EditorActivity extends Activity {
         spyBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showSpy(); }});
         android.widget.LinearLayout.LayoutParams spylp = new android.widget.LinearLayout.LayoutParams(-2, Ux.dp(38));
         spylp.gravity = android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT;
-        spylp.leftMargin = Ux.dp(6);
+        spylp.leftMargin = Ux.dp(0.5f);
         titleBar.addView(spyBtn, spylp);
         Button setBtn = new Button(this); setBtn.setText("⚙️"); setBtn.setPadding(0, 0, 0, 0); setBtn.setContentDescription(L.s("settings"));
         setBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showSettings(); }});
         android.widget.LinearLayout.LayoutParams slp = new android.widget.LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(38));
         slp.gravity = android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT;
-        slp.leftMargin = Ux.dp(6);
+        slp.leftMargin = Ux.dp(0.5f);
         titleBar.addView(setBtn, slp);
         Button closeBtn = new Button(this); closeBtn.setText("✕"); closeBtn.setMinWidth(0); closeBtn.setMinimumWidth(0); closeBtn.setPadding(0, 0, Ux.dp(6), Ux.dp(6));   // center on the inset bevel body
         closeBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { finish(); }});
@@ -2268,6 +2287,329 @@ public class EditorActivity extends Activity {
     }
 
     // ---- spy mode dialog (监视模式): master switch + film/stamp pickers + watched dirs ----
+    /** luma mode dialog: camera Wi-Fi link + film/stamp/post groups (same sources as spy) + live transfer log.
+     *  Manual trigger by design: the phone must join the camera SoftAP for the pull, which disconnects
+     *  the current network until the transfer finishes and the previous link is restored. */
+    private void showLuma() {
+        final android.app.Dialog dlg = new android.app.Dialog(this);
+        dlg.setCanceledOnTouchOutside(false);
+        dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        final android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setClipChildren(false);
+        int fp = Ux.dp(2);
+        box.setPadding(fp, fp, fp, fp);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setClipChildren(false);
+        body.setBackgroundColor(Ux.FACE);
+        int bp = Ux.dp(10);
+        body.setPadding(bp, bp, bp, bp);
+        // group 1: Wi-Fi link — camera SoftAP ssid + password + transfer button on the right
+        android.widget.FrameLayout wg = new android.widget.FrameLayout(this);
+        LinearLayout wgi = new LinearLayout(this);
+        wgi.setOrientation(LinearLayout.HORIZONTAL);
+        wgi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        wgi.setBackground(new Ux.Etched());
+        wgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        final android.widget.EditText ssidEd = new android.widget.EditText(this);
+        ssidEd.setText(pf.getString("luma_ssid", ""));
+        ssidEd.setHint("SSID");
+        ssidEd.setSingleLine();
+        ssidEd.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        ssidEd.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        ssidEd.setTextColor(Ux.TXT);
+        ssidEd.setBackground(Ux.sunkenField());
+        ssidEd.setPadding(Ux.dp(6), Ux.dp(6), Ux.dp(6), Ux.dp(6));
+        wgi.addView(ssidEd, new LinearLayout.LayoutParams(0, Ux.dp(38), 1.4f));
+        final android.widget.EditText passEd = new android.widget.EditText(this);
+        passEd.setText(pf.getString("luma_pass", ""));
+        passEd.setHint(L.s("lumaPass"));
+        passEd.setSingleLine();
+        passEd.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        passEd.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        passEd.setTextColor(Ux.TXT);
+        passEd.setBackground(Ux.sunkenField());
+        passEd.setPadding(Ux.dp(6), Ux.dp(6), Ux.dp(6), Ux.dp(6));
+        android.widget.LinearLayout.LayoutParams plp2 = new LinearLayout.LayoutParams(0, Ux.dp(38), 1f);
+        plp2.leftMargin = Ux.dp(6);
+        wgi.addView(passEd, plp2);
+        final Button[] goRef = new Button[1];
+        Button go = new Button(this); Ux.styleButton(go); go.setText(L.s("lumaTransfer"));
+        go.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            String ssid = ssidEd.getText().toString().trim();
+            String pass = passEd.getText().toString();
+            if (ssid.isEmpty() || pass.length() < 8) { lumaSay("ERR: ssid/password"); return; }
+            pf.edit().putString("luma_ssid", ssid).putString("luma_pass", pass).commit();
+            if (checkSelfPermission("android.permission.ACCESS_FINE_LOCATION") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                lumaSay("need location permission");
+                requestPermissions(new String[]{"android.permission.ACCESS_FINE_LOCATION"}, 7);
+                return;
+            }
+            if (lumaBusy) return;
+            lumaBusy = true; lumaCancel = false;
+            if (goRef[0] != null) { goRef[0].setEnabled(false); goRef[0].setAlpha(0.38f); }
+            String film = pf.getString("luma_film", selFilm());
+            int mode = pf.getInt("luma_stamp", 0);
+            String post = pf.getString("luma_post", "");
+            final String fssid = ssid, fpass = pass;
+            new Thread(new Runnable() { public void run() { runLuma(fssid, fpass, film, mode, post, goRef[0]); }}).start();
+        }});
+        goRef[0] = go;
+        android.widget.LinearLayout.LayoutParams glp2 = new LinearLayout.LayoutParams(-2, Ux.dp(34));
+        glp2.leftMargin = Ux.dp(6);
+        wgi.addView(go, glp2);
+        TextView wgl = new TextView(this); wgl.setText(L.s("lumaWifi")); Ux.styleHeader(wgl);
+        wg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams wgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        wgil.topMargin = Ux.dp(10);
+        wg.addView(wgi, wgil);
+        android.widget.FrameLayout.LayoutParams wgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        wgll.leftMargin = Ux.dp(10);
+        wgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        wg.addView(wgl, wgll);
+        addGroup(body, wg);
+        // group 2: film — same combobox source as the spy dialog, independent selection
+        android.widget.FrameLayout fg = new android.widget.FrameLayout(this);
+        LinearLayout fgi = new LinearLayout(this);
+        fgi.setOrientation(LinearLayout.HORIZONTAL);
+        fgi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        fgi.setBackground(new Ux.Etched());
+        fgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        Spinner fsp = new Spinner(this);
+        final java.util.List<String> films = filmChoices();
+        StdSpinnerAdapter fsA = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(films));
+        fsA.spin = fsp;
+        fsp.setAdapter(fsA);
+        String curFilm = pf.getString("luma_film", selFilm());
+        if (curFilm != null) for (int i = 0; i < films.size(); i++) if (films.get(i).equals(curFilm)) { fsp.setSelection(i); break; }
+        fsp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (pos < 0 || pos >= films.size()) return;
+                String name = films.get(pos);
+                if (DIV.equals(name)) return;
+                if (!name.equals(pf.getString("luma_film", null)))
+                    pf.edit().putString("luma_film", name).commit();
+            }
+            public void onNothingSelected(AdapterView<?> p) {}
+        });
+        android.widget.FrameLayout fspW = Ux.wrapSpinner(this, fsp);
+        fgi.addView(fspW, new LinearLayout.LayoutParams(-1, Ux.dp(38)));
+        TextView fgl = new TextView(this); fgl.setText(L.s("spyFilm")); Ux.styleHeader(fgl);
+        fg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams fgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        fgil.topMargin = Ux.dp(10);
+        fg.addView(fgi, fgil);
+        android.widget.FrameLayout.LayoutParams fgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        fgll.leftMargin = Ux.dp(10);
+        fgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        fg.addView(fgl, fgll);
+        addGroup(body, fg);
+        // group 3: stamp/border — the full C2 set, same codes as spy
+        android.widget.FrameLayout sg = new android.widget.FrameLayout(this);
+        LinearLayout sgi = new LinearLayout(this);
+        sgi.setOrientation(LinearLayout.HORIZONTAL);
+        sgi.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        sgi.setBackground(new Ux.Etched());
+        sgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        final int[] lumaCodes = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
+        String[] lumaNames = {L.s("stNone"), L.s("stD"), L.s("stE"), L.s("stDE"), L.s("stB1"), L.s("stB2"), L.s("stF"), L.s("stFE"), L.s("stHalf"), L.s("stDouble"), L.s("stCollage"), L.s("stWide"), L.s("stWB1"), L.s("stWB2"), L.s("stWB3")};
+        Spinner ssp = new Spinner(this);
+        StdSpinnerAdapter ssA = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(java.util.Arrays.asList(lumaNames)));
+        ssA.spin = ssp;
+        ssp.setAdapter(ssA);
+        int curStamp = pf.getInt("luma_stamp", 0);
+        for (int i = 0; i < lumaCodes.length; i++) if (lumaCodes[i] == curStamp) { ssp.setSelection(i); break; }
+        ssp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (lumaCodes[pos] != pf.getInt("luma_stamp", 0))
+                    pf.edit().putInt("luma_stamp", lumaCodes[pos]).commit();
+            }
+            public void onNothingSelected(AdapterView<?> p) {}
+        });
+        android.widget.FrameLayout sspW = Ux.wrapSpinner(this, ssp);
+        sgi.addView(sspW, new LinearLayout.LayoutParams(-1, Ux.dp(38)));
+        TextView sgl = new TextView(this); sgl.setText(L.s("spyStamp")); Ux.styleHeader(sgl);
+        sg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams sgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        sgil.topMargin = Ux.dp(10);
+        sg.addView(sgi, sgil);
+        android.widget.FrameLayout.LayoutParams sgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        sgll.leftMargin = Ux.dp(10);
+        sgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        sg.addView(sgl, sgll);
+        addGroup(body, sg);
+        // group 4: post-process — same selector as spy
+        android.widget.FrameLayout qg = new android.widget.FrameLayout(this);
+        java.util.HashSet<String> lumaSel0 = new java.util.HashSet<String>();
+        for (String c : pf.getString("luma_post", "").split(",")) if (c.trim().length() > 0) lumaSel0.add(c.trim());
+        LinearLayout qgi = postSelector(lumaSel0, new PostSel() {
+            public void changed(java.util.LinkedHashSet<String> s3) {
+                java.util.ArrayList<String> l2 = new java.util.ArrayList<String>(s3);
+                java.util.Collections.sort(l2);
+                StringBuilder sb2 = new StringBuilder();
+                for (String c : l2) { if (sb2.length() > 0) sb2.append(','); sb2.append(c); }
+                pf.edit().putString("luma_post", sb2.toString()).commit();
+            }
+        });
+        TextView qgl = new TextView(this); qgl.setText(L.s("ppLabel")); Ux.styleHeader(qgl);
+        qg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams qil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        qil.topMargin = Ux.dp(10);
+        qg.addView(qgi, qil);
+        android.widget.FrameLayout.LayoutParams qll2 = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        qll2.leftMargin = Ux.dp(10);
+        qll2.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        qg.addView(qgl, qll2);
+        addGroup(body, qg);
+        // group 5: transfer log — white sunken pane, appended live from the worker
+        android.widget.FrameLayout lg = new android.widget.FrameLayout(this);
+        LinearLayout lgi = new LinearLayout(this);
+        lgi.setOrientation(LinearLayout.VERTICAL);
+        lgi.setBackground(new Ux.Etched());
+        lgi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        lumaProgView = new TextView(this);
+        lumaProgView.setText(L.s("lumaIdle"));
+        lumaProgView.setTextColor(Ux.TXT);
+        lumaProgView.setTypeface(android.graphics.Typeface.MONOSPACE);
+        lumaProgView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 1));
+        lumaProgView.setSingleLine(true);
+        lumaProgView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        lgi.addView(lumaProgView, new LinearLayout.LayoutParams(-1, -2));
+        lumaBar = new Progress98(this);
+        lumaBar.setMax(1);
+        lumaBar.setProgress(0);
+        android.widget.LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, Ux.dp(18));
+        blp.topMargin = Ux.dp(8);
+        lgi.addView(lumaBar, blp);
+        lumaCntView = new TextView(this);
+        lumaCntView.setTextColor(Ux.TXT);
+        lumaCntView.setTypeface(android.graphics.Typeface.MONOSPACE);
+        lumaCntView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY - 2));
+        lumaCntView.setSingleLine(true);
+        lumaCntView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        lumaCntView.setText("0 / 0");
+        android.widget.LinearLayout.LayoutParams clp3 = new LinearLayout.LayoutParams(-1, -2);
+        clp3.topMargin = Ux.dp(4);
+        lgi.addView(lumaCntView, clp3);
+        TextView lgl = new TextView(this); lgl.setText(L.s("lumaProgress")); Ux.styleHeader(lgl);
+        lg.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams lgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        lgil.topMargin = Ux.dp(10);
+        lg.addView(lgi, lgil);
+        android.widget.FrameLayout.LayoutParams lgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        lgll.leftMargin = Ux.dp(10);
+        lgll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        lg.addView(lgl, lgll);
+        addGroup(body, lg);
+        Ux.themeTree(body);
+        // themeTree repaints EditTexts with the face color: put the sunken white look back
+        for (android.widget.EditText ed : new android.widget.EditText[]{ssidEd, passEd}) {
+            ed.setBackground(Ux.sunkenField());
+            ed.setTextColor(Ux.TXT);
+            ed.setPadding(Ux.dp(6), Ux.dp(6), Ux.dp(6), Ux.dp(6));
+        }
+        box.addView(body, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout tb = new LinearLayout(this);
+        tb.setOrientation(LinearLayout.HORIZONTAL);
+        tb.setBackground(Ux.navySunkenBar());
+        tb.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        tb.setPadding(Ux.dp(6), Ux.dp(1), Ux.dp(1), Ux.dp(1));
+        TextView tico = new TextView(this); tico.setText("L"); tico.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        tico.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(18)); tico.setTextColor(0xFF000000);
+        tico.setGravity(android.view.Gravity.CENTER);
+        tb.addView(tico, new android.widget.LinearLayout.LayoutParams(-2, -2));
+        TextView ttl = new TextView(this); ttl.setText(L.s("lumaMode")); ttl.setTextColor(0xFFFFFFFF);
+        ttl.getPaint().setFakeBoldText(true); ttl.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(14));
+        android.widget.LinearLayout.LayoutParams ttlp = new android.widget.LinearLayout.LayoutParams(0, -2, 1f);
+        ttlp.leftMargin = Ux.dp(6);
+        tb.addView(ttl, ttlp);
+        Button x = new Button(this); x.setText("✕");
+        Ux.styleButton(x);
+        x.setPadding(0, 0, Ux.dp(5), Ux.dp(5));
+        x.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { dlg.dismiss(); }});
+        android.widget.LinearLayout.LayoutParams xlp = new android.widget.LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34));
+        xlp.gravity = android.view.Gravity.CENTER_VERTICAL;
+        tb.addView(x, xlp);
+        box.addView(tb, 0, new LinearLayout.LayoutParams(-1, -2));
+        dlg.setContentView(box);
+        android.view.Window w = dlg.getWindow();
+        if (w != null) {
+            w.getDecorView().setPadding(0, 0, 0, 0);
+            w.setBackgroundDrawable(Ux.frame98());
+            w.setLayout(Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24)), -2);
+        }
+        dlg.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() { public void onDismiss(android.content.DialogInterface d) {
+            lumaCancel = true;   // signal the worker; it still restores the network before exiting
+            lumaProgView = null;
+            lumaBar = null;
+            lumaCntView = null;
+        }});
+        showOwned(dlg);
+    }
+
+    private void lumaSay(String s) {
+        Engine.dbg("luma ui: " + s);   // mirror every progress line into debug.txt
+        if (lumaProgView != null) {
+            final String m = s;
+            runOnUiThread(new Runnable() { public void run() { if (lumaProgView != null) lumaProgView.setText(m); }});
+        }
+    }
+
+    private void lumaProg(final int v) {   // v: 0=clear, 1000=fill to max
+        runOnUiThread(new Runnable() { public void run() {
+            if (lumaBar == null) return;
+            lumaBar.setProgress(v >= 1000 ? lumaBarMax : 0);
+        }});
+    }
+
+    /** worker thread: link camera -> pull new photos -> spy ingest each -> restore network */
+    private void runLuma(String ssid, String pass, String film, int mode, String post, final Button go) {
+        lumaProg(0);
+        LumaClient.Progress pr = new LumaClient.Progress() {
+            public void update(String s) { lumaSay(s); }
+            public boolean cancelled() { return lumaCancel; }
+            public void fileDone(final int done, final int total) {
+                runOnUiThread(new Runnable() { public void run() {
+                    if (lumaBar != null) { lumaBarMax = Math.max(1, total); lumaBar.setMax(lumaBarMax); lumaBar.setProgress(done); }
+                    if (lumaCntView != null) lumaCntView.setText(done + " / " + total);
+                }});
+            }
+        };
+        final Button goF = go;
+        final String[] doneMsg = new String[1];
+        try {
+            Object[] st = LumaClient.linkCamera(this, ssid, pass, pr);
+            if (st == null) { lumaSay("FAIL: link"); return; }
+            try {
+                File tmp = new File("/sdcard/OpenFilm6K/.work");
+                tmp.mkdirs();
+                java.util.List<File> files = LumaClient.pull(this, pr, tmp);
+                int ok = 0;
+                for (File f : files) {
+                    if (lumaCancel) break;
+                    lumaSay("RENDER " + f.getName());
+                    String r = Server.spyIngest(f, film, mode, post);
+                    f.delete();
+                    if (r != null && r.startsWith("OK")) ok++;
+                    lumaSay("OK " + ok + "/" + files.size());
+                }
+                if (!files.isEmpty()) lumaProg(1000);
+                doneMsg[0] = files.isEmpty() ? L.s("lumaNone") : L.s("lumaDone") + " " + ok;
+            } finally {
+                LumaClient.restore(this, st);
+                lumaSay(doneMsg[0] != null ? doneMsg[0] : "NET RESTORED");
+            }
+        } catch (Throwable t) {
+            Engine.dbg("luma run: " + t);
+            lumaSay("ERR " + t);
+        } finally {
+            lumaBusy = false;
+            runOnUiThread(new Runnable() { public void run() { if (goF != null) { goF.setEnabled(true); goF.setAlpha(1f); } }});
+        }
+    }
+
     private void showSpy() {
         final android.app.Dialog dlg = new android.app.Dialog(this);
         dlg.setCanceledOnTouchOutside(false);

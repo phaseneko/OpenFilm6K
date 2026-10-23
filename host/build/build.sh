@@ -5,6 +5,8 @@ R="$(cd "$(dirname "$0")/.." && pwd)"
 : "${ANDROID_SDK:=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}}"
 BT="$ANDROID_SDK/build-tools/30.0.3"
 AJ="$ANDROID_SDK/platforms/android-28/android.jar"
+AJC="$(ls -d $ANDROID_SDK/platforms/android-*/android.jar 2>/dev/null | sort -V | tail -1)"
+[ -f "$AJC" ] || AJC="$AJ"   # compile classpath: newest platform (API 29+ classes for gated branches); link stays on 28
 NDK="$(ls -d "$ANDROID_SDK"/ndk/* 2>/dev/null | sort | tail -1)"
 if [ -n "${JAVA_HOME:-}" ]; then J="$JAVA_HOME/bin"; elif [ -x "$HOME/toolchains/jdk17/bin/javac" ]; then J="$HOME/toolchains/jdk17/bin"; else J="$(dirname "$(command -v javac)")"; fi
 export PATH="$J:$PATH"
@@ -21,7 +23,7 @@ if [ -d films/post ]; then cp -r films/post out/pkgassets/films/; FINDDIRS="$FIN
 if [ -d assets ]; then cp -r assets/. out/pkgassets/; fi
 "$BT/aapt2" link --java out/gen -o out/unaligned.apk --manifest AndroidManifest.xml -I "$AJ" --min-sdk-version 24 --target-sdk-version 27 -A out/pkgassets out/res.zip
 find out/gen src -name "*.java" > out/srcs.txt
-javac -encoding UTF-8 --release 8 -Xlint:-options -nowarn -cp "$AJ" -d out/classes @out/srcs.txt
+javac -encoding UTF-8 --release 8 -Xlint:-options -nowarn -cp "$AJC" -d out/classes @out/srcs.txt
 find out/classes -name "*.class" > out/classes.txt
 java -cp "$BT/lib/d8.jar" com.android.tools.r8.D8 --release --min-api 24 --lib "$AJ" --output out/dex @out/classes.txt
 ( cd out/dex && "$BT/aapt" add ../unaligned.apk classes.dex >/dev/null )

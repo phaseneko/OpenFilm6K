@@ -301,6 +301,47 @@ public class Ux {
     }
 
     /** win98 warning: yellow triangle + black outline + black "!", drawn in code (no external asset), sized like checkbox98 */
+    /** luma-mode badge: navy rounded square, black outline, win98 bevel highlights, bold white L */
+    static android.graphics.drawable.Drawable lumaIcon98(android.content.Context c) {
+        int px = dp(18);
+        android.graphics.Bitmap bm = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888);
+        Canvas cv = new Canvas(bm);
+        android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        float b = Math.max(1f, px * 0.07f);
+        android.graphics.RectF r = new android.graphics.RectF(b, b, px - b, px - b);
+        float rad = px * 0.14f;
+        // navy fill + black outline
+        p.setColor(0xFF000080);
+        p.setStyle(android.graphics.Paint.Style.FILL);
+        cv.drawRoundRect(r, rad, rad, p);
+        p.setColor(0xFF000000);
+        p.setStyle(android.graphics.Paint.Style.STROKE);
+        p.setStrokeWidth(b);
+        cv.drawRoundRect(r, rad, rad, p);
+        // bevel: top/left light, bottom/right dark (thin inner lines)
+        float o = b + Math.max(1f, px * 0.06f);
+        p.setStrokeWidth(1f);
+        p.setColor(0xFF6A8AC0);
+        cv.drawLine(o, o, px - o, o, p);
+        cv.drawLine(o, o, o, px - o, p);
+        p.setColor(0xFF000030);
+        cv.drawLine(o, px - o, px - o, px - o, p);
+        cv.drawLine(px - o, o, px - o, px - o, p);
+        // bold white L, optically centered
+        p.setStyle(android.graphics.Paint.Style.FILL);
+        p.setColor(0xFFFFFFFF);
+        p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        p.setTextSize(px * 0.64f);
+        android.graphics.Paint.FontMetrics fm = p.getFontMetrics();
+        float tw = p.measureText("L");
+        float cx = px / 2f - tw / 2f + px * 0.02f;          // slight optical shift right
+        float cy = px / 2f + (fm.descent - fm.ascent) / 2f - fm.descent - px * 0.02f;
+        cv.drawText("L", cx, cy, p);
+        android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(c.getResources(), bm);
+        d.setFilterBitmap(false);
+        return d;
+    }
+
     static android.graphics.drawable.Drawable warn98(android.content.Context c) {
         int px = dp(18);
         android.graphics.Bitmap bm = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888);
@@ -435,7 +476,8 @@ public class Ux {
         }
     }
 
-    /** win98 slider track: thin sunken groove centered vertically */
+    /** win98 determinate progress bar: sunken white groove + navy segmented fill */
+        /** win98 slider track: thin sunken groove centered vertically */
     static android.graphics.drawable.Drawable thinTrack98() {
         android.graphics.drawable.Drawable groove = new Drawable() {
             @Override public void draw(Canvas c) {
