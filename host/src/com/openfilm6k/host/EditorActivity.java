@@ -1026,6 +1026,10 @@ public class EditorActivity extends Activity {
     // ---------- node helpers ----------
     private int typeIdx(String t) { for (int i = 0; i < TYPES.length; i++) if (TYPES[i].equals(t)) return i; return -1; }
 
+    /** PSPEC is ordered by the N_* engine enum, where the removed overlay still occupies slot 6
+     *  and hue lives at 7 — unlike TYPES, which has no overlay. */
+    private int pspecIdx(String t) { return t.equals("hue") ? 7 : typeIdx(t); }
+
     /** spinner adapter with the unified body font size inside and out */
     static final String DIV = "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500";   // dropdown divider sentinel row
 
@@ -1207,7 +1211,7 @@ public class EditorActivity extends Activity {
             }
             nd.p.put("enable", Films.f(film, ty + "@" + id + ".enable", 1f));
             nd.p.put("alpha", strengthOf(film, ty, id));
-            for (String[] sp : PSPEC[typeIdx(ty)]) {
+            for (String[] sp : PSPEC[pspecIdx(ty)]) {
                 float v = Films.f(film, ty + "@" + id + "." + sp[0], Float.NaN);
                 nd.p.put(sp[0], Float.isNaN(v) ? Films.f(film, ty + "." + sp[0], Float.parseFloat(sp[4])) : v);
             }
@@ -1259,7 +1263,7 @@ public class EditorActivity extends Activity {
             if (Float.isNaN(ca)) ca = 1f;
             nd.p.put("alpha", Math.max(0f, Math.min(1f, ca)));
             if (ty.equals("overlay")) nd.list = clipLists.containsKey(ty + "@" + id) ? clipLists.get(ty + "@" + id) : "";
-            for (String[] sp : PSPEC[typeIdx(ty)]) nd.p.put(sp[0], clipParam(ty, id, sp[0], Float.parseFloat(sp[4])));
+            for (String[] sp : PSPEC[pspecIdx(ty)]) nd.p.put(sp[0], clipParam(ty, id, sp[0], Float.parseFloat(sp[4])));
             out.add(nd);
         }
         return out;
@@ -1291,7 +1295,7 @@ public class EditorActivity extends Activity {
             }
             nd.p.put("enable", Films.f(key, ty + "@" + id + ".enable", 1f));
             nd.p.put("alpha", strengthOf(key, ty, id));
-            for (String[] sp : PSPEC[typeIdx(ty)]) {
+            for (String[] sp : PSPEC[pspecIdx(ty)]) {
                 float v = Films.f(key, ty + "@" + id + "." + sp[0], Float.NaN);
                 nd.p.put(sp[0], Float.isNaN(v) ? Films.f(key, ty + "." + sp[0], Float.parseFloat(sp[4])) : v);
             }
@@ -1309,7 +1313,7 @@ public class EditorActivity extends Activity {
         nd.list = "";
         nd.p.put("enable", 1f);
         nd.p.put("alpha", 1f);
-        for (String[] sp : PSPEC[ti]) nd.p.put(sp[0], Float.parseFloat(sp[4]));
+        for (String[] sp : PSPEC[pspecIdx(ty)]) nd.p.put(sp[0], Float.parseFloat(sp[4]));   // ti is the dropdown slot (overlay was removed): hue params live at PSPEC[7]
         nodes.add(nd); expanded = nodes.size() - 1;
         buildNodeUI(); renderPreview();
     }
@@ -1325,7 +1329,7 @@ public class EditorActivity extends Activity {
         for (Node nd : nodes) {
             m.put(nd.type + "@" + nd.id + ".enable", nd.p.get("enable"));
             m.put(nd.type + "@" + nd.id + ".alpha", nd.p.get("alpha"));
-            for (String[] sp : PSPEC[typeIdx(nd.type)]) m.put(nd.type + "@" + nd.id + "." + sp[0], nd.p.get(sp[0]));
+            for (String[] sp : PSPEC[pspecIdx(nd.type)]) m.put(nd.type + "@" + nd.id + "." + sp[0], nd.p.get(sp[0]));
         }
         return m;
     }
@@ -1523,7 +1527,7 @@ public class EditorActivity extends Activity {
             nodesBox.addView(panel);
 
             if (expanded == idx) {
-                for (String[] sp : PSPEC[typeIdx(nd.type)]) {
+                for (String[] sp : PSPEC[pspecIdx(nd.type)]) {
                     final String key = sp[0];
                     if (nd.type.equals("overlay") && key.equals("blend")) continue;   // rendered as spinner below
                     if (nd.type.equals("hue") && (key.equals("low") || key.equals("mid") || key.equals("high"))) continue;
