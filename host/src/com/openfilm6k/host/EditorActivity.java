@@ -1561,7 +1561,7 @@ public class EditorActivity extends Activity {
                     sb.setProgress(Math.round((nd.p.get(key) - mn) / (mx - mn) * 2000));
                     final TextView val = new TextView(this);
                     final boolean fine = key.equals("threshold") || key.equals("thresh2");
-                    final boolean med = nd.type.equals("hue") && key.equals("shift");   // 0.01 quantization
+                    final boolean med = nd.type.equals("hue") && (key.equals("shift") || key.equals("range"));   // 0.01 quantization
                     final String fmt = fine ? "%.4f" : "%.2f";
                     val.setText(String.format(Locale.US, fmt, nd.p.get(key)));
                     val.setTypeface(Ux.seg(this));
