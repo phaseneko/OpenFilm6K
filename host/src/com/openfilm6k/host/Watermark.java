@@ -442,9 +442,10 @@ final class Watermark {
      * otherwise it keeps its size and its distance to the nearer edge.
      */
     static List<El> mapPortrait(List<El> els, float ar) {
-        // units = fractions of the card WIDTH (not of the short edge): a design's distances keep their
-        // ratio to the horizontal edge, so bars, text and gaps look the same as on the landscape card
-        final float lx0 = 1f, ly0 = 1f / ar, lx1 = 1f, ly1 = ar;
+        // unit = mean of the short edge and the card width, so the portrait card sits half-way between
+        // "everything scaled by the short edge" and "everything scaled by the width" (both were too far)
+        float k = 2f / (1f + ar);
+        final float lx0 = ar * k, ly0 = k, lx1 = 1f, ly1 = ar;
         List<El> out = new ArrayList<El>(els.size());
         for (El e : els) {
             El m = copyEl(e);
@@ -465,7 +466,7 @@ final class Watermark {
             float[] vy = axisFit(by * ly0, bh * ly0, ly0, ly1, big && bh >= 0.5f);
             m.x = hx[0] / lx1; m.w = hx[1] / lx1;
             m.y = vy[0] / ly1; m.h = vy[1] / ly1;
-            m.size = e.size / (ar * ar);       // text size is a fraction of the canvas HEIGHT
+            m.size = e.size * k / ar;          // text size is a fraction of the canvas HEIGHT
             out.add(m);
         }
         return out;
