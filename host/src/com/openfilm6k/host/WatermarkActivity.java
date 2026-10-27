@@ -2039,6 +2039,7 @@ public class WatermarkActivity extends Activity {
             } else if ("logo".equals(e.type)) {
                 boolean follow = e.brand == null || e.brand.length() == 0;
                 Bitmap lb = follow ? Logo.own() : Logo.get(e.brand);
+                if (lb == null) lb = Logo.own();       // unknown / not downloaded: same fallback as the render
                 if (lb != null) {
                     Watermark.drawLogoBitmap(cv, e, new RectF(x, y, x + w, y + h), mn, lb, tone());
                 } else {

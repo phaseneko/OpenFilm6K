@@ -63,8 +63,10 @@ class Logo {
     static Bitmap own() {
         if (OWN != null) return OWN;
         try {
-            android.graphics.drawable.Drawable d =
-                    Watermark.ctx.getResources().getDrawable(R.drawable.ic_launcher);
+            // the landscape film-frame wordmark (falls back to the square app icon)
+            android.graphics.drawable.Drawable d = null;
+            try { d = Watermark.ctx.getResources().getDrawable(R.drawable.logo_own); } catch (Throwable ig) {}
+            if (d == null) d = Watermark.ctx.getResources().getDrawable(R.drawable.ic_launcher);
             int w = Math.max(8, d.getIntrinsicWidth()), h = Math.max(8, d.getIntrinsicHeight());
             Bitmap bm = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
             android.graphics.Canvas c = new android.graphics.Canvas(bm);

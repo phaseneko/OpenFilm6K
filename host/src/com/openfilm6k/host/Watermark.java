@@ -888,6 +888,7 @@ final class Watermark {
     static void drawLogo(Canvas cv, El el, int CW, int CH, int mn, File src) {
         String slug = (el.brand != null && el.brand.length() > 0) ? el.brand : logoSrc(src);
         Bitmap bm = Logo.get(slug);
+        if (bm == null) bm = Logo.own();          // unknown brand: the app's own wordmark is the fallback
         if (bm == null) return;
         drawLogoBitmap(cv, el, new RectF(el.x * CW, el.y * CH, (el.x + el.w) * CW, (el.y + el.h) * CH), mn, bm);
     }
