@@ -479,7 +479,9 @@ final class Watermark {
         final float eps = 0.03f;               // this close to both edges = a stretched box
         float m1 = a, m2 = L0 - a - s;
         if (m1 <= eps && m2 <= eps) return new float[]{0f, L1};
-        float tol = 0.02f + 0.05f * Math.max(m1, m2);
+        // a fixed small tolerance: a box authored roughly centred stays centred, but a box that merely
+        // happens to sit between two wide margins keeps its start edge (so siblings stay aligned)
+        float tol = 0.02f;
         if (fill || Math.abs(m1 - m2) <= tol) {        // symmetric: keep both margins, else size + centre
             if (L1 >= L0) return new float[]{m1, L1 - m1 - m2};
             return new float[]{(L1 - s) / 2f, s};
