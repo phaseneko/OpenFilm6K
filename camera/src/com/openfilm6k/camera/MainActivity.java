@@ -1,0 +1,3633 @@
+package com.openfilm6k.camera;
+
+import android.app.Activity;
+import android.graphics.Color;
+import android.hardware.Camera;
+import android.os.Bundle;
+import android.os.Handler;
+import android.view.KeyEvent;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
+import android.view.View;
+import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.widget.TextView;
+
+import java.io.DataInput;
+import java.io.DataInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FilenameFilter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+
+/**
+ * OpenFilm6K camera — full shooting app: live preview, manual params, film choice,
+ * native capture; each shot lands in DCIM and is graded automatically into
+ * /sdcard/OpenFilm6K/GRADED/G<film><frame>.JPG.
+ *
+ * Keys: LEFT/RIGHT = dial mode (mode/shutter/aperture/ISO/EV/film), WHEEL = adjust,
+ * top dial = adjust too, S1/S2 = focus/shoot, Fn = film browser, C1 = settings,
+ * AEL = overlay visibility, MENU x2 = quit.
+ */
+public class MainActivity extends Activity implements SurfaceHolder.Callback {
+
+    // ---- key scancode bindings, per camera model -----------------------------
+    // Whitelist keyed by the EXIF Model of a captured photo (Build.DEVICE is shared by many Sony
+    // models); anything unlisted falls back to the A6000 map.
+    static final class KeyMap {
+        final int up, down, left, right, enter, menu, ael, c1, c2, c3, c4, fn, s1, s2, del, play;
+        final int wheelCw, wheelCcw;   // 波轮 (control wheel)      -> change the highlighted value; focus-adjust: cycle AF area mode
+        final int dialCw, dialCcw;     // 后转盘 (rear dial)        -> EV
+        final int frontCw, frontCcw;   // 前转盘 (front dial)       -> select film (0 = model has none)
+        final int[] wheelExtra;
+        final int lcdGhost;   // LCD framing: 0 = 9:8 centred (A6000), 1 = 3:2 top-aligned (A7M2), 2 = 9:8 LEFT-aligned (NEX, preview left-anchored w/ right black bar)
+        final boolean fnC1;   // NEX: Fn merges C1 — short = open film menu, long = hold C1 (favorites mode), in-menu short = toggle fav
+        KeyMap(int up, int down, int left, int right, int enter, int menu, int ael, int c1, int c2, int c3, int c4, int fn,
+               int s1, int s2, int del, int play,
+               int wheelCw, int wheelCcw, int dialCw, int dialCcw, int frontCw, int frontCcw, int[] wheelExtra, int lcdGhost,
+               boolean fnC1) {
+            this.up = up; this.down = down; this.left = left; this.right = right; this.enter = enter;
+            this.menu = menu; this.ael = ael; this.c1 = c1; this.c2 = c2; this.c3 = c3; this.c4 = c4; this.fn = fn;
+            this.s1 = s1; this.s2 = s2; this.del = del; this.play = play;
+            this.wheelCw = wheelCw; this.wheelCcw = wheelCcw; this.dialCw = dialCw; this.dialCcw = dialCcw;
+            this.frontCw = frontCw; this.frontCcw = frontCcw;
+            this.wheelExtra = wheelExtra;
+            this.lcdGhost = lcdGhost;
+            this.fnC1 = fnC1;
+        }
+    }
+    // A6000: 波轮=528/529, 后转盘(唯一转盘)=525/526, 无前转盘/C3/C4, C2=595, AEL=532
+    static final KeyMap KM_A6000 = new KeyMap(
+            103, 108, 105, 106, 232, 514, 532, 622, 595, 0, 0, 520,  // up down left right enter menu ael c1 c2 c3 c4 fn
+            516, 518, 595, 207,                                      // s1 s2 del play
+            528, 529, 525, 526, 0, 0,                                // wheel(波轮) dial(后转盘) front(前转盘)
+            new int[]{522, 523}, 0, false);                          // lcdGhost = 9:8 centred
+    // RX100 III (DSC-RX100M3): same key codes as the A6000 fallback; distinct object for the zoom lever
+    static final KeyMap KM_RX100 = new KeyMap(
+            103, 108, 105, 106, 232, 514, 532, 622, 595, 0, 0, 520,
+            516, 518, 595, 207,
+            525, 526, 0, 0, 0, 0,
+            new int[]{}, 1, false);        // ghost = 3:2 top-aligned (same framing as the preview)
+    // A7 II (ILCE-7M2): 波轮(控制轮)=634/635, 后转盘=528/529, 前转盘=525/526,
+    //                   C1=622 C2=623 C3=588 C4=595, AEL/AF/MF=638
+    static final KeyMap KM_A7M2 = new KeyMap(
+            103, 108, 105, 106, 232, 514, 638, 622, 623, 588, 595, 520,
+            516, 518, 595, 207,
+            635, 634, 528, 529, 525, 526,          // 波轮 CW/CCW 对调 (A7M2 方向相反)
+            new int[]{522, 523}, 1, false);        // lcdGhost = 3:2 top-aligned
+    // NEX-5R (NEX series layout): 波轮(4向)=103/108/105/106, 中央=232, Fn=520,
+    //   软键 A=229 (当 AEL 用), 软键 B=513 (当 C2 用),
+    //   滚轮=522/523 (改高亮值, 即通用 波轮 角色), 转盘=525/526 (改 EV, 方向与 A6000 相反),
+    //   无 menu/C1/C3/C4/前转盘/del/play (不设退出键); Fn 合并 C1 行为
+    static final KeyMap KM_NEX5R = new KeyMap(
+            103, 108, 105, 106, 232, 0, 229, 0, 513, 0, 0, 520,   // up down left right enter menu ael c1 c2 c3 c4 fn
+            516, 518, 0, 0,                                       // s1 s2 del play
+            522, 523, 526, 525, 0, 0,                             // wheel(滚轮->高亮值) dial(转盘->EV, 方向反) front(无)
+            new int[]{}, 2, true);                                // NEX 左对齐 LCD; NEX fnC1
+    static final java.util.HashMap<String, KeyMap> KEYMAPS = new java.util.HashMap<String, KeyMap>();
+    static {   // whitelist by model (EXIF Model / cached km_model), keys normalized like the lookup
+        KEYMAPS.put(normModel("ILCE-6000"), KM_A6000);
+        // first/second-gen α7 bodies share one key layout (explicit list only)
+        for (String m : new String[]{"ILCE-7", "ILCE-7R", "ILCE-7S", "ILCE-7M2", "ILCE-7RM2", "ILCE-7SM2"})
+            KEYMAPS.put(normModel(m), KM_A7M2);
+        KEYMAPS.put(normModel("NEX-5R"), KM_NEX5R);
+        KEYMAPS.put(normModel("DSC-RX100M3"), KM_RX100);
+    }
+    static KeyMap km = KM_A6000;                                     // active map (A6000 until applyKeymap)
+
+    // resolved scancodes (A6000 defaults; overwritten by applyKeymap())
+    private static int K_UP = 103, K_DOWN = 108, K_LEFT = 105, K_RIGHT = 106;
+    private static int K_ENTER = 232, K_MENU = 514, K_AEL = 532, K_C1 = 622, K_FN = 520;
+    private static int K_S1 = 516, K_S2 = 518, K_DELETE = 595, K_PLAY = 207;
+    private static int K_C2 = 595, K_C3 = 0, K_C4 = 0;
+    private static int K_WHEEL_CW = 528, K_WHEEL_CCW = 529;   // 波轮 -> highlighted value
+    private static int K_DIAL_CW = 525, K_DIAL_CCW = 526;     // 后转盘 -> EV
+    private static int K_FRONT_CW = 0, K_FRONT_CCW = 0;       // 前转盘 -> film select (0 = none)
+    private static int[] K_WHEEL_EXTRA = {522, 523};
+    private static boolean inArr(int[] a, int v) { for (int x : a) if (x == v) return true; return false; }
+    private static String kmModel = "(no photo)";   // resolved model (cached km_model or EXIF), for the info screen
+    private volatile boolean infoMode = false;     // debug info screen shown
+    private volatile boolean downHeld = false;
+    private final Runnable downLongAction = new Runnable() { public void run() { if (downHeld) showInfo(); } };
+    private volatile boolean upHeld = false;       // long-press UP arm (main screen only)
+    private final Runnable upLongAction = new Runnable() { public void run() { if (upHeld) openLogPage(); } };
+
+    /** long-press DOWN (5s): black debug screen with build/model/keymap info; any key returns */
+    private void showInfo() {
+        StringBuilder b = new StringBuilder();
+        b.append("OpenFilm6K camera  #").append(BUILD).append('\n');
+        b.append("device:  ").append(android.os.Build.DEVICE).append('\n');
+        b.append("model:   ").append(android.os.Build.MODEL).append(" / ").append(android.os.Build.MANUFACTURER).append('\n');
+        b.append("board:   ").append(android.os.Build.BOARD).append('\n');
+        b.append("product: ").append(android.os.Build.PRODUCT).append('\n');
+        b.append("android: ").append(android.os.Build.VERSION.RELEASE).append("  sdk ").append(android.os.Build.VERSION.SDK_INT).append('\n');
+        b.append("finger:  ").append(android.os.Build.FINGERPRINT).append('\n');
+        if (fbox != null) b.append("display: ").append(fbox.getWidth()).append("x").append(fbox.getHeight()).append('\n');
+        b.append("keymap:  ").append(kmModel).append(km.fnC1 ? "  [fnC1]" : "").append('\n');
+        b.append("keys: up").append(K_UP).append(" dn").append(K_DOWN).append(" lf").append(K_LEFT).append(" rt").append(K_RIGHT).append('\n');
+        b.append("      en").append(K_ENTER).append(" mn").append(K_MENU).append(" ael").append(K_AEL).append(" c1").append(K_C1).append(" c2").append(K_C2).append(" c3").append(K_C3).append(" c4").append(K_C4).append(" fn").append(K_FN).append('\n');
+        b.append("      s1").append(K_S1).append(" s2").append(K_S2).append(" del").append(K_DELETE).append(" play").append(K_PLAY).append('\n');
+        b.append("      whl ").append(K_WHEEL_CW).append('/').append(K_WHEEL_CCW).append(" rear ").append(K_DIAL_CW).append('/').append(K_DIAL_CCW).append(" front ").append(K_FRONT_CW).append('/').append(K_FRONT_CCW).append('\n');
+        b.append("ghost:   ").append(ghostFinder == 0 ? "LCD 9:8" : "EVF 3:2").append('\n');
+        b.append("stamp:   ").append(stampMode).append('\n');
+        b.append("film:    ").append(selName().isEmpty() ? "-" : selName()).append("  [").append(sel).append("]").append('\n');
+        b.append("(any key to return)");
+        infoMode = true;
+        if (fbox != null) { fbox.infoText = b.toString(); fbox.info = true; fbox.postInvalidate(); }
+        Logger.log("info screen shown");
+    }
+
+    /** cached model (prefs km_model) -> newest photo EXIF -> "" (caller falls back to A6000).
+     *  Build.MODEL is "ScalarA" on these bodies, so it is deliberately not used. */
+    private String resolveModel() {
+        try {
+            String cached = normModel(getPreferences(MODE_PRIVATE).getString(PK_KM, ""));
+            if (cached.length() > 0) return cached;
+        } catch (Throwable t) { Logger.log("keymap prefs EX: " + t); }
+        try {
+            java.io.File f = newestPhoto();
+            if (f != null) {
+                android.media.ExifInterface ex = new android.media.ExifInterface(f.getAbsolutePath());
+                String m = ex.getAttribute(android.media.ExifInterface.TAG_MODEL);
+                if (m != null && m.trim().length() > 0) return m.trim();
+            }
+        } catch (Throwable t) { Logger.log("keymap model EX: " + t); }
+        return "";
+    }
+
+    /** model-string normalisation: trim, collapse internal whitespace, uppercase */
+    private static String normModel(String s) {
+        if (s == null) return "";
+        return s.trim().replaceAll("\\s+", " ").toUpperCase(java.util.Locale.US);
+    }
+
+    /** pick the key map: cached km_model -> newest photo EXIF -> A6000 fallback */
+    private void applyKeymap() {
+        String model = normModel(resolveModel());
+        KeyMap m = model.length() > 0 ? KEYMAPS.get(model) : null;
+        boolean fallback = (m == null);
+        if (fallback) { m = KM_A6000; kmModel = (model.length() > 0 ? model : "(none)") + " -> A6000 fallback"; }
+        else kmModel = model;
+        String mapName = fallback ? "A6000 fallback" : (m == KM_A7M2) ? "A7M2" : (m == KM_NEX5R) ? "NEX-5R" : (m == KM_RX100) ? "RX100" : "A6000";
+        km = m;
+        K_UP = m.up; K_DOWN = m.down; K_LEFT = m.left; K_RIGHT = m.right; K_ENTER = m.enter;
+        K_MENU = m.menu; K_AEL = m.ael; K_C1 = m.c1; K_C2 = m.c2; K_C3 = m.c3; K_C4 = m.c4; K_FN = m.fn;
+        K_S1 = m.s1; K_S2 = m.s2; K_DELETE = m.del; K_PLAY = m.play;
+        K_WHEEL_CW = m.wheelCw; K_WHEEL_CCW = m.wheelCcw; K_DIAL_CW = m.dialCw; K_DIAL_CCW = m.dialCcw;
+        K_FRONT_CW = m.frontCw; K_FRONT_CCW = m.frontCcw;
+        K_WHEEL_EXTRA = m.wheelExtra;
+        Logger.log("keymap: model=" + (model.length() > 0 ? model : "(none)") + " -> " + mapName);
+    }
+
+    private void saveModel(String m) {
+        try { getPreferences(MODE_PRIVATE).edit().putString(PK_KM, m).commit(); }
+        catch (Throwable t) { Logger.log("km_model save fail: " + t); }
+    }
+
+    /** after the host + film list are ready: an empty card with no cached model must take one setup shot */
+    private void maybeInitMode() {
+        boolean need;
+        try { need = normModel(getPreferences(MODE_PRIVATE).getString(PK_KM, "")).length() == 0 && newestPhoto() == null; }
+        catch (Throwable t) { need = false; }
+        if (need) {
+            if (!initMode) {
+                initMode = true; initPending = false; initTimedOut = false;
+                browser = -1; settings = -1; stampMenu = -1;   // mutually exclusive with menus / pages
+                if (fbox != null) { fbox.clearMenu(); fbox.init = true; fbox.initHint = ""; fbox.postInvalidate(); }
+                if (overlay != null) overlay.setVisibility(View.INVISIBLE);
+                Logger.log("init: empty card + no cached model -> setup shot required");
+            }
+        } else if (initMode) {
+            initMode = false; initPending = false; initTimedOut = false;
+            handler.removeCallbacks(initTimeout);
+            if (fbox != null) { fbox.init = false; fbox.initHint = ""; fbox.postInvalidate(); }
+            Logger.log("init: not needed (cached model or photos present)");
+        }
+    }
+
+    /** watcher: the setup shot's file is on the card — cache the body model and leave setup */
+    private void initShotLanded(java.io.File f) {
+        String m = "";
+        try {
+            android.media.ExifInterface ex = new android.media.ExifInterface(f.getAbsolutePath());
+            m = normModel(ex.getAttribute(android.media.ExifInterface.TAG_MODEL));
+        } catch (Throwable t) { Logger.log("init: EXIF read fail " + t); }
+        if (m.length() == 0) {
+            Logger.log("init: setup shot has no EXIF model");
+            handler.post(new Runnable() { public void run() {
+                initPending = false; initTimedOut = true;
+                if (fbox != null) { fbox.initHint = "NO MODEL IN EXIF"; fbox.postInvalidate(); }
+            }});
+            return;
+        }
+        final String mm = m;
+        saveModel(m);
+        handler.post(new Runnable() { public void run() {
+            initPending = false; initTimedOut = false; initMode = false;
+            handler.removeCallbacks(initTimeout);
+            if (fbox != null) { fbox.init = false; fbox.initHint = ""; }
+            applyKeymap();                              // now reads the cached model
+            renderOverlay(); renderHud();
+            try { rig.startPreview(); } catch (Throwable t) { Logger.log("init: startPreview " + t); }
+            if (fbox != null) fbox.postInvalidate();
+            Logger.log("init: model=" + mm + " cached in " + PK_KM + ", keymap applied");
+        }});
+    }
+
+    private static final int SHUTTER_RESTART_MS = 1000;
+    private static final int[] SCALES = {2, 4, 1, 0};   // 6MP, 2MP, 24MP, phone
+    private String phoneIp() {
+        try {
+            android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getSystemService("wifi");
+            int g = wm.getDhcpInfo().gateway;
+            if (g == 0) return "192.168.43.1";
+            return (g & 255) + "." + ((g >> 8) & 255) + "." + ((g >> 16) & 255) + "." + ((g >> 24) & 255);
+        } catch (Throwable t) { return "192.168.43.1"; }
+    }
+    private String packOf(int i) {
+        if (i >= 0 && i < names.size()) return names.get(i);
+        return names.isEmpty() ? "-" : names.get(0);   // film list pulled from the host at runtime
+    }
+    /** pull the film list from the OpenFilm6K host (:8800/films) — true only when the whole round trip parsed */
+    private boolean pullFilmList() {
+        try {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                new java.net.URL("http://" + phoneIp() + ":8800/films?stampmode=" + stampMode).openConnection();
+            c.setConnectTimeout(2000); c.setReadTimeout(8000);   // host is single-threaded and may be busy rendering
+            java.io.InputStream in = c.getInputStream();
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[8192]; int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            in.close(); c.disconnect();
+            java.util.ArrayList<String> got = new java.util.ArrayList<String>();
+            java.util.ArrayList<String> wid = new java.util.ArrayList<String>(), wnm = new java.util.ArrayList<String>();
+            int cc = 0; boolean seenDiv = false;
+            for (String s2 : new String(bo.toByteArray(), "UTF-8").split("\n")) {
+                s2 = s2.trim();
+                if (s2.isEmpty() || s2.startsWith("EDITTMP")) continue;
+                if (s2.startsWith("WM\t")) {                                            // custom watermark card: WM\tid\tname
+                    String[] p3 = s2.split("\t");
+                    if (p3.length >= 2 && wid.size() < 10) { wid.add(p3[1]); wnm.add(p3.length >= 3 ? p3[2] : p3[1]); }
+                    continue;
+                }
+                if (s2.startsWith("----")) { cc = got.size(); seenDiv = true; continue; }   // host: customs end here
+                got.add(s2);
+            }
+            if (!wid.equals(wmIds)) {
+                wmIds.clear(); wmIds.addAll(wid);
+                wmNames.clear(); wmNames.addAll(wnm);
+                Logger.log("watermark cards pulled: " + wmIds.size());
+                if (stampMode >= 100) {                             // our card was deleted, renamed or moved
+                    int at = -1;
+                    for (int i = 0; i < wmIds.size(); i++) if (wmIds.get(i).equals(wmSel)) { at = i; break; }
+                    if (at >= 0) {
+                        if (stampMode != 100 + at) {                // the list order shifted: follow the ID
+                            stampMode = 100 + at;
+                            savePrefs();
+                            Logger.log("watermark card index synced -> " + stampMode);
+                        }
+                    } else {
+                        int k = stampMode - 100;                    // gone: fall back to the same slot, else none
+                        if (k >= 0 && k < wmIds.size()) wmSel = wmIds.get(k);
+                        else { stampMode = 0; wmSel = ""; }
+                        savePrefs();
+                        Logger.log("watermark selection reset -> stamp " + stampMode);
+                    }
+                }
+                renderOverlay();
+            }
+            if (!got.isEmpty() && !got.equals(new java.util.ArrayList<String>(names))) {
+                names.clear(); names.addAll(got);
+                customCount = seenDiv ? cc : 0;
+                Logger.log("films pulled from host: " + got.size());
+                applyWantFilm();                       // reselect the persisted film by name now that the list is here
+                renderOverlay();
+            } else if (!got.isEmpty()) {
+                Logger.log("films pulled, unchanged (" + got.size() + ")");
+            }
+            return true;
+        } catch (Throwable t) { Logger.log("films pull fail: " + t); return false; }
+    }
+
+    private static final String[] SCALE_NAMES = {"6MP", "2MP", "24MP", "Phone"};
+
+    private static final File SD = android.os.Environment.getExternalStorageDirectory();
+    private static final File[] FILM_ROOTS = {
+        new File(SD, "OpenFilm6K"), new File("/mnt/sdcard/OpenFilm6K"), new File("/sdcard/OpenFilm6K"),
+    };
+    private static final String[] SCENE_MODES = {"program-auto", "aperture-priority", "shutter-speed", "manual-exposure"};
+    private static final String[] SCENE_NAMES = {"P", "A", "S", "M"};
+
+    private SurfaceView surface;
+    private FBox fbox;   // lazily created in onCreate (field-init View crashes on this firmware)
+
+    static class FBox extends View {
+        volatile boolean netReady = true;
+        volatile long verUntil = 0L;             // show build number top-left for ~1s after entry
+        volatile int wifiPct = 0;
+        volatile int state = 0;
+        volatile String params = "";
+        FBox(android.content.Context c) { super(c); }
+        void set(int st) { state = st; postInvalidate(); }
+        void setParams(String ps) { params = ps; postInvalidate(); }
+        android.graphics.Typeface tf = null;
+        volatile float progress = -1f;   // <0 hidden, 0..1 upload
+        volatile long doneUntil = 0L;
+        void beginUpload() { progress = 0f; doneUntil = 0L; postInvalidate(); }
+        void setProgress(float f) { progress = f; postInvalidate(); }
+        void endUpload() { progress = -1f; postInvalidate(); }
+        void showDone() { progress = -1f; doneUntil = System.currentTimeMillis() + 2200L; postInvalidate(); postInvalidateDelayed(2300); }
+        void setFilm(String f) { film = f; postInvalidate(); }
+        volatile String film = "";
+        volatile String batt = "";
+        volatile String menuLines = null;
+        volatile int menuSel = -1;
+        volatile boolean[] menuFav = null;
+        void setMenu(java.util.List<String> items, int selIdx, boolean[] favs) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < items.size(); i++) { if (i > 0) sb.append((char) 10); sb.append(items.get(i)); }
+            menuLines = sb.toString(); menuSel = selIdx; menuFav = favs; postInvalidate();
+        }
+        volatile String menuLines2 = null;   // two-column menu: right column (null = the single-column film menu)
+        volatile int menuSel2 = -1, menuAnchor = -1, menuAnchor2 = -1;   // anchor = line to keep in view when this column is not focused
+        void setMenu2(String left, int lsel, int lanch, String right, int rsel, int ranch) {
+            menuLines = left; menuSel = lsel; menuAnchor = lanch;
+            menuLines2 = right; menuSel2 = rsel; menuAnchor2 = ranch; menuFav = null; postInvalidate();
+        }
+        void clearMenu() { if (menuLines != null || menuLines2 != null) { menuLines = null; menuLines2 = null; postInvalidate(); } }
+        static final String PSEP = "|";
+        volatile int hl = -1;
+        volatile int spotX = 0, spotY = 0;
+        volatile boolean spotOn = false;
+        volatile boolean hideAf = false;   // lens-cap countdown: suppress AF area + grid
+        volatile boolean filmFav = false;
+        volatile boolean c1 = false;
+        volatile String stampMark = "";
+        volatile int pairDisp = -1;        // -1 hidden; 0 -> "[ 1 ]", 1 -> "[ 2 ]" (H/2 pair capture)
+        volatile boolean pairBlink = true;
+        volatile boolean halfMask = false;  // H (half-frame): black out the outer quarters, keep the central half
+        volatile boolean wideMask = false;  // W (wide 2.7:1): black out the top/bottom bands, keep the central strip
+        volatile android.graphics.Bitmap ghostBmp;  // 1st-exposure still, drawn translucent over the live viewfinder
+        volatile boolean ghostOn = false;
+        volatile boolean ghostWait = false;         // dim the view while the 1st exposure's ghost is being prepared
+        volatile boolean info = false;              // debug info screen (long-press DOWN)
+        volatile String infoText = "";
+        volatile boolean licOpen = false;           // full-screen open-source licences page
+        volatile String[] licLines = null;          // body lines, wrapped ONCE on open (repaint just slices)
+        volatile int licTop = 0;                     // index of the first visible body line
+        volatile int licPage = 1;                    // visible body line count (wrapping-independent clamp)
+        volatile boolean logOpen = false;           // full-screen log viewer (long-press UP)
+        volatile String[] logLines = null;          // snapshot, wrapped ONCE on open (repaint just slices)
+        volatile int logTop = 0;                     // index of the first visible body line
+        volatile int logPage = 1;                    // visible body line count
+        volatile boolean init = false;              // empty-card setup prompt (over the live preview)
+        volatile String initHint = "";
+        volatile float ghostAlpha = 1.0f;   // global multiplier on top of the per-pixel luminance alpha
+        volatile float ghostScale = 0.75f;  // the live preview occupies ~75% of the screen width (side bars)
+        volatile int ghostFinder = 0;       // 0 = LCD (9:8), 1 = EVF (3:2)
+        android.graphics.Paint ghostPaint;
+        volatile String afMode = "";
+        volatile String afName = "";
+        volatile String afDisp = "";
+        volatile String metMode = "";       // metering mode: drawn as a small icon right of the AF text
+        static int segOf(char ch) { switch (ch) { case '0': return 0x3F; case '1': return 0x06; case '2': return 0x5B; case '3': return 0x4F; case '4': return 0x66; case '5': return 0x6D; case '6': return 0x7D; case '7': return 0x07; case '8': return 0x7F; case '9': return 0x6F; case 'A': return 0x77; case 'C': return 0x39; case 'E': return 0x79; case 'F': return 0x71; case 'I': return 0x30; case 'L': return 0x38; case 'O': return 0x3F; case 'P': return 0x73; case 'S': return 0x6D; case '-': return 0x40; default: return 0; } }
+        void drawSegChar(android.graphics.Canvas cv, android.graphics.Paint p, char ch, float x, float y, float w, float h) {
+            int m = segOf(ch); if (m == 0) return; float t = w * 0.22f;
+            if ((m & 1) != 0) cv.drawRect(x, y, x + w, y + t, p);
+            if ((m & 0x40) != 0) cv.drawRect(x, y + h / 2 - t / 2, x + w, y + h / 2 + t / 2, p);
+            if ((m & 8) != 0) cv.drawRect(x, y + h - t, x + w, y + h, p);
+            if ((m & 2) != 0) cv.drawRect(x + w - t, y, x + w, y + h / 2, p);
+            if ((m & 4) != 0) cv.drawRect(x + w - t, y + h / 2, x + w, y + h, p);
+            if ((m & 0x20) != 0) cv.drawRect(x, y, x + t, y + h / 2, p);
+            if ((m & 0x10) != 0) cv.drawRect(x, y + h / 2, x + t, y + h, p);
+        }
+        android.graphics.Paint sysP = null;
+        android.graphics.Typeface cjkTf = null;
+        android.graphics.Typeface cjk() {
+            if (cjkTf == null) {
+                String[] cands = {
+                    "/system/fonts/MYingHeiC-GB18030-SJ.ttf",
+                    "/system/fonts/MYingHeiC-Big5HKSCS-SJ.ttf",
+                    "/system/fonts/HeiseiKakuGothW5-SJ.ttf",
+                };
+                for (int i = 0; i < cands.length && cjkTf == null; i++) {
+                    try { cjkTf = android.graphics.Typeface.createFromFile(cands[i]); } catch (Throwable t) {}
+                }
+                if (cjkTf == null) cjkTf = android.graphics.Typeface.DEFAULT;
+            }
+            return cjkTf;
+        }
+        android.graphics.Paint sys(android.graphics.Paint base) {
+            if (sysP == null) sysP = new android.graphics.Paint(base);
+            else sysP.set(base);
+            sysP.setTypeface(cjk());
+            return sysP;
+        }
+        /** DSEG14's space advance is only ~0.20 em (vs ~0.816 em per glyph): add this much per space in Latin runs. */
+        float latinSp(android.graphics.Paint p) { return 0.30f * p.getTextSize(); }
+
+        /** width of one Latin (DSEG) run with the widened word spaces — MUST match drawLatinRun's advance */
+        float latinWidth(android.graphics.Paint p, String run) {
+            int spaces = 0;
+            for (int k = 0; k < run.length(); k++) if (run.charAt(k) == ' ') spaces++;
+            return p.measureText(run) + latinSp(p) * spaces;
+        }
+
+        /** draw one Latin (DSEG) run at x, widening each word space by latinSp() so the gaps stay visible */
+        void drawLatinRun(android.graphics.Canvas cv, android.graphics.Paint p, String run, float x, float y) {
+            float sp = latinSp(p);
+            int n = run.length(), i = 0;
+            float cx = x;
+            while (i < n) {
+                int e = i;
+                while (e < n && run.charAt(e) != ' ') e++;
+                if (e > i) cv.drawText(run.substring(i, e), cx, y, p);
+                cx += p.measureText(run.substring(i, e));
+                if (e < n) { cx += p.measureText(" ") + sp; e++; }   // the space glyph advance + the extra gap
+                i = e;
+            }
+        }
+
+        void drawMixed(android.graphics.Canvas cv, android.graphics.Paint p, String txt, float x, float y) {
+            if (tf == null) { cv.drawText(txt, x, y, p); return; }
+            int i = 0, n = txt.length(); float cx = x;
+            while (i < n) {
+                boolean latin = txt.charAt(i) < 0x80;
+                int j = i;
+                while (j < n && (txt.charAt(j) < 0x80) == latin) j++;
+                String run = txt.substring(i, j);
+                if (latin) { drawLatinRun(cv, p, run, cx, y); cx += latinWidth(p, run); }
+                else { android.graphics.Paint pp = sys(p); cv.drawText(run, cx, y, pp); cx += pp.measureText(run); }
+                i = j;
+            }
+        }
+        float measureMixed(android.graphics.Paint p, String txt) {
+            if (tf == null) return p.measureText(txt);
+            int i = 0, n = txt.length(); float wsum = 0;
+            while (i < n) {
+                boolean latin = txt.charAt(i) < 0x80;
+                int j = i;
+                while (j < n && (txt.charAt(j) < 0x80) == latin) j++;
+                String run = txt.substring(i, j);
+                wsum += latin ? latinWidth(p, run) : sys(p).measureText(run);
+                i = j;
+            }
+            return wsum;
+        }
+        float segWidth(android.graphics.Paint p, String txt, float chh, float gap) {
+            if (tf != null) { p.setTypeface(tf); p.setTextSize(chh); return measureMixed(p, txt); }
+            return txt.length() * (chh * 0.62f + gap);
+        }
+        void drawSegTextCenter(android.graphics.Canvas cv, android.graphics.Paint p, String[] parts, float cx, float y, float chh, float gap, int hlSel) {
+            float total = 0;
+            for (int i = 0; i < parts.length; i++) total += segWidth(p, parts[i], chh, gap);
+            total += gap * 2f * (parts.length - 1);
+            float x = cx - total / 2f;
+            for (int i = 0; i < parts.length; i++) {
+                p.setColor(hlSel == i + 1 ? 0xFFFF9500 : 0xFFFFFFFF);
+                drawSegText(cv, p, parts[i], x, y, chh, gap);
+                x += segWidth(p, parts[i], chh, gap) + gap * 2f;
+            }
+        }
+        void drawSegText(android.graphics.Canvas cv, android.graphics.Paint p, String txt, float x, float y, float chh, float gap) {
+            if (tf != null) { p.setTypeface(tf); p.setTextSize(chh); drawMixed(cv, p, txt, x, y + chh); return; }
+            float cx = x;
+            for (int i = 0; i < txt.length(); i++) {
+                char ch = txt.charAt(i);
+                if (ch == '.') { cv.drawCircle(cx + chh * 0.12f, y + chh, chh * 0.08f, p); cx += chh * 0.4f; continue; }
+                if (ch == '/') { cv.drawLine(cx + chh * 0.5f, y, cx + chh * 0.15f, y + chh, p); cx += chh * 0.65f; continue; }
+                if (ch == ' ') { cx += chh * 0.6f; continue; }
+                drawSegChar(cv, p, ch, cx, y, chh * 0.62f, chh);
+                cx += chh * 0.62f + gap;
+            }
+        }
+        void drawMenu(android.graphics.Canvas cv) {
+            if (menuLines == null) return;
+            int w = uiW(), h = getHeight();
+            int msave = cv.save();
+            if (uiX() != 0) cv.translate(uiX(), 0f);
+            android.graphics.Paint mp = new android.graphics.Paint();
+            mp.setAntiAlias(true); mp.setShadowLayer(3, 1, 2, 0xFF000000);
+            if (tf != null) mp.setTypeface(tf);
+            float mch = h / 22f;
+            mp.setTextSize(mch);
+            String[] lines = menuLines.split("\n");
+            float lh = mch * 1.35f;
+            int maxLines = Math.max(3, (int) ((h * 0.62f) / lh));
+            int start = 0;
+            if (menuSel >= maxLines / 2) start = menuSel - maxLines / 2;
+            if (start + maxLines > lines.length) start = Math.max(0, lines.length - maxLines);
+            float y0 = h * 0.20f;
+            for (int i = start; i < Math.min(lines.length, start + maxLines); i++) {
+                boolean hot = (i == menuSel);
+                boolean fav = (menuFav != null && i < menuFav.length && menuFav[i]);
+                int col = hot ? 0xFFFF9500 : (fav ? 0xFF66CCFF : 0xFFFFFFFF);
+                mp.setColor(col);
+                String t = (fav ? "* " : "") + lines[i];
+                float tw = measureMixed(mp, t);
+                drawMixed(cv, mp, t, (w - tw) / 2f, y0 + (i - start) * lh);
+            }
+            // bottom hint: the hidden ↑→↓↓↓ unlock for the licences page.
+            // arrows part = system font (DSEG14 has NO arrow glyphs); "View Licences" = DSEG14, side by side, centred.
+            float hsz = h / 26f;
+            float hy = h - hsz * 0.5f;
+            android.graphics.Paint hh = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            hh.setTypeface(android.graphics.Typeface.DEFAULT);
+            hh.setTextSize(hsz);
+            hh.setColor(0xFFBFBFBF);
+            hh.setShadowLayer(3, 1, 2, 0xFF000000);
+            String hintA = "\u2191\u2192\u2193\u2193\u2193: ";
+            String hintB = "View Licences";
+            float wA = hh.measureText(hintA);
+            float wB, hx;
+            if (tf != null) {
+                android.graphics.Paint hb = new android.graphics.Paint(hh);
+                hb.setTypeface(tf);
+                wB = measureMixed(hb, hintB);          // DSEG run: includes the widened word space
+                hx = (w - (wA + wB)) / 2f;
+                cv.drawText(hintA, hx, hy, hh);
+                drawMixed(cv, hb, hintB, hx + wA, hy); // same shared path, so the gap matches the measurement
+            } else {
+                wB = hh.measureText(hintB);
+                hx = (w - (wA + wB)) / 2f;
+                cv.drawText(hintA + hintB, hx, hy, hh);
+            }
+            cv.restoreToCount(msave);
+        }
+
+        /** one column of the two-column menu — identical paint/geometry to drawMenu, scrolled around its cursor */
+        void drawColumn(android.graphics.Canvas cv, android.graphics.Paint mp, String text, int sel, int anchor, float x0, float x1, float y0, float lh, int maxLines) {
+            String[] lines = text.split("\n");
+            int a = (sel >= 0) ? sel : (anchor >= 0 ? anchor : 0);   // keep the focused line, else the current selection, in view
+            int start = 0;
+            if (a >= maxLines / 2) start = a - maxLines / 2;
+            if (start + maxLines > lines.length) start = Math.max(0, lines.length - maxLines);
+            for (int i = start; i < Math.min(lines.length, start + maxLines); i++) {
+                mp.setColor(i == sel ? 0xFFFF9500 : 0xFFFFFFFF);
+                float tw = measureMixed(mp, lines[i]);
+                drawMixed(cv, mp, lines[i], x0 + (x1 - x0 - tw) / 2f, y0 + (i - start) * lh);
+            }
+        }
+
+        /** two-column menu (left stamp / right post) — same font, size, colour and layout as drawMenu */
+        void drawMenu2(android.graphics.Canvas cv) {
+            if (menuLines == null || menuLines2 == null) return;
+            int w = uiW(), h = getHeight();
+            int msave = cv.save();
+            if (uiX() != 0) cv.translate(uiX(), 0f);
+            android.graphics.Paint mp = new android.graphics.Paint();
+            mp.setAntiAlias(true); mp.setShadowLayer(3, 1, 2, 0xFF000000);
+            if (tf != null) mp.setTypeface(tf);
+            float mch = h / 22f;
+            float mid = w * 0.60f;
+            mp.setTextSize(mch);
+            float wl = 0f, wr = 0f;                              // shrink only as much as the longest label needs (per column)
+            for (String ln : menuLines.split("\n")) if (ln.length() > 0) wl = Math.max(wl, measureMixed(mp, ln));
+            for (String ln : menuLines2.split("\n")) if (ln.length() > 0) wr = Math.max(wr, measureMixed(mp, ln));
+            float sc = 1f;
+            if (wl > mid * 0.94f && wl > 0f) sc = Math.min(sc, mid * 0.94f / wl);
+            if (wr > (w - mid) * 0.94f && wr > 0f) sc = Math.min(sc, (w - mid) * 0.94f / wr);
+            if (sc < 1f) { mch *= sc; mp.setTextSize(mch); }
+            float lh = mch * 1.35f;
+            int maxLines = Math.max(3, (int) ((h * 0.62f) / lh));
+            float y0 = h * 0.20f;
+            drawColumn(cv, mp, menuLines, menuSel, menuAnchor, 0f, mid, y0, lh, maxLines);
+            drawColumn(cv, mp, menuLines2, menuSel2, menuAnchor2, mid, (float) w, y0, lh, maxLines);
+            cv.restoreToCount(msave);
+        }
+
+        /** wrap text to width ONCE, back off to the last space so words aren't split */
+        java.util.ArrayList<String> wrapLines(String raw, android.graphics.Paint p, float avail) {
+            java.util.ArrayList<String> out = new java.util.ArrayList<String>();
+            for (String para : raw.split("\n", -1)) {
+                if (para.length() == 0) { out.add(""); continue; }
+                int i = 0;
+                while (i < para.length()) {
+                    int fit = p.breakText(para, i, para.length(), true, avail, null);
+                    if (fit <= 0) fit = 1;
+                    if (i + fit < para.length()) {
+                        int sp = para.lastIndexOf(' ', i + fit - 1);
+                        if (sp > i) fit = sp - i + 1;
+                    }
+                    out.add(para.substring(i, i + fit));
+                    i += fit;
+                }
+            }
+            return out;
+        }
+
+        /** wrap the licences text to the screen width ONCE, using a plain system font (not DSEG). */
+        void setLicenses(String raw) {
+            int w = uiW(), h = getHeight();
+            if (w <= 0 || h <= 0) { w = 640; h = 480; }        // not laid out yet: fall back to the frame-buffer size
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setTypeface(android.graphics.Typeface.DEFAULT);
+            float sz = h / 30f;
+            p.setTextSize(sz);
+            float avail = w - sz * 1.4f;                        // body margin (0.7 char each side)
+            java.util.ArrayList<String> out = wrapLines(raw, p, avail);
+            licLines = out.toArray(new String[out.size()]);
+            float lh = sz * 1.3f;
+            licPage = Math.max(1, (int) ((h - sz * 1.9f - sz * 1.4f) / lh));   // reserve a footer row
+            licTop = 0;
+            licOpen = true;
+            postInvalidate();
+        }
+
+        /** full-screen licences page: black, plain system font, draws only the visible slice + a footer */
+        void drawLicenses(android.graphics.Canvas cv) {
+            int w = uiW(), h = getHeight();
+            cv.drawColor(0xFF000000);
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setTypeface(android.graphics.Typeface.DEFAULT);
+            p.setColor(0xFFE6E6E6);
+            float sz = h / 30f;
+            p.setTextSize(sz);
+            float lh = sz * 1.3f;
+            android.graphics.Paint tp = new android.graphics.Paint(p);
+            tp.setColor(0xFFFF9500);
+            tp.setFakeBoldText(true);
+            cv.drawText("Licences", sz * 0.7f, sz * 1.35f, tp);
+            if (licLines != null) {
+                int page = Math.max(1, licPage);
+                int start = Math.max(0, Math.min(licTop, Math.max(0, licLines.length - page)));
+                float y0 = sz * 1.9f;
+                for (int i = 0; i < page && start + i < licLines.length; i++)
+                    cv.drawText(licLines[start + i], sz * 0.7f, y0 + i * lh, p);
+                android.graphics.Paint fp = new android.graphics.Paint(p);
+                fp.setColor(0xFF9E9E9E);
+                cv.drawText("\u2191/\u2193 scroll   Fn close", sz * 0.7f, h - sz * 0.5f, fp);
+            }
+        }
+
+        /** snapshot the in-memory log, wrap it ONCE and open at the newest line */
+        void setLog(String[] lines) {
+            int w = uiW(), h = getHeight();
+            if (w <= 0 || h <= 0) { w = 640; h = 480; }
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setTypeface(android.graphics.Typeface.DEFAULT);
+            float sz = h / 34f;                                 // a little smaller than licences: more lines per page
+            p.setTextSize(sz);
+            StringBuilder sb = new StringBuilder();
+            if (lines != null) for (int i = 0; i < lines.length; i++) { if (i > 0) sb.append('\n'); sb.append(lines[i]); }
+            java.util.ArrayList<String> out = wrapLines(sb.toString(), p, w - sz * 1.4f);
+            logLines = out.toArray(new String[out.size()]);
+            float lh = sz * 1.2f;
+            logPage = Math.max(1, (int) ((h - sz * 1.9f - sz * 1.4f) / lh));
+            logTop = Math.max(0, logLines.length - logPage);    // default: newest at the bottom
+            logOpen = true;
+            postInvalidate();
+        }
+
+        /** full-screen log viewer: black, plain system font, visible slice + footer */
+        void drawLog(android.graphics.Canvas cv) {
+            int w = uiW(), h = getHeight();
+            cv.drawColor(0xFF000000);
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setTypeface(android.graphics.Typeface.DEFAULT);
+            p.setColor(0xFFE6E6E6);
+            float sz = h / 34f;
+            p.setTextSize(sz);
+            float lh = sz * 1.2f;
+            android.graphics.Paint tp = new android.graphics.Paint(p);
+            tp.setColor(0xFFFF9500);
+            tp.setFakeBoldText(true);
+            cv.drawText("Log", sz * 0.7f, sz * 1.35f, tp);
+            if (logLines != null) {
+                int page = Math.max(1, logPage);
+                int start = Math.max(0, Math.min(logTop, Math.max(0, logLines.length - page)));
+                float y0 = sz * 1.9f;
+                for (int i = 0; i < page && start + i < logLines.length; i++)
+                    cv.drawText(logLines[start + i], sz * 0.7f, y0 + i * lh, p);
+                android.graphics.Paint fp = new android.graphics.Paint(p);
+                fp.setColor(0xFF9E9E9E);
+                cv.drawText("\u2191/\u2193 scroll   Fn close", sz * 0.7f, h - sz * 0.5f, fp);
+            }
+        }
+
+        /** empty-card setup prompt: HUD-style DSEG text centred over the live preview (never a black page) */
+        void drawInit(android.graphics.Canvas cv) {
+            int w = uiW(), h = getHeight();
+            float chh = h / 19f;
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            if (tf != null) p.setTypeface(tf);
+            p.setTextSize(chh);
+            p.setShadowLayer(3, 1, 2, 0xFF000000);
+            float y0 = h * 0.42f;
+            p.setColor(0xFFFF9500);                    // orange title, same as the version/build hint
+            String a = "SETUP";
+            drawMixed(cv, p, a, (w - measureMixed(p, a)) / 2f, y0);
+            p.setColor(0xFFFFFFFF);                    // white body line
+            String b = "PRESS SHUTTER TO INITIALISE";
+            drawMixed(cv, p, b, (w - measureMixed(p, b)) / 2f, y0 + chh * 1.6f);
+            if (initHint.length() > 0) {
+                p.setColor(0xFFFF5252);                // red hint (insert card / retry)
+                drawMixed(cv, p, initHint, (w - measureMixed(p, initHint)) / 2f, y0 + chh * 3.2f);
+            }
+        }
+
+        void drawBoot(android.graphics.Canvas cv) {
+            int w = uiW(), h = getHeight();
+            cv.drawColor(0xFF000000);
+            android.graphics.Paint vp = new android.graphics.Paint(); vp.setAntiAlias(true);
+            if (tf != null) vp.setTypeface(tf);
+            vp.setTextSize(h / 19f); vp.setColor(0xFFFF9500);
+            cv.drawText("#" + BUILD, w * 0.03f, (h / 19f) * 1.25f, vp);
+            if ((System.currentTimeMillis() / 500) % 2 == 0) {      // blink
+                android.graphics.Paint tp = new android.graphics.Paint(); tp.setAntiAlias(true);
+                if (tf != null) tp.setTypeface(tf);
+                tp.setTextSize(h / 19f); tp.setColor(0xFFFFFFFF);   // same size as the bottom two info rows
+                String s = "connecting";
+                float tw = tp.measureText(s);
+                cv.drawText(s, (w - tw) / 2f, h / 2f + (h / 19f) * 0.35f, tp);
+            }
+        }
+        /** ---- global UI framing: model + LCD/EVF display mode --------------------------------
+         *  The WHOLE overlay (HUD, grid, focus box, menu, ghost) is laid out inside
+         *  [uiX(), uiX()+uiW()] x [0, h]. Long-press C2 (A6000/A7) / B (NEX) toggles the mode.
+         *    ghostFinder 0 = LCD, 1 = EVF.
+         *  - A6000 / A7 : both modes use the full width; only the ghost ratio differs.
+         *  - NEX        : LCD = left-anchored 9:8 (firmware preview left-aligned, right black bar),
+         *                 EVF = full width -> the whole UI's horizontal alignment switches with the mode. */
+        int uiW() {
+            int sw = getWidth();
+            if (km.lcdGhost == 2 && ghostFinder == 0) {   // NEX LCD
+                int pw = Math.round(getHeight() * 9f / 8f);
+                return Math.min(sw, pw);
+            }
+            return sw;                                    // A6000/A7 (both modes); NEX EVF
+        }
+        int uiX() { return 0; }   // left-anchored for now (hook: a future mode may centre the frame)
+        /** draw the ghost to match the live preview's framing on the physical screen.
+         *  The rear panel is 16:9 (ro.panel.aspect=169) but the frame buffer is 640x480 (4:3), so on the
+         *  panel everything is stretched horizontally x4/3. A true 3:2 viewfinder rect must therefore be
+         *  pre-squeezed to 9:8 in the frame buffer: fill the height, width = (3/2)/h / (4/3) = 9h/8. */
+        void drawFit(android.graphics.Canvas cv, android.graphics.Bitmap bm, android.graphics.Paint pt) {
+            int w = getWidth(), h = getHeight();
+            float dw, dh, dx, dy;
+            if (ghostFinder == 1) {            // EVF (3:2, no panel stretch): 3:2 in the frame buffer, centred
+                dw = w; dh = w / 1.5f; dx = 0; dy = (h - dh) / 2f;
+            } else if (km.lcdGhost == 1) {     // A7M2 LCD: same 3:2 as the EVF, but top-aligned
+                dw = w; dh = w / 1.5f; dx = 0; dy = 0;
+            } else if (km.lcdGhost == 2) {     // NEX LCD: 9:8 in the frame buffer, LEFT-aligned (firmware leaves a right black bar)
+                dh = h; dw = 9f * dh / 8f; dx = 0; dy = 0;
+            } else {                           // A6000 LCD: 16:9 panel stretches the 4:3 frame buffer x4/3 -> 3:2 is 9:8, centred
+                dh = h; dw = (1.5f * dh) / (4f / 3f); dx = (w - dw) / 2f; dy = 0;
+            }
+            cv.drawBitmap(bm, null, new android.graphics.RectF(dx, dy, dx + dw, dy + dh), pt);
+            android.graphics.Paint bd = new android.graphics.Paint();   // mode-tinted frame: blue = LCD, purple = EVF
+            bd.setStyle(android.graphics.Paint.Style.STROKE);
+            bd.setStrokeWidth(2f);
+            bd.setColor(ghostFinder == 1 ? 0xFFB000FF : 0xFF00A8FF);
+            cv.drawRect(dx, dy, dx + dw, dy + dh, bd);
+        }
+
+        /** shared frame stroke for the little Sony "screen" glyphs */
+        android.graphics.Paint iconP(int color, float stroke, float unit) {
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setColor(color);
+            p.setStyle(android.graphics.Paint.Style.STROKE);
+            p.setStrokeWidth(Math.max(1f, stroke * unit));
+            p.setStrokeCap(android.graphics.Paint.Cap.BUTT);
+            p.setShadowLayer(3, 1, 2, 0xFF000000);
+            return p;
+        }
+        android.graphics.Paint iconFill(int color) {
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setColor(color);
+            p.setStyle(android.graphics.Paint.Style.FILL);
+            p.setShadowLayer(3, 1, 2, 0xFF000000);
+            return p;
+        }
+        void iconPath(android.graphics.Canvas cv, android.graphics.Paint p, android.graphics.Path path) {
+            cv.drawPath(path, p);
+        }
+
+        /** focus-area glyph, Sony style: 35x24 screen frame + area marks */
+        void drawAfIcon(android.graphics.Canvas cv, float ox, float oy, float hh, String mode, int color) {
+            float u = hh / 24f;
+            String m = mode == null ? "" : mode.toLowerCase(java.util.Locale.US);
+            cv.drawRect(ox + 1.5f * u, oy + 1.5f * u, ox + 33.5f * u, oy + 22.5f * u, iconP(color, 3f, u));
+            float cx = ox + 17.5f * u, cy = oy + 12f * u;
+            android.graphics.Paint bp = iconP(color, 3f, u);
+            android.graphics.Path p = new android.graphics.Path();
+            if (m.equals("center")) {                              // "[ ]" around the centre
+                float x0 = ox + 7.5f * u, x1 = ox + 27.5f * u, y0 = oy + 6f * u, y1 = oy + 18f * u;
+                p.moveTo(x0 + 5f * u, y0); p.lineTo(x0, y0); p.lineTo(x0, y1); p.lineTo(x0 + 5f * u, y1);
+                p.moveTo(x1 - 5f * u, y0); p.lineTo(x1, y0); p.lineTo(x1, y1); p.lineTo(x1 - 5f * u, y1);
+                iconPath(cv, bp, p);
+            } else if (m.equals("flex-spot") || m.equals("spot")) { // AF point: dot + four brackets
+                cv.drawCircle(cx, cy, 3.5f * u, iconFill(color));
+                float tp = 6.4f * u, tb = 2.1f * u, tl = 2.4f * u;   // triangle distance / half-base / length
+                android.graphics.Path t = new android.graphics.Path();
+                t.moveTo(cx - tb, cy - tp); t.lineTo(cx + tb, cy - tp); t.lineTo(cx, cy - tp + tl); t.close();          // N
+                t.moveTo(cx - tb, cy + tp); t.lineTo(cx + tb, cy + tp); t.lineTo(cx, cy + tp - tl); t.close();          // S
+                t.moveTo(cx - tp, cy - tb); t.lineTo(cx - tp, cy + tb); t.lineTo(cx - tp + tl, cy); t.close();          // W
+                t.moveTo(cx + tp, cy - tb); t.lineTo(cx + tp, cy + tb); t.lineTo(cx + tp - tl, cy); t.close();          // E
+                cv.drawPath(t, iconFill(color));
+            } else {                                               // wide: brackets on all four sides
+                float off = 5f * u, half = 4.2f * u, arm = 4.6f * u;
+                p.moveTo(cx - half, oy + off + arm); p.lineTo(cx - half, oy + off); p.lineTo(cx + half, oy + off); p.lineTo(cx + half, oy + off + arm);
+                p.moveTo(cx - half, oy + hh - off - arm); p.lineTo(cx - half, oy + hh - off); p.lineTo(cx + half, oy + hh - off); p.lineTo(cx + half, oy + hh - off - arm);
+                p.moveTo(ox + off + arm, cy - half); p.lineTo(ox + off, cy - half); p.lineTo(ox + off, cy + half); p.lineTo(ox + off + arm, cy + half);
+                p.moveTo(ox + 35f * u - off - arm, cy - half); p.lineTo(ox + 35f * u - off, cy - half); p.lineTo(ox + 35f * u - off, cy + half); p.lineTo(ox + 35f * u - off - arm, cy + half);
+                iconPath(cv, bp, p);
+            }
+        }
+
+        /** metering glyph, Sony style: 35x24 screen frame + weighting mark */
+        void drawMetIcon(android.graphics.Canvas cv, float ox, float oy, float hh, String mode, int color) {
+            float u = hh / 24f;
+            String m = mode == null ? "" : mode.toLowerCase(java.util.Locale.US);
+            cv.drawRect(ox + 1.5f * u, oy + 1.5f * u, ox + 33.5f * u, oy + 22.5f * u, iconP(color, 3f, u));
+            float cx = ox + 17.5f * u, cy = oy + 12f * u;
+            if (m.contains("multi")) {                             // inverted interior: solid, with hollow band/cross/ring
+                android.graphics.Path p = new android.graphics.Path();
+                p.setFillType(android.graphics.Path.FillType.EVEN_ODD);
+                p.addRect(ox + 4.5f * u, oy + 4.5f * u, ox + 30.5f * u, oy + 19.5f * u, android.graphics.Path.Direction.CW);
+                p.addRect(ox + 16f * u, oy + 4.5f * u, ox + 19f * u, oy + 19.5f * u, android.graphics.Path.Direction.CW);
+                p.addRect(ox + 4.5f * u, oy + 10.5f * u, ox + 30.5f * u, oy + 13.5f * u, android.graphics.Path.Direction.CW);
+                p.addCircle(cx, cy, 5f * u, android.graphics.Path.Direction.CW);
+                cv.drawPath(p, iconFill(color));
+                // the core must be painted AFTER the holes: inside an even-odd path the cross arms
+                // would carve it into four wedges (it has to read as one round dot)
+                cv.drawCircle(cx, cy, 2.5f * u, iconFill(color));
+            } else if (m.contains("spot")) {                       // spot: only the centre dot
+                cv.drawCircle(cx, cy, 4.6f * u, iconFill(color));
+            } else if (m.contains("average") || m.contains("entire")) {   // entire screen average
+                cv.drawRect(ox + 3f * u, oy + 3f * u, ox + 32f * u, oy + 21f * u, iconFill(color));
+            } else {                                               // centre-weighted: dot + two arcs
+                cv.drawCircle(cx, cy, 3.6f * u, iconFill(color));
+                android.graphics.Paint ap = iconP(color, 3f, u);
+                android.graphics.RectF bb = new android.graphics.RectF(cx - 8.5f * u, cy - 8.5f * u, cx + 8.5f * u, cy + 8.5f * u);
+                cv.drawArc(bb, 118f, 124f, false, ap);
+                cv.drawArc(bb, -62f, 124f, false, ap);
+            }
+        }
+
+        public void onDraw(android.graphics.Canvas cv) {
+            if (verUntil == 0L) verUntil = System.currentTimeMillis() + 1000;   // 1s window starts at first real draw
+            if (!netReady) { drawBoot(cv); return; }
+            if (licOpen) { drawLicenses(cv); return; }   // full-screen licences page overrides everything
+            if (logOpen) { drawLog(cv); return; }        // full-screen log viewer (long-press UP)
+            if (init) { drawInit(cv); return; }          // empty-card setup prompt (live preview stays visible)
+            if (menuLines != null) {
+                android.graphics.Paint mask = new android.graphics.Paint();
+                mask.setColor(0xB0000000);
+                cv.drawRect(0, 0, getWidth(), getHeight(), mask);
+                if (menuLines2 != null) drawMenu2(cv); else drawMenu(cv);
+                return;
+            }
+            if (hideAf) return;   // countdown on screen: no focus area / grid
+            int w = uiW(), h = getHeight();   // NEX: confine the whole overlay to the left-anchored preview width
+            if (info) {           // debug info screen: opaque black with a block of text, any key returns
+                cv.drawColor(0xFF000000);
+                android.graphics.Paint ip = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                ip.setColor(0xFFE6E6E6);
+                float sz = h / 30f;
+                ip.setTextSize(sz);
+                float ly = sz * 1.7f;
+                for (String ln : infoText.split("\n")) { cv.drawText(ln, sz * 0.7f, ly, ip); ly += sz * 1.32f; }
+                return;
+            }
+            if (ghostWait) {                       // double-exposure: 1st shot taken, the ghost is being prepared
+                cv.drawColor(0xFF000000);          // opaque black, no HUD — just a blinking centred "processing"
+                if ((System.currentTimeMillis() / 450) % 2 == 0) {
+                    android.graphics.Paint tp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                    if (tf != null) tp.setTypeface(tf);
+                    tp.setTextSize(h / 19f);           // identical font + size to the rest of the HUD
+                    tp.setColor(0xFFFFFFFF);
+                    String s = "processing";
+                    cv.drawText(s, (w - tp.measureText(s)) / 2f, h / 2f + (h / 19f) * 0.35f, tp);
+                }
+                postInvalidateDelayed(450);        // keep it blinking until the ghost is ready
+                return;
+            }
+            if (ghostOn && ghostBmp != null) {     // double-exposure: translucent ghost of the 1st exposure over the live viewfinder
+                if (ghostPaint == null) ghostPaint = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+                ghostPaint.setAlpha((int) (Math.max(0f, Math.min(1f, ghostAlpha)) * 255f));
+                drawFit(cv, ghostBmp, ghostPaint);
+            }
+            // ---- the overlay UI below is laid out inside the current model+mode frame (see uiW()/uiX()) ----
+            int uiSave = cv.save();
+            int ux = uiX();
+            if (ux != 0) cv.translate(ux, 0f);
+            if (System.currentTimeMillis() < verUntil) {
+                android.graphics.Paint vp = new android.graphics.Paint(); vp.setAntiAlias(true);
+                if (tf != null) vp.setTypeface(tf);
+                vp.setTextSize(h / 19f); vp.setColor(0xFFFF9500);
+                cv.drawText("#" + BUILD, w * 0.03f, (h / 19f) * 1.25f, vp);
+                postInvalidateDelayed(verUntil - System.currentTimeMillis() + 80);
+            }
+            if (halfMask) {                         // H (half-frame): black out the outer quarters first (indicator/HUD stay on top)
+                android.graphics.Paint hp = new android.graphics.Paint();
+                hp.setColor(0xFF000000);
+                float q = w * 0.25f;
+                cv.drawRect(0, 0, q, h, hp);
+                cv.drawRect(w - q, 0, w, h, hp);
+            }
+            if (wideMask) {                         // W (wide 2.7:1): black out the top/bottom bands inside the visible preview
+                android.graphics.Paint wp = new android.graphics.Paint();
+                wp.setColor(0xFF000000);
+                final int phw = (km == KM_RX100) ? (int) Math.ceil(w * 2f / 3f) : h;   // RX100 preview is 3:2, top-aligned
+                float bar = phw * (1f - 1.5f / 2.7f) * 0.5f;   // native 3:2 -> 2.7:1
+                cv.drawRect(0, 0, w, bar, wp);
+                final int over = (km == KM_RX100) ? 4 : 0;   // overlap the real preview bottom (already black)
+                cv.drawRect(0, phw - bar, w, phw + over, wp);
+            }
+            if (pairDisp >= 0 && pairBlink) {       // H/2: blinking "[ 1 ]" / "[ 2 ]" frame counter (brackets rotated 90 deg)
+                android.graphics.Paint pp = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                if (tf != null) pp.setTypeface(tf);
+                float psz = h / 19f;                        // same size as the other HUD text
+                pp.setTextSize(psz);
+                pp.setColor(0xFF00E676);                    // green
+                pp.setShadowLayer(3, 1, 2, 0xFF000000);
+                String digit = String.valueOf(pairDisp + 1);
+                float bw = Math.max(2f, psz * 0.14f);       // bracket stroke
+                float arm = psz * 0.22f;                    // bracket arm length
+                float bh = psz * 1.30f;                     // bracket length
+                float iw = psz * 0.95f + pp.measureText("0");   // FIXED interior spacing (same for 1 and 2)
+                android.graphics.Rect tb = new android.graphics.Rect();
+                pp.getTextBounds(digit, 0, digit.length(), tb);    // tight ink bounds (DSEG "1" is right-aligned in its cell)
+                float rotW = bh, rotH = 2 * bw + iw;        // badge box after the 90deg rotation
+                float cx = w * 0.045f + rotW * 0.5f;        // badge centre x
+                float cy = psz * 0.35f + rotH * 0.5f;       // badge centre y
+                cv.save();
+                cv.rotate(90f, cx, cy);                     // rotate the pair 90deg; the interior spacing iw is preserved
+                float ux0 = cx - (2 * bw + iw) * 0.5f, uy0 = cy - bh * 0.5f;   // unrotated layout centred on (cx,cy)
+                cv.drawRect(ux0, uy0, ux0 + bw, uy0 + bh, pp);                 // bracket 1: '['
+                cv.drawRect(ux0, uy0, ux0 + bw + arm, uy0 + bw, pp);
+                cv.drawRect(ux0, uy0 + bh - bw, ux0 + bw + arm, uy0 + bh, pp);
+                cv.save();
+                cv.rotate(180f, cx, cy);                    // bracket 2: '[' rotated 180deg about the badge centre
+                cv.drawRect(ux0, uy0, ux0 + bw, uy0 + bh, pp);
+                cv.drawRect(ux0, uy0, ux0 + bw + arm, uy0 + bw, pp);
+                cv.drawRect(ux0, uy0 + bh - bw, ux0 + bw + arm, uy0 + bh, pp);
+                cv.restore();
+                cv.restore();
+                cv.drawText(digit, cx - (tb.left + tb.right) * 0.5f,   // digit stays upright, centred on the badge
+                        cy - (tb.top + tb.bottom) * 0.5f, pp);
+            }
+            android.graphics.Paint p = new android.graphics.Paint();
+            p.setAntiAlias(true);
+            // 3x3 rule-of-thirds grid + diagonals (thin, subtle)
+            p.setStyle(android.graphics.Paint.Style.STROKE);
+            p.setStrokeWidth(1);
+            p.setColor(0x50FFFFFF);
+
+            // center AF: '+' with two verticals left/right and two horizontals below (all font glyphs)
+            android.graphics.Paint ap = new android.graphics.Paint(); ap.setAntiAlias(true); ap.setShadowLayer(3, 1, 2, 0xFF000000);
+            float base = h / 19f;                      // glyph size = same as all other text
+            if (tf != null) ap.setTypeface(tf);
+            ap.setTextSize(base);
+            boolean showRect = afMode.equals("local") || afMode.equals("center");
+            float ms = afMode.equals("local") ? 2.0f : afMode.equals("center") ? 0.72f : 1.0f;
+            ap.setColor(state == 1 ? 0xFFFFFFFF : state == 2 ? 0xFF00E676 : state == 3 ? 0xFFFF5252 : (spotOn ? 0xFFFF9500 : 0xA0FFFFFF));
+            if (afMode.length() > 0 && progress < 0f && System.currentTimeMillis() >= doneUntil) {   // also hidden while Done shows
+                android.graphics.Paint mp2 = new android.graphics.Paint(); mp2.setAntiAlias(true);
+                if (tf != null) mp2.setTypeface(tf);
+                mp2.setTextSize(h / 19f); mp2.setColor(spotOn ? 0xFFFF9500 : 0xFFFFFFFF);   // orange while adjusting, white otherwise
+                mp2.setShadowLayer(3, 1, 2, 0xFF000000);
+                // Sony menu glyphs: focus area + metering, side by side, centred as one block
+                float ih = (h / 19f) * 1.125f;                      // glyph height (3/4 of the old text size)
+                float gap = ih * 0.55f;
+                float fw = ih * 35f / 24f, mw = ih * 35f / 24f;
+                boolean hasMet = metMode != null && metMode.length() > 0;
+                float total = fw + (hasMet ? gap + mw : 0f);
+                float tx = (w - total) / 2f, ty = (h / 19f) * 0.45f;
+                drawAfIcon(cv, tx, ty, ih, afMode, mp2.getColor());
+                if (hasMet) drawMetIcon(cv, tx + fw + gap, ty, ih, metMode, mp2.getColor());
+            }
+            final int ph = (km == KM_RX100) ? (int) Math.ceil(w * 2f / 3f) : h;   // RX100 preview is 3:2, top-aligned
+            int ccx = w / 2 + (int) (spotX * (w / 2f) / 1000f), ccy = ph / 2 + (int) (spotY * (ph / 2f) / 1000f);
+            if (!showRect) { cv.drawText("+", ccx - ap.measureText("+") / 2f, ccy + base * 0.32f, ap); }
+            else {
+            float gapx = (h / 13f) * 1.6f * ms, gapy = (h / 13f) * 1.9f * ms;   // size via offsets
+            float cw = ap.measureText("-"), lw = ap.measureText("|"), lh2 = base * 1.25f;
+            android.graphics.Rect tb = new android.graphics.Rect();
+            ap.getTextBounds("-", 0, 1, tb);
+            float dCX = (tb.left + tb.right) / 2f, dCY = (tb.top + tb.bottom) / 2f;   // dash ink center
+            ap.getTextBounds("|", 0, 1, tb);
+            float pCX = (tb.left + tb.right) / 2f, pCY = (tb.top + tb.bottom) / 2f;
+            ap.getTextBounds("+", 0, 1, tb);
+            float xCX = (tb.left + tb.right) / 2f, xCY = (tb.top + tb.bottom) / 2f;
+            int nH = Math.max(3, Math.round(gapx * 2f / cw));
+            int nV = Math.max(3, Math.round(gapy * 2f / lh2));
+            float x0 = ccx - (nH - 1) * cw / 2f - dCX;               // dash ink symmetric around ccx
+            float ryT = ccy - gapy - dCY, ryB = ccy + gapy - dCY;    // ink centers on the edge lines
+            for (int i = 0; i < nH; i++) {
+                float x = x0 + i * cw;
+                cv.drawText("-", x, ryT, ap);
+                cv.drawText("-", x, ryB, ap);
+            }
+            float y0 = ccy - (nV - 1) * lh2 / 2f - pCY;              // pipe ink symmetric around ccy
+            for (int i = 0; i < nV; i++) {
+                float y = y0 + i * lh2;
+                cv.drawText("|", ccx - gapx - pCX, y, ap);
+                cv.drawText("|", ccx + gapx - pCX, y, ap);
+            }
+            cv.drawText("+", ccx - xCX, ccy - xCY, ap);              // cross ink centered
+            }
+        // bottom A6000-style spread: shutter  F5.6  EV  ISO
+            android.graphics.Paint tp = new android.graphics.Paint(); tp.setAntiAlias(true); tp.setShadowLayer(3, 1, 2, 0xFF000000);
+            float chh = h / 19f;
+            float y2 = h - chh * 1.4f;
+            float y1 = y2 - chh * 0.45f;   // film+battery row moved one char height lower
+            String[] rowParts = params.length() > 0 ? params.split(java.util.regex.Pattern.quote(PSEP)) : new String[0];
+            float rowGap = chh * 0.40f;
+            float rowW = 0f;
+            for (int ri = 0; ri < rowParts.length; ri++) rowW += segWidth(tp, rowParts[ri], chh, rowGap);
+            if (rowParts.length > 1) rowW += rowGap * 2f * (rowParts.length - 1);
+            float rowL = (w - rowW) / 2f;
+            float rowR = rowL + rowW;
+            android.graphics.Paint fp = new android.graphics.Paint(tp);
+            float fch = chh * 0.95f;
+            if (tf != null) { fp.setTypeface(tf); fp.setTextSize(fch); }
+            else fp.setTextSize(chh * 0.85f);
+            if (film.length() > 0) {
+                fp.setColor(c1 ? 0xFF66CCFF : (hl == 0 ? 0xFFFF9500 : 0xFFFFFFFF));   // visible in focus state too
+                drawMixed(cv, fp, (filmFav ? "* " : "") + film, rowL, y1);
+            }
+            float battLeft = rowR;
+            if (batt.length() > 0) {
+                fp.setColor(0xFFFFFFFF);
+                float bw2 = fp.measureText(batt);
+                float btx = rowR - bw2;
+                cv.drawText(batt, btx, y1, fp);
+                int pctv = 0;
+                try { pctv = Integer.parseInt(batt.replace("%", "")); } catch (Throwable ig) {}
+                float bh2 = chh * 0.72f, bwid = chh * 2.4f;   // height matches text cap height
+                float bx2 = btx - bwid - chh * 0.5f;
+                battLeft = bx2;
+                if (stampMark.length() > 0) {
+                    fp.setColor(0xFFFFFFFF);
+                    float mw = fp.measureText(stampMark);
+                    cv.drawText(stampMark, bx2 - chh * 0.45f - mw, y1, fp);
+                }
+                float by2 = y1 - bh2 / 2f - chh * 0.35f;   // center-align bar with text
+                android.graphics.Paint ob = new android.graphics.Paint();
+                ob.setAntiAlias(true); ob.setStyle(android.graphics.Paint.Style.STROKE);
+                ob.setStrokeWidth(2); ob.setColor(0xFFFFFFFF);
+                cv.drawRect(bx2, by2, bx2 + bwid, by2 + bh2, ob);
+                android.graphics.Paint fl = new android.graphics.Paint();
+                fl.setColor(pctv <= 15 ? 0xFFFF5252 : pctv <= 35 ? 0xFFFF9500 : 0xFF00E676);
+                float fillw = (bwid - 4) * Math.max(0f, Math.min(1f, pctv / 100f));
+                cv.drawRect(bx2 + 2, by2 + 2, bx2 + 2 + fillw, by2 + bh2 - 2, fl);
+            }
+            float pgtxt = 0f;
+            if (progress >= 0f) {
+                android.graphics.Paint up = new android.graphics.Paint(tp);
+                float uch = chh * 0.85f;
+                if (tf != null) { up.setTypeface(tf); up.setTextSize(uch); } else up.setTextSize(chh * 0.7f);
+                up.setColor(0xFFFFFFFF);
+                String pct = "DEVELOPING " + ((int) (progress * 100f)) + "%";
+                float uw = up.measureText(pct);
+                float uy = chh * 1.6f;   // same baseline as the AF mode label
+                cv.drawText(pct, (w - uw) / 2f, uy, up);
+                android.graphics.Paint bar = new android.graphics.Paint();
+                bar.setAntiAlias(true);
+                bar.setStyle(android.graphics.Paint.Style.STROKE);
+                bar.setStrokeWidth(2);
+                bar.setColor(0xFFFFFFFF);
+                float bx = w * 0.15f, bw = w * 0.70f, by = uy + uch * 0.45f, bh = chh * 0.55f;
+                cv.drawRect(bx, by, bx + bw, by + bh, bar);
+                android.graphics.Paint fill = new android.graphics.Paint();
+                fill.setColor(0xFFFF9500);
+                cv.drawRect(bx + 2, by + 2, bx + 2 + (bw - 4) * Math.max(0f, Math.min(1f, progress)), by + bh - 2, fill);
+            }
+            if (System.currentTimeMillis() < doneUntil) {
+                android.graphics.Paint dn = new android.graphics.Paint(tp);
+                float dch = chh * 1.1f;
+                if (tf != null) { dn.setTypeface(tf); dn.setTextSize(dch); } else dn.setTextSize(chh * 0.9f);
+                dn.setColor(0xFF00E676);
+                float dw = dn.measureText("Done");
+                cv.drawText("Done", (w - dw) / 2f, chh * 1.6f, dn);   // aligned with AF label position
+            }
+            if (rowParts.length > 0) {
+                android.graphics.Paint sp = new android.graphics.Paint(tp);
+                drawSegTextCenter(cv, sp, rowParts, w / 2f, y2, chh, rowGap, hl);
+            }
+            cv.restoreToCount(uiSave);
+        }
+    }
+    private TextView hud, status, overlay;
+    private android.widget.ImageView viewer;
+    private final Handler handler = new Handler();
+    private CameraRig rig = new CameraRig();
+
+    private List<File> films = new ArrayList<File>();
+    private List<String> names = new ArrayList<String>();
+    private int sel = 0;
+    private static final int NSPECIAL = 2;   // sel: 0=random, 1=favorite, >=2 => real film (sel-2)
+    private int customCount = 0;             // user films at the head of names; >0 => divider row after them
+    private final java.util.Random rnd = new java.util.Random();
+    private int totalSel() { return names.size() + NSPECIAL + (customCount > 0 ? 1 : 0); }
+    private int divSel() { return customCount > 0 ? NSPECIAL + customCount : -1; }   // display pos of the divider
+    private int filmIdx(int s) { return s - NSPECIAL - (divSel() >= 0 && s > divSel() ? 1 : 0); }   // display pos -> names idx
+    private int posOf(int idx) { return NSPECIAL + idx + (divSel() >= 0 && idx >= customCount ? 1 : 0); }   // names idx -> display pos
+    private String selName(int s) {
+        if (s == 0) return "random";
+        if (s == 1) return "favorite";
+        if (s == divSel()) return "----------------";
+        int r = filmIdx(s);
+        return (r >= 0 && r < names.size()) ? names.get(r) : "?";
+    }
+    private boolean selFav(int s) { int r = filmIdx(s); return r >= 0 && r < names.size() && favs.contains(names.get(r)); }
+    private int resolveSel(int s) {
+        if (names.isEmpty()) return 0;
+        if (s == 0) return rnd.nextInt(names.size());
+        if (s == 1) {
+            java.util.ArrayList<Integer> f = new java.util.ArrayList<Integer>();
+            for (int i = 0; i < names.size(); i++) if (favs.contains(names.get(i))) f.add(i);
+            return f.isEmpty() ? rnd.nextInt(names.size()) : f.get(rnd.nextInt(f.size()));
+        }
+        int r = filmIdx(s);
+        return (r >= 0 && r < names.size()) ? r : 0;
+    }
+    private java.util.List<String> displayNames() {
+        java.util.ArrayList<String> l = new java.util.ArrayList<String>();
+        l.add("random"); l.add("favorite");
+        for (int i = 0; i < names.size(); i++) {
+            if (i == customCount && customCount > 0) l.add("----------------");   // un-selectable Win98 separator
+            l.add(names.get(i));
+        }
+        return l;
+    }
+    private File LUTS, TEX, GRADED;
+
+    // dial state
+    private static final String[] MODES = {"Mode", "Shutter", "Aperture", "ISO", "EV", "Film"};
+    private int dialMode = 5;                 // start on film select
+    private int sceneIdx = 0;
+    private int isoIdx = 0;
+    private List<Integer> isos = new ArrayList<Integer>();
+    private int ev = 0, evMin = -2, evMax = 2;
+
+    // ui state
+    private static final int OV_FULL = 0, OV_MINI = 1, OV_NONE = 2;
+    private int overlayState = OV_FULL;
+    private int browser = -1;                 // >=0: film browser cursor
+    private int licSeq = 0;                   // progress through the hidden ↑→↓↓↓ licences unlock (film list)
+    private java.util.ArrayList<File> graded = new java.util.ArrayList<File>();
+    private int viewing = -1;                 // >=0: viewer cursor into graded
+    private int settings = -1;                // >=0: settings cursor
+    private static final String[] SETTINGS_ROWS = {"Quality scale", "Process last shot", "Restart", "Close"};
+    private int qualityIdx = 0;
+    private long lastMenu = 0;
+
+    // capture + grading
+    private static class Job {
+        final File src; final int filmIdx;
+        final File src2; final int filmIdx2; final boolean pair;   // H/2: two-frame batch
+        final boolean init;                                        // empty-card setup shot: fixed CC-200 + date, no frames/post
+        Job(File s, int f) { this(s, f, null, -1, false, false); }
+        Job(File s, int f, boolean init) { this(s, f, null, -1, false, init); }
+        Job(File s, int f, File s2, int f2, boolean p) { this(s, f, s2, f2, p, false); }
+        Job(File s, int f, File s2, int f2, boolean p, boolean init) { src = s; filmIdx = f; src2 = s2; filmIdx2 = f2; pair = p; this.init = init; }
+    }
+    private final LinkedList<Job> queue = new LinkedList<Job>();
+    private int done = 0;
+    private volatile boolean grading = false;
+
+    // ---- H (half-frame) / 2 (double-exposure): paired two-shot capture ----
+    private static final int PAIR_OFF = -1, PAIR_FRAME1 = 0, PAIR_FRAME2 = 1;
+    private volatile int pairSlot = PAIR_OFF;        // INDICATOR: 0->[1], 1->[2] (advances on shutter press)
+    private volatile int pairStaged = 0;             // file-staging counter (0: expect frame1, 1: expect frame2)
+    private File pair0File;                          // frame 1 staged for the batch
+    private int pair0Film = -1;                      // film locked when frame 1 was pressed
+    /** one shutter press: the film AND the stamp mode as they were at that instant. The watcher must use
+     *  THESE, never the live selection, otherwise a film/mode change before the file is picked up (or a
+     *  foreign jpg landing in DCIM) misattributes the film and the H/2 pair. */
+    private static final class Shot { final int film, mode; final boolean init; final long at;
+        Shot(int f, int m) { this(f, m, false); }
+        Shot(int f, int m, boolean init) { film = f; mode = m; this.init = init; at = System.currentTimeMillis(); } }
+    private final LinkedList<Shot> shots = new LinkedList<Shot>();
+    private volatile boolean pairBlinkOn = true;
+    private int pairOwner = -1;                      // the pair mode (8/9) the in-memory pair belongs to, -1 = none
+    // the pending pair is PERSISTED per mode, so it survives a restart and shots taken in other modes in
+    // between: the next shot then completes the pair with the REAL first frame, not the previous file.
+    private static final String PK_ST = "pairSt", PK_P = "pairP", PK_F = "pairF";
+    private void savePairState(int mode) {
+        android.content.SharedPreferences.Editor e = getPreferences(MODE_PRIVATE).edit();
+        if (pairStaged == 1 && pair0File != null) e.putInt(PK_ST + mode, 1).putString(PK_P + mode, pair0File.getAbsolutePath()).putInt(PK_F + mode, pair0Film);
+        else e.remove(PK_ST + mode).remove(PK_P + mode).remove(PK_F + mode);
+        e.commit();
+    }
+    private void clearPairState(int mode) {
+        getPreferences(MODE_PRIVATE).edit().remove(PK_ST + mode).remove(PK_P + mode).remove(PK_F + mode).commit();
+    }
+    /** restore a mode's pending pair into the in-memory fields (missing/deleted frame 1 drops it) */
+    private void loadPairState(int mode) {
+        pair0File = null; pair0Film = -1; pairStaged = 0; pairOwner = -1;
+        android.content.SharedPreferences p = getPreferences(MODE_PRIVATE);
+        if (p.getInt(PK_ST + mode, 0) != 1) return;
+        String path = p.getString(PK_P + mode, null);
+        java.io.File f = path == null ? null : new java.io.File(path);
+        if (f == null || !f.exists()) { clearPairState(mode); return; }
+        pair0File = f; pair0Film = p.getInt(PK_F + mode, -1); pairStaged = 1; pairOwner = mode;
+    }
+
+    // ---- double-exposure (mode '2'): the first exposure's still is shown as a translucent ghost over the
+    //      live viewfinder while the second exposure is composed. The A6000 HAL never hands live preview
+    //      frames to the app, so a true SCREEN blend over the viewfinder is impossible; this is an
+    //      approximation (the exact SCREEN composite of the two stills is produced by the host). ----
+    private volatile boolean ghostOn = false;
+    private volatile boolean ghostWait = false;   // after the 1st shot: dim the view until the ghost is ready
+    private volatile android.graphics.Bitmap ghostBmp;
+    private volatile float ghostAlpha = 1.0f;   // global multiplier on top of the per-pixel luminance alpha
+    private int ghostFinder = 0;                 // 0 = LCD (9:8), 1 = EVF (3:2): which screen the ghost is sized for
+    private String wantFilm = "";                // persisted selected film (by NAME; index is unstable)
+    private volatile boolean afCancel = false;   // S1 released mid-focus -> suppress the cancel callback's "focus ✗"
+    private volatile boolean shooting = false;   // S2 held (capture in progress): don't cancel focus on S1 up
+    private int zoomDir = -1;  // -1 = not zooming (0 is a real TELE direction)
+    private final Runnable zoomStopRunnable = new Runnable() { public void run() {
+        if (zoomDir != -1) { zoomDir = -1; rig.zoomStop(); }
+    }};
+
+    // ---- empty-card setup: one shot identifies the body (no photos on the card + no cached model) ----
+    private static final String PK_KM = "km_model";
+    private volatile boolean initMode = false;      // waiting for the setup shot
+    private volatile boolean initPending = false;   // setup shot taken, waiting for its file
+    private volatile boolean initTimedOut = false;  // 10s elapsed: show the insert-card hint
+    private final Runnable initTimeout = new Runnable() { public void run() {
+        if (!initMode || !initPending) return;
+        initPending = false;
+        initTimedOut = true;
+        Logger.log("init: setup shot did not land within 10s");
+        if (fbox != null) { fbox.initHint = "INSERT CARD OR PRESS SHUTTER"; fbox.postInvalidate(); }
+        try { rig.startPreview(); } catch (Throwable t) {}   // never leave the preview frozen
+    }};
+
+    // ---- lens-cap auto sleep: preview stays near-black -> cap on -> sleep after 10s ----
+    private boolean capDim = false;                // screen dimmed by lens-cap sleep
+    private float capPrevBrightness = -1f;
+    private long capGapRecent = 33;
+    private long capOneShotAt = 0;        // guard: register buffers ONCE per camera open (2nd pair OOMs and kills the stream)                // recent typical inter-frame gap (ms); stall threshold = clamp(2x, 2s, 32s)
+    private android.widget.TextView filmWarn;        // centered red NO FILM LIST warning
+    private long sDbg = 0;                         // throttled debug log
+    private long sDump = 0;                        // throttled full parameter dump in S mode
+    private volatile long captureStart = 0;
+    private volatile boolean netReady = false;
+    private android.view.SurfaceHolder pendingHolder;
+    private long bootStart = 0;
+
+    private static int BUILD = 0;
+
+    // ---------------------------------------------------------------- setup
+
+    /** one-time: can we append to the SD-card root LOG.TXT? (the logger falls back to privateDir if not) */
+    private void logRootCheck() {
+        File root = new File(android.os.Environment.getExternalStorageDirectory(), "LOG.TXT");
+        Logger.log("log: root=" + root.getAbsolutePath() + " writable=false (SD writes disabled for experiment)");
+    }
+
+    /** the firmware creates DCIM itself; the app must never create directories on the card */
+    private void ensureCardDirs() {
+        File d = new File(SD, "DCIM");
+        if (d.isDirectory()) Logger.log("card: DCIM exists");
+        else Logger.log("card: DCIM MISSING (will let the firmware create it)");
+    }
+
+    @Override
+    public void onCreate(Bundle b) {
+        super.onCreate(b);
+        Logger.setPrivateDir(getFilesDir());   // before the first log: private fallback if the SD root is not writable
+        logRootCheck();
+        ensureCardDirs();   // create DCIM before any write/first-still path runs
+        applyKeymap();   // resolve the per-model key bindings (A6000 fallback) before any key event
+        // runtime permissions (targetSdk 24+): camera + storage must be granted dynamically
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            String[] need = {
+                android.Manifest.permission.CAMERA,
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            };
+            boolean missing = false;
+            for (String pm : need) if (checkSelfPermission(pm) != android.content.pm.PackageManager.PERMISSION_GRANTED) missing = true;
+            if (missing) { requestPermissions(need, 1); /* carry on: camera retries once the user grants */ }
+        }
+        int build = 0;
+        try { build = getResources().getInteger(R.integer.build_number); } catch (Throwable t) {}
+        BUILD = build;
+        Logger.log("--- OpenFilm6K camera build #" + build + " ---");
+
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            public void uncaughtException(Thread t, Throwable e) {
+                Logger.log("UNCAUGHT on " + t.getName() + ": " + e);
+                StackTraceElement[] st = e.getStackTrace();
+                for (int i = 0; i < st.length && i < 12; i++) Logger.log("  at " + st[i]);
+                Logger.flush();   // the process is about to die: get the stack onto LOG.TXT synchronously
+            }
+        });
+
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                WindowManager.LayoutParams.FLAG_FULLSCREEN);
+
+        surface = new SurfaceView(this);
+        surface.getHolder().addCallback(this);
+        surface.getHolder().setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
+
+        viewer = new android.widget.ImageView(this);
+        viewer.setBackgroundColor(0xFF000000);
+        viewer.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        viewer.setVisibility(View.INVISIBLE);
+        viewer.setPadding(0, 0, 0, 0);
+
+        hud = mkText(18, Color.WHITE, 0x66000000);
+        status = mkText(16, 0xFFF2B85C, 0x66000000);
+        overlay = mkText(18, Color.WHITE, 0xEE101010);
+
+        FrameLayout root = new FrameLayout(this);
+        root.addView(surface, new FrameLayout.LayoutParams(-1, -1));
+        FrameLayout.LayoutParams wrap = new FrameLayout.LayoutParams(-2, -2);
+        root.addView(hud, wrap);
+        root.addView(status, wrap);
+        fbox = new FBox(this);
+        try { fbox.tf = android.graphics.Typeface.createFromAsset(getAssets(), "DSEG14.ttf"); } catch (Throwable t) { Logger.log("font load: " + t); }
+        try {
+            android.content.IntentFilter bf = new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED);
+            android.content.BroadcastReceiver br = new android.content.BroadcastReceiver() {
+                public void onReceive(android.content.Context c, android.content.Intent i) {
+                    int lv = i.getIntExtra("level", -1), sc = i.getIntExtra("scale", 100);
+                    if (lv >= 0 && fbox != null) { fbox.batt = (lv * 100 / Math.max(1, sc)) + "%"; fbox.postInvalidate(); }
+                }
+            };
+            registerReceiver(br, bf);
+            android.content.Intent bi = registerReceiver(null, bf);
+            if (bi != null) { int lv = bi.getIntExtra("level", -1), sc = bi.getIntExtra("scale", 100); if (lv >= 0) fbox.batt = (lv * 100 / Math.max(1, sc)) + "%"; }
+        } catch (Throwable t) { Logger.log("batt: " + t); }
+        root.addView(fbox, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        filmWarn = mkText(24, 0xFFFF5252, 0x00000000);   // same red as the AF-fail state
+        filmWarn.setTypeface(fbox.tf);                    // DSEG14, same as everything else
+        filmWarn.setShadowLayer(3, 1, 2, 0xFF000000);     // same drop shadow
+        filmWarn.setText("NO FILM LIST");
+        filmWarn.setGravity(android.view.Gravity.CENTER);
+        filmWarn.setVisibility(View.GONE);
+        android.widget.FrameLayout.LayoutParams wp = new FrameLayout.LayoutParams(-1, -1);
+        wp.gravity = android.view.Gravity.CENTER;
+        root.addView(filmWarn, wp);
+        root.addView(viewer, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(root);
+
+        android.content.SharedPreferences pf = getPreferences(MODE_PRIVATE);
+        sel = pf.getInt("film2", -1);
+        stampMode = pf.getInt("stamp", 0);
+        wmSel = pf.getString("wmid", "");
+        printInfo = pf.getInt("printinfo", 0);
+        postSel.clear();
+        { String ps0 = pf.getString("post", ""); if (ps0.length() > 0) for (String c : ps0.split(",")) if (c.trim().length() > 0) postSel.add(c.trim()); }
+        { boolean kept = false;   // at most one of the glare trio survives a stored spec
+          for (String o : POST_ONE_OF) { if (!postSel.contains(o)) continue; if (kept) postSel.remove(o); else kept = true; } }
+        ghostFinder = pf.getInt("gfinder", 0);
+        wantFilm = pf.getString("selfilm", "");
+        favs.clear();
+        String fv = pf.getString("favs", "");
+        if (fv.length() > 0) {
+            String[] parts = fv.split(",");
+            for (String p2 : parts) {
+                try { int ix = Integer.parseInt(p2); if (ix >= 0 && ix < names.size()) favs.add(names.get(ix)); }   // legacy index entry, best effort
+                catch (NumberFormatException nf) { if (!p2.isEmpty()) favs.add(p2); }                              // name entry
+            }
+        }
+        qualityIdx = pf.getInt("quality", 0);
+
+        onStampModeChanged();   // arm the H/2 pair capture if that mode was restored
+
+        discoverFilms();
+        if (sel < 0 || sel >= totalSel() || sel == divSel()) sel = names.isEmpty() ? 0 : NSPECIAL;
+        applyWantFilm();
+        hud.setPadding(dp(8), dp(4), dp(8), dp(4));
+        status.setPadding(dp(8), dp(4), dp(8), dp(4));
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) status.getLayoutParams();
+        lp.topMargin = dp(120);
+        status.setLayoutParams(lp);
+        renderOverlay();
+        handler.postDelayed(readoutTick, 700);
+        self = this;
+        gradeThread = new Thread(gradeLoop, "grade");
+        gradeThread.setDaemon(true);
+        gradeThread.start();
+        initWatchBaseline();
+        bootWifi();
+    }
+
+    private TextView mkText(float size, int color, int bg) {
+        TextView t = new TextView(this);
+        t.setTextSize(size);
+        t.setTextColor(color);
+        t.setBackgroundColor(bg);
+        t.setPadding(dp(10), dp(8), dp(10), dp(8));
+        t.setVisibility(View.INVISIBLE);
+        return t;
+    }
+
+    private int dp(float v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
+
+    private void discoverFilms() {
+        films.clear();
+        names.clear();
+        StringBuilder diag = new StringBuilder();
+        for (File root : FILM_ROOTS) {
+            if (!root.isDirectory()) continue;
+            ArrayList<File> found = new ArrayList<File>();
+            walk(root, 0, found);
+            if (found.size() > 0 && LUTS == null) {
+                LUTS = found.get(0).getParentFile();
+                TEX = new File(LUTS.getParentFile(), "TEX");
+                GRADED = new File(LUTS.getParentFile(), "GRADED");
+                films = found;
+            }
+            diag.append(root).append(" -> ").append(found.size()).append('\n');
+        }
+        if (LUTS == null) { LUTS = FILM_ROOTS[0]; TEX = new File(FILM_ROOTS[0], "TEX"); GRADED = new File(FILM_ROOTS[0], "GRADED"); }
+        films.clear();                                   // local .flm list; film names come from the host at runtime
+        names.clear();
+        Logger.log("films " + names.size() + " in " + LUTS + (films.isEmpty() ? " | " + diag : ""));
+        if (GRADED != null && !GRADED.isDirectory()) Logger.log("graded dir missing: " + GRADED);
+    }
+
+    private static void walk(File d, int depth, ArrayList<File> found) {
+        if (depth > 3) return;
+        File[] fs = d.listFiles();
+        if (fs == null) return;
+        for (File f : fs) {
+            if (f.getName().toLowerCase().endsWith(".flm")) found.add(f);
+            else if (f.isDirectory()) walk(f, depth + 1, found);
+        }
+    }
+
+    private static String prettyName(String fn) {
+        String n = fn.toUpperCase();
+        if (n.endsWith(".FLM")) n = n.substring(0, n.length() - 4);
+        return n;
+    }
+
+    private static String readName(File f) {
+        try {
+            DataInput in = new DataInputStream(new FileInputStream(f));
+            byte[] head = new byte[216];
+            in.readFully(head);
+            if (head[0] != 'F' || head[1] != 'L' || head[2] != 'M') {
+                Logger.log("readName " + f.getName() + " bad magic: " + head[0] + "," + head[1] + "," + head[2]);
+                return f.getName();
+            }
+            String nm = utf8(head, 8, 40).trim();
+            if (nm.length() == 0) nm = prettyName(f.getName());
+            return nm;
+        } catch (Throwable e) {
+            Logger.log("readName " + f.getName() + " threw: " + e);
+            return f.getName();
+        }
+    }
+
+    private static String utf8(byte[] a, int off, int len) {
+        int end = off;
+        while (end < off + len && a[end] != 0) end++;
+        try { return new String(a, off, end - off, "UTF-8"); } catch (Exception e) { return "?"; }
+    }
+
+    // ---------------------------------------------------------------- camera
+
+    public void surfaceCreated(SurfaceHolder h) {}
+
+    public void surfaceChanged(SurfaceHolder h, int format, int width, int height) {
+        pendingHolder = h;
+        if (netReady) startCamera(h);
+    }
+
+    public void surfaceDestroyed(SurfaceHolder h) {
+        rig.release();
+    }
+
+    private void startCamera(SurfaceHolder h) {
+        if (!rig.ready()) {
+            try { java.io.FileWriter fw = new java.io.FileWriter("/sdcard/OpenFilm6K/open_marker.txt", true);
+                  fw.write("open " + System.currentTimeMillis() + "\n"); fw.close(); } catch (Throwable ig) {}
+            if (!rig.open()) {
+                setStatus("camera open failed (see log)");
+                return;
+            }
+            Camera.Parameters p = rig.camera().getParameters();
+            evMin = p.getMinExposureCompensation();
+            evMax = p.getMaxExposureCompensation();
+            ev = p.getExposureCompensation();
+            rig.syncFocusMode(p);
+            metList = rig.supportedMetering();                  // metering: shown as an icon next to "AF …"
+            String mm0 = rig.syncMetering(p);
+            if (mm0 != null) metMode = mm0;
+            int[] spt = CameraRig.readSystemSpot(p);            // adopt the system focus point position
+            if (spt != null) { rig.adoptSpot(spt[0], spt[1]); spotX = spt[0]; spotY = spt[1]; Logger.log("sys spot " + spt[0] + "," + spt[1]); }
+            else Logger.log("sys spot: unavailable");
+            String sm = p.getSceneMode();                  // adopt the mode the system/firmware is currently in
+            if (sm != null) {
+                for (int i = 0; i < SCENE_MODES.length; i++) {
+                    if (SCENE_MODES[i].equals(sm)) { sceneIdx = i; Logger.log("scene: system=" + sm + " -> " + SCENE_NAMES[i]); break; }
+                }
+            }
+            List sup = rig.supportedIsos();
+            isos.clear();
+            if (sup != null) for (Object o : sup) isos.add(((Number) o).intValue());
+            rig.setDriveSingle();
+            rig.setAspectRatio32();
+            boolean jpeg = rig.forceJpegStorage();   // RAW storage format crashes this body on shoot
+            Logger.log("still: forced jpeg ok=" + jpeg);
+        }
+        try {
+            rig.camera().setPreviewDisplay(h);
+            rig.startPreview();
+        } catch (Throwable t) {
+            Logger.log("preview: " + t);
+            setStatus("viewfinder fail: " + t);
+        }
+    }
+
+
+
+    /** 1s watchdog: with a lens cap in A-mode the exposure climbs to 30s and preview frames
+     *  stall completely — no frames for >3s counts as black too, timed on the wall clock. */
+    /** show the red NO FILM LIST warning for 2.5s (same design: DSEG14 + shadow, centered) */
+    private void showFilmWarn() {
+        if (filmWarn == null) return;
+        filmWarn.setVisibility(View.VISIBLE);
+        filmWarn.bringToFront();
+        handler.removeCallbacks(filmWarnHide);
+        handler.postDelayed(filmWarnHide, 2500);
+    }
+    private final Runnable filmWarnHide = new Runnable() { public void run() {
+        if (filmWarn != null) filmWarn.setVisibility(View.GONE);
+    } };
+
+    private void capSleep() {
+        // deliberately inert: no preview stop, no brightness change, no power/wakelock calls.
+        // just flag the state and show the unlock hint — isolating what actually killed the keys.
+        capDim = true;
+        if (fbox != null) fbox.hideAf = false;
+        try { rig.camera().stopPreview(); } catch (Throwable t) { Logger.log("sleep stopPreview: " + t); }
+        try {
+            overlay.setVisibility(View.INVISIBLE);
+            hud.setVisibility(View.INVISIBLE);
+            status.setVisibility(View.INVISIBLE);
+            if (fbox != null) fbox.setVisibility(View.INVISIBLE);
+            android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+            capPrevBrightness = lp.screenBrightness;
+            lp.screenBrightness = 0.01f;   // minimum SAFE value: 0.0f makes the whole system unresponsive on this firmware
+            getWindow().setAttributes(lp);
+        } catch (Throwable t) { Logger.log("lock ui: " + t); }
+        setStatus("locked");
+    }
+
+    /** any key wakes: first press only restores, its UP is swallowed */
+    private void capWake() {
+        capDim = false;
+        overlay.setVisibility(View.INVISIBLE);
+        hud.setVisibility(View.VISIBLE);
+        status.setVisibility(View.VISIBLE);
+        if (fbox != null) fbox.setVisibility(View.VISIBLE);
+        try {
+            android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+            lp.screenBrightness = capPrevBrightness < 0 ? -1f : capPrevBrightness;
+            getWindow().setAttributes(lp);
+        } catch (Throwable t) { Logger.log("wake brightness: " + t); }
+        try {
+            rig.camera().setPreviewDisplay(surface.getHolder());
+            rig.startPreview();
+        } catch (Throwable t) { Logger.log("wake preview: " + t); }
+        if (fbox != null) fbox.postInvalidate();
+        setStatus("wake");
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (fbox != null) fbox.verUntil = System.currentTimeMillis() + 1000;   // version hint on every entry
+        if (surface.getHolder().getSurface() != null) startCamera(surface.getHolder());
+        if (rig.ready()) {
+            boolean jpeg = rig.forceJpegStorage();
+            Logger.log("still: resume check ok=" + jpeg);
+        }
+        new Thread(new Runnable() { public void run() {           // suspend/resume can revive the process with a dead net:
+            try { Thread.sleep(1500); } catch (InterruptedException e) { return; }   // let onCreate's bootWifi settle on cold start
+            if (!netReady) return;                                 // boot flow still connecting — leave it alone
+            android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getSystemService("wifi");
+            if (wifiUsable(wm) && hostPingOk(wm)) return;          // genuinely fine
+            Logger.log("resume: net unproven -> forcing reconnect");
+            handler.post(new Runnable() { public void run() { if (fbox != null) fbox.netReady = false; } });
+            bounceAndReconnect();
+        }}, "resumenet").start();
+    }
+
+    @Override
+    protected void onPause() {
+        long t0 = System.currentTimeMillis();
+        Logger.log("lifecycle: pause");
+        try {   // let Wi-Fi go before releasing on every model (power-off needs it down)
+            android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getSystemService("wifi");
+            if (wm != null && wm.isWifiEnabled()) {
+                Logger.log("pause: wifi off");
+                wm.setWifiEnabled(false);
+            }
+        } catch (Throwable t) { Logger.log("pause: wifi off EX " + t); }
+        try { rig.release(); } catch (Throwable t) {}   // release the camera FIRST (slow FUSE writes below)
+        Logger.log("lifecycle: released in " + (System.currentTimeMillis() - t0) + "ms");
+        super.onPause();
+        savePrefs();
+        clearGhost();
+        handler.removeCallbacks(zoomStopRunnable);
+        if (zoomDir != -1) { zoomDir = -1; rig.zoomStop(); }
+        Logger.log("lifecycle: pause done in " + (System.currentTimeMillis() - t0) + "ms");
+    }
+
+    @Override
+    protected void onStop() {
+        long t0 = System.currentTimeMillis();
+        Logger.log("lifecycle: stop");
+        try { rig.release(); } catch (Throwable t) {}
+        Logger.log("lifecycle: released in stop " + (System.currentTimeMillis() - t0) + "ms");
+        if (km == KM_RX100 && !isFinishing()) {   // RX100: the firmware needs a real exit before power-off
+            Logger.log("lifecycle: finish on stop");
+            try { finish(); } catch (Throwable t) { Logger.log("lifecycle: finish EX " + t); }
+            Logger.log("lifecycle: exit");
+            try { Logger.flush(); } catch (Throwable t) {}
+            try { System.exit(0); } catch (Throwable t) {}
+        }
+        super.onStop();
+    }
+
+    @Override
+    protected void onDestroy() {
+        Logger.log("lifecycle: destroy");
+        try { rig.release(); } catch (Throwable t) {}
+        super.onDestroy();
+    }
+
+    /** firmware suspend/power-off: release the camera and truly exit so the lens can retract */
+    static void onFirmwareSuspend(android.content.Context c) {
+        MainActivity a = self;
+        if (a == null) return;
+        a.runOnUiThread(new Runnable() { public void run() {
+            Logger.log("suspend: release");
+            a.handler.removeCallbacks(a.zoomStopRunnable);
+            a.zoomDir = -1;
+            try { a.rig.release(); } catch (Throwable t) { Logger.log("suspend: release EX " + t); }
+            try { a.finish(); } catch (Throwable t) {}
+            try { Logger.log("suspend: exit"); Logger.flush(); } catch (Throwable t) {}
+            try { System.exit(0); } catch (Throwable t) {}
+        }});
+    }
+
+    // ---------------------------------------------------------------- shoot + grade
+
+    /** true only when the parameter table positively reports a non-JPEG still format */
+    private boolean stillFormatRaw() {
+        String f = rig.storageFormat();
+        return f != null && f.toLowerCase().contains("raw");
+    }
+
+    private void shoot() {
+        if (!rig.ready()) return;
+        if (stillFormatRaw()) {
+            Logger.log("still: RAW format, shot refused");
+            setStatus("SET STILL FORMAT TO JPEG");
+            return;
+        }
+        captureStart = System.currentTimeMillis();
+        shooting = true;
+        // film locked at shutter press; a FIFO keeps per-shot films even if the user
+        // changes the film before the watcher picks the file up (needed for H/2 pairs)
+        synchronized (shots) { shots.add(new Shot(resolveSel(sel), stampMode)); }
+        if (isPairMode()) {
+            boolean firstOfPair = (pairSlot == PAIR_FRAME1);
+            if (stampMode == 9) {
+                if (firstOfPair) { setGhostWait(true); Logger.log("double: ghost wait"); }   // dim until the ghost is ready
+                else { clearGhost(); Logger.log("double: ghost off (2nd shot taken)"); }
+            }
+            pairSlot = firstOfPair ? PAIR_FRAME2 : PAIR_FRAME1;
+            refreshPair();
+        }   // [1]<->[2] immediately on shutter
+        rig.shoot();
+        setStatus("capturing…");
+    }
+
+    /** setup shot: fixed CC-200 + date watermark, no frame/post; its EXIF resolves and caches the keymap */
+    private void shootInit() {
+        if (stillFormatRaw()) {
+            Logger.log("still: RAW format, shot refused");
+            if (fbox != null) { fbox.initHint = "SET STILL FORMAT TO JPEG"; fbox.postInvalidate(); }
+            return;
+        }
+        if (!new File(SD, "DCIM").isDirectory()) Logger.log("init: DCIM missing, the firmware will create it");
+        if (initPending) return;                      // one setup shot in flight
+        if (!rig.ready()) return;
+        int fi = -1;
+        for (int i = 0; i < names.size(); i++) if ("CC-200".equalsIgnoreCase(names.get(i).trim())) { fi = i; break; }
+        if (fi < 0) { fi = resolveSel(sel); Logger.log("init: CC-200 not in the film list, using film#" + fi); }
+        captureStart = System.currentTimeMillis();
+        shooting = true;
+        synchronized (shots) { shots.add(new Shot(fi, 0, true)); }   // mode 0: never a pair mode
+        initPending = true; initTimedOut = false;
+        if (fbox != null) { fbox.initHint = "CAPTURING..."; fbox.postInvalidate(); }
+        handler.removeCallbacks(initTimeout);
+        handler.postDelayed(initTimeout, 10000);
+        rig.shoot();
+        setStatus("capturing…");
+        Logger.log("init: setup shot film#" + fi + " (" + (fi >= 0 && fi < names.size() ? names.get(fi) : "?") + ") stamp=date post=none");
+    }
+
+    private Shot takeShot() {
+        synchronized (shots) {
+            while (!shots.isEmpty()) {
+                Shot s = shots.removeFirst();
+                if (System.currentTimeMillis() - s.at < 90000L) return s;   // drop entries whose file never landed
+            }
+            return null;
+        }
+    }
+
+    private boolean isPairMode() { return stampMode == 8 || stampMode == 9; }
+    private String pairModeName() { return stampMode == 8 ? "half" : "double"; }
+
+    // ---- double-exposure ghost (see the field comment) ----
+
+    /** decode the first exposure's still (scaled to cover the view) and show it as a translucent ghost */
+    private void loadGhost(final java.io.File f) {
+        try {
+            int vw = (fbox != null && fbox.getWidth() > 0) ? fbox.getWidth() : 640;
+            int vh = (fbox != null && fbox.getHeight() > 0) ? fbox.getHeight() : 480;
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+            int s = 1;
+            while (o.outWidth / s > vw * 1.5f || o.outHeight / s > vh * 1.5f) s *= 2;   // decode near the view size (fast, no OOM)
+            android.graphics.BitmapFactory.Options o2 = new android.graphics.BitmapFactory.Options();
+            o2.inSampleSize = s;
+            o2.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
+            final android.graphics.Bitmap src = android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath(), o2);
+            if (src == null) { Logger.log("double: ghost decode null"); clearGhost(); return; }
+            // alpha = luminance, so the window's source-over over the live viewfinder becomes screen(dst, L):
+            //   out = rgb*(L/255) + dst*(1-L/255); scaling rgb by 255/L keeps the premultiplied source = the
+            //   ghost's real RGB (exact for gray pixels), i.e. a colour-preserving screen.
+            int gw = src.getWidth(), gh = src.getHeight();
+            int[] px = new int[gw * gh];
+            src.getPixels(px, 0, gw, 0, 0, gw, gh);
+            src.recycle();
+            for (int i = 0; i < px.length; i++) {
+                int c = px[i];
+                int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+                int lum = (r * 77 + g * 151 + b * 28) >> 8;
+                if (lum < 1) { px[i] = 0; continue; }                 // black -> fully transparent
+                int rr = Math.min(255, (r * 255 + lum / 2) / lum);
+                int gg = Math.min(255, (g * 255 + lum / 2) / lum);
+                int bb = Math.min(255, (b * 255 + lum / 2) / lum);
+                px[i] = (lum << 24) | (rr << 16) | (gg << 8) | bb;    // alpha = luminance
+            }
+            final android.graphics.Bitmap bm = android.graphics.Bitmap.createBitmap(gw, gh, android.graphics.Bitmap.Config.ARGB_8888);   // decoded bitmaps are immutable
+            bm.setHasAlpha(true);
+            bm.setPixels(px, 0, gw, 0, 0, gw, gh);
+            ghostBmp = bm; ghostOn = true; ghostWait = false;
+            handler.post(new Runnable() { public void run() {
+                if (fbox != null) { fbox.ghostBmp = bm; fbox.ghostOn = true; fbox.ghostWait = false; fbox.ghostAlpha = ghostAlpha; fbox.postInvalidate(); }
+            }});
+            Logger.log("double: ghost loaded " + gw + "x" + gh + " (ss=" + s + ") from " + f.getName());
+        } catch (Throwable t) { Logger.log("double: loadGhost " + t); clearGhost(); }
+    }
+
+    private void clearGhost() {
+        ghostOn = false; ghostWait = false;
+        if (fbox != null) { fbox.ghostOn = false; fbox.ghostBmp = null; fbox.ghostWait = false; fbox.postInvalidate(); }
+    }
+
+    /** after the 1st exposure: dim the viewfinder until the ghost is decoded and shown.
+     *  No fixed timeout — the wait ends only when the ghost is ready (loadGhost) or loading fails (clearGhost). */
+    private void setGhostWait(boolean wait) {
+        ghostWait = wait;
+        if (wait) ghostOn = false;
+        if (fbox != null) {
+            fbox.ghostWait = wait;
+            if (wait) { fbox.ghostOn = false; fbox.ghostBmp = null; }
+            fbox.postInvalidate();
+        }
+    }
+
+    /** UI-thread refresh of the blinking pair indicator (watcher runs off-thread) */
+    private void refreshPair() {
+        handler.post(new Runnable() { public void run() {
+            if (fbox != null) { fbox.pairDisp = isPairMode() ? pairSlot : -1; fbox.postInvalidate(); }
+        }});
+    }
+
+    /** C2 changed the stamp mode: park the previous mode's pending pair and resume this mode's one */
+    private void onStampModeChanged() {
+        if (pairOwner >= 0) savePairState(pairOwner);       // park the pair that belonged to the old mode
+        clearGhost();                                       // (the per-shot queue is NOT cleared: an un-uploaded
+                                                            //  shot keeps the film/mode it was taken with)
+        if (isPairMode()) {
+            loadPairState(stampMode);                       // resume a pending pair for THIS mode
+            pairSlot = (pairStaged == 1) ? PAIR_FRAME2 : PAIR_FRAME1;
+            pairBlinkOn = true;
+            handler.removeCallbacks(pairBlinkTick);
+            handler.post(pairBlinkTick);
+            if (stampMode == 9 && pairStaged == 1 && pair0File != null) {   // double: rebuild the 1st-exposure ghost
+                final java.io.File g = pair0File;
+                setGhostWait(true);
+                new Thread(new Runnable() { public void run() { loadGhost(g); } }, "ghost").start();   // decode off the UI thread
+                Logger.log("double: resumed pair, ghost from " + g.getName());
+            }
+        } else {
+            pair0File = null; pair0Film = -1; pairStaged = 0; pairOwner = -1;
+            pairSlot = PAIR_OFF;
+            handler.removeCallbacks(pairBlinkTick);
+            pairBlinkOn = true;
+        }
+        refreshPair();
+    }
+
+    /** blink phase: flips the [ 1 ]/[ 2 ] indicator while a pair mode is active */
+    private final Runnable pairBlinkTick = new Runnable() { public void run() {
+        if (!isPairMode()) { pairBlinkOn = true; refreshPair(); return; }
+        pairBlinkOn = !pairBlinkOn;
+        if (fbox != null) { fbox.pairBlink = pairBlinkOn; fbox.postInvalidate(); }
+        handler.postDelayed(this, 380);
+    }};
+
+    /** S2 release: cancel immediately (PMCADemo pattern), restart preview after a beat */
+    private void shutterUp() {
+        shooting = false;
+        if (names.isEmpty()) {   // no film list from the host: no graded result is possible — refuse to shoot
+            Logger.log("shutter blocked: empty film list");
+            setStatus("NO FILM LIST");
+            showFilmWarn();
+            return;
+        }
+        Logger.log("shutterUp");
+        if (initPending) {   // setup shot: the body is still creating 100MSDCF/writing — stock camera cancels nothing
+            Logger.log("init: release without cancelTakePicture (body is writing the first still)");
+            triggerWatch();
+            return;
+        }
+        rig.cancelShot();
+        handler.postDelayed(new Runnable() {
+            public void run() {
+                rig.startPreview();
+                triggerWatch();
+            }
+        }, SHUTTER_RESTART_MS);
+    }
+
+    private final java.util.Set<String> sentPaths = java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+    private final java.util.Set<String> failedPaths = java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+    private volatile long cutoffTime = 0;      // ignore anything not newer than the last photo before launch
+    private volatile boolean watching = false;
+    private volatile long watchUntil = 0;
+    private volatile String pendPath = null;
+    private volatile long pendSize = -1;
+
+    /** Only photos newer than the newest photo that existed at launch are uploaded:
+     *  i.e. the first photo you shoot after launch, and everything after it. */
+    private void initWatchBaseline() {
+        File ln = newestPhoto();
+        cutoffTime = (ln != null) ? ln.lastModified() : 0;
+        Logger.log("watcher: cutoff " + cutoffTime + (ln != null ? " (" + ln.getName() + ")" : " (no prior photo)"));
+        if (ln == null) {                                  // SD may not have been ready yet
+            new Thread(new Runnable() {
+                public void run() {
+                    try { Thread.sleep(1500); } catch (InterruptedException e) { return; }
+                    File l2 = newestPhoto();
+                    if (l2 != null) { cutoffTime = l2.lastModified(); Logger.log("watcher: cutoff(late) " + cutoffTime); }
+                }
+            }, "cutoff").start();
+        }
+    }
+
+    /** Called after each shot. Scans briefly (only while a shot is being processed),
+     *  uploading new photos one at a time; stays idle the rest of the time so it never
+     *  competes with focus/shutter. */
+    private void triggerWatch() {
+        if (!failedPaths.isEmpty()) {           // a new shot re-arms failed uploads for retry
+            sentPaths.removeAll(failedPaths);
+            failedPaths.clear();
+            Logger.log("watcher: re-armed failed uploads");
+        }
+        watchUntil = System.currentTimeMillis() + 8000;
+        if (watching) return;
+        watching = true;
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    while (System.currentTimeMillis() < watchUntil) {
+                        try { Thread.sleep(500); } catch (InterruptedException e) { return; }
+                        if (grading) { watchUntil = System.currentTimeMillis() + 8000; continue; }   // keep window open while busy
+                        synchronized (queue) { if (!queue.isEmpty()) { watchUntil = System.currentTimeMillis() + 8000; continue; } }
+                        File f = oldestUnsentPhoto();
+                        if (f == null) { pendPath = null; pendSize = -1; continue; }
+                        long size = f.length();
+                        String p = f.getAbsolutePath();
+                        if (size > 0 && p.equals(pendPath) && size == pendSize) {
+                            sentPaths.add(p);
+                            Shot sh = takeShot();
+                            if (sh == null) {                           // no pending shutter press: not our capture
+                                Logger.log("watcher: no pending shot, ignore " + f.getName());
+                                pendPath = null; pendSize = -1;
+                                watchUntil = System.currentTimeMillis() + 8000;
+                                continue;
+                            }
+                            int film = sh.film;
+                            applyKeymap();                             // a fresh card: resolve the keymap from the first shot's EXIF now
+                            if (sh.init) initShotLanded(f);            // setup shot: cache the body model and leave init mode
+                            if (sh.mode == 8 || sh.mode == 9) {
+                                if (pairStaged == 0) {                      // stage frame 1, wait for frame 2
+                                    pair0File = f; pair0Film = film;
+                                    pairStaged = 1; pairOwner = sh.mode;
+                                    savePairState(sh.mode);                  // survives restart / shots in other modes
+                                    Logger.log("watcher: pair frame1 " + f.getName() + " film#" + film + " mode#" + sh.mode);
+                                    if (sh.mode == 9 && pairSlot == PAIR_FRAME2) loadGhost(f);   // double: show 1st exposure as a ghost
+                                } else {                                    // frame 2 -> atomic batch
+                                    File f0 = pair0File; int film0 = pair0Film;
+                                    int om = pairOwner;
+                                    pair0File = null; pair0Film = -1;
+                                    pairStaged = 0; pairOwner = -1;
+                                    if (om >= 0) clearPairState(om);         // pair consumed
+                                    Logger.log("watcher: pair frame2 " + f.getName() + " -> batch");
+                                    enqueue(new Job(f0, film0, f, film, true));
+                                }
+                            } else {
+                                Logger.log("watcher: enqueue " + f.getName() + " " + size + "B film#" + film);
+                                enqueue(new Job(f, film, sh.init));
+                            }
+                            pendPath = null; pendSize = -1;
+                            watchUntil = System.currentTimeMillis() + 8000;   // keep alive for the burst
+                        } else {
+                            pendPath = p; pendSize = size;               // wait for write to settle
+                        }
+                    }
+                } catch (Throwable t) { Logger.log("watcher EX " + t); }
+                finally {
+                    watching = false;
+                    if (ghostWait) {   // double: the 1st frame never became a ghost -> don't stay dimmed forever
+                        Logger.log("watcher: ghost never loaded -> clear wait");
+                        clearGhost();
+                    }
+                }
+            }
+        }, "media").start();
+    }
+
+    /** oldest jpg under DCIM newer than the last pre-launch photo and not yet enqueued */
+    private File oldestUnsentPhoto() {
+        File best = null;
+        File[] dirs = new File(SD, "DCIM").listFiles();
+        if (dirs == null) return null;
+        for (File d : dirs) {
+            File[] fs = d.listFiles();
+            if (fs == null) continue;
+            for (File f : fs) {
+                String n = f.getName().toLowerCase();
+                if (!n.endsWith(".jpg")) continue;
+                String p = f.getAbsolutePath();
+                if (sentPaths.contains(p)) continue;
+                if (f.lastModified() <= cutoffTime) continue;        // older than / same as pre-launch newest
+                if (best == null || f.lastModified() < best.lastModified()) best = f;
+            }
+        }
+        return best;
+    }
+
+    private static File newestPhoto() {
+        File best = null;
+        File[] dirs = new File(SD, "DCIM").listFiles();
+        if (dirs == null) return null;
+        for (File d : dirs) {
+            File[] fs = d.listFiles();
+            if (fs == null) continue;
+            for (File f : fs) {
+                String n = f.getName().toLowerCase();
+                if (!n.endsWith(".jpg")) continue;
+                if (best == null || f.lastModified() > best.lastModified()) best = f;
+            }
+        }
+        return best;
+    }
+
+    /** nudge the camera album index after replacing a DCIM file: update size/date row, then media-scan */
+    private void refreshAvindex(File f) {
+        try {
+            try {
+                Object[] av = avindex();
+                if (av != null) {
+                    android.net.Uri uri = (android.net.Uri) av[0];
+                    android.content.ContentValues cv = new android.content.ContentValues();
+                    cv.put("_size", f.length());
+                    cv.put("datetaken", f.lastModified());
+                    int n = getContentResolver().update(uri, cv,
+                            (String) av[1] + " LIKE ?", new String[]{ "%" + f.getName() });
+                    Logger.log("avindex update rows=" + n);
+                }
+            } catch (Throwable t2) { Logger.log("avindex update unsupported: " + t2.getClass().getSimpleName()); }
+            android.content.Intent it = new android.content.Intent(android.content.Intent.ACTION_MEDIA_SCANNER_SCAN_FILE,
+                    android.net.Uri.fromFile(f));
+            sendBroadcast(it);
+            Logger.log("media scan sent " + f.getName());
+        } catch (Throwable t) { Logger.log("avindex refresh EX " + t); }
+    }
+
+    /** Sony avindex media provider: the camera's own image index — the safe way to
+     * find new photos (File.listFiles on DCIM while the firmware writes kills the
+     * camera's storage stack — build #11 black-screen crash) */
+    private Object avindexCache;   // Object[]{Uri, dataCol, dateCol}
+
+    private Object[] avindex() {
+        if (avindexCache instanceof Object[]) return (Object[]) avindexCache;
+        try {
+            Class<?> m = Class.forName("com.sony.scalar.provider.AvindexStore$Images$Media");
+            android.net.Uri uri = (android.net.Uri) m.getField("EXTERNAL_CONTENT_URI").get(null);
+            String data = (String) m.getField("DATA").get(null);
+            String date = (String) m.getField("CONTENT_CREATED_UTC_DATE_TIME").get(null);
+            avindexCache = new Object[]{uri, data, date};
+            return (Object[]) avindexCache;
+        } catch (Throwable t) {
+            Logger.log("avindex init: " + t);
+            return null;
+        }
+    }
+
+    /** newest real photo via the provider: walk the first rows, skip internal
+     * entries (000004A5-... style), return the first *.JPG whose mtime is fresh */
+    private String newestImageViaProvider(long minTime) {
+        Object[] av = avindex();
+        if (av == null) return null;
+        try {
+            android.database.Cursor c = getContentResolver().query(
+                    (android.net.Uri) av[0], new String[]{(String) av[1]},
+                    null, null, (String) av[2] + " DESC");
+            if (c == null) return null;
+            String path = null;
+            if (c.moveToFirst()) {
+                for (int i = 0; i < 12; i++) {
+                    String p = c.getString(0);
+                    if (p != null && p.toLowerCase().endsWith(".jpg")
+                            && new File(p).lastModified() >= minTime) {
+                        path = p;
+                        break;
+                    }
+                    if (!c.moveToNext()) break;
+                }
+            }
+            c.close();
+            return path;
+        } catch (Throwable t) {
+            Logger.log("avindex query: " + t);
+            return null;
+        }
+    }
+
+    private void enqueue(Job j) {
+        synchronized (queue) {
+            queue.add(j);
+            setStatus("queued " + queue.size());
+            queue.notifyAll();
+        }
+    }
+
+    private final Runnable gradeLoop = new Runnable() {
+        public void run() {
+            while (true) {
+                Job j;
+                synchronized (queue) {
+                    while (queue.isEmpty()) {
+                        try { queue.wait(); } catch (InterruptedException e) { return; }
+                    }
+                    j = queue.removeFirst();
+                }
+                grade(j);
+            }
+        }
+    };
+    private Thread gradeThread;
+
+    private boolean gradeViaPhone(Job j, String fname, long t0) {
+        String gname = gnameFor(j.src, j.filmIdx);
+        String pack = packOf(j.filmIdx);
+        java.net.HttpURLConnection conn = null;
+        final java.util.concurrent.atomic.AtomicLong sent = new java.util.concurrent.atomic.AtomicLong();
+        try {
+            final long flen = j.src.length();
+            if (fbox != null) fbox.beginUpload();
+            String stampTxt = "", stamp2Txt = "";
+            if (j.init) {
+                stampTxt = "@DATE";                                     // setup shot: fixed date watermark, no frame, no post
+            } else {
+                String exposure = shutterText() + " " + "F" + apertureText() + " ISO" + stampIso(j.src);
+                if (printInfo == 1) stampTxt = "@DATE";                     // D: date
+                else if (printInfo == 2) stampTxt = exposure;               // E: exposure
+                else if (printInfo == 3) { stampTxt = "@DATE"; stamp2Txt = exposure; }   // DE
+                else if (printInfo == 4) stampTxt = pack;                   // F: film name
+                else if (printInfo == 5) { stampTxt = pack; stamp2Txt = exposure; }       // FE
+            }
+            String stampQ = stampTxt.length() > 0 ? "&stamp=" + java.net.URLEncoder.encode(stampTxt) : "";
+            if (stamp2Txt.length() > 0) stampQ += "&stamp2=" + java.net.URLEncoder.encode(stamp2Txt);
+            if (!j.init) {                                          // setup shot ignores the user's frame/post config
+                // frame (independent of print info; H/2 are pair modes handled elsewhere)
+                if (stampMode >= 100) {                             // custom watermark card: host composites the template
+                    String id = wmSel;                              // the card we actually chose (survives list reordering)
+                    if (id == null || id.length() == 0) {
+                        int k = stampMode - 100;
+                        if (k >= 0 && k < wmIds.size()) id = wmIds.get(k);
+                    }
+                    if (id != null && id.length() > 0) stampQ += "&wm=" + java.net.URLEncoder.encode(id);
+                }
+                else if (stampMode == 4) stampQ += "&b=1";          // B1: selected film + white-card frame
+                else if (stampMode == 5) stampQ += "&b2=1";         // B2: film edge, sprockets + stock name (right after B1)
+                else if (stampMode == 10) stampQ += "&x=1";         // X: no text, 4-film collage
+                else if (stampMode == 11) stampQ += "&w=1";         // W: wide, crop to the wide 2.7:1 ratio (host-side)
+                else if (stampMode == 12) stampQ += "&wb1=1";       // WB1: wide white-card paper
+                else if (stampMode == 13) stampQ += "&wb2=1";       // WB2: wide film edge
+                else if (stampMode == 14) stampQ += "&wb3=1";       // WB3: wide sprocket (photo covers the strip)
+                // post-process categories (multi-select)
+                if (!postSel.isEmpty()) {
+                    StringBuilder pb = new StringBuilder();
+                    for (String c : postSel) { if (pb.length() > 0) pb.append(','); pb.append(c); }
+                    stampQ += "&post=" + java.net.URLEncoder.encode(pb.toString());
+                }
+            }
+            conn = (java.net.HttpURLConnection) new java.net.URL(
+                "http://" + phoneIp() + ":8800/ingest?film=" + java.net.URLEncoder.encode(pack, "UTF-8")
+                    + "&name=" + gname + "&orig=" + j.src.getName() + "&len=" + flen + stampQ).openConnection();   // film names may be any language — ALWAYS percent-encode
+            conn.setDoOutput(true); conn.setRequestMethod("POST");
+            conn.setConnectTimeout(10000); conn.setReadTimeout(30000);
+            conn.setFixedLengthStreamingMode((int) flen);
+            final java.net.HttpURLConnection fc = conn;
+            final java.io.File src = j.src;
+            Thread up = new Thread(new Runnable() { public void run() {
+                try {
+                    java.io.OutputStream os = fc.getOutputStream();
+                    java.io.FileInputStream fi2 = new java.io.FileInputStream(src);
+                    byte[] buf = new byte[16384];
+                    long s = 0; int r;
+                    while ((r = fi2.read(buf)) >= 0) {
+                        os.write(buf, 0, r); s += r; sent.set(s);
+                        if (fbox != null) fbox.setProgress(flen > 0 ? (float) s / (float) flen : 0f);
+                    }
+                    fi2.close(); os.flush(); os.close();
+                } catch (Throwable t) { Logger.log("upload-thread EX " + t); }
+            }}, "up");
+            up.setDaemon(true); up.start();
+
+            long last = -1, lastChange = System.currentTimeMillis(), start = lastChange;
+            while (up.isAlive()) {
+                up.join(400);
+                long now = System.currentTimeMillis();
+                if (sent.get() != last) { last = sent.get(); lastChange = now; }
+                if (now - lastChange > 15000 || now - start > 180000) {   // stalled or hard cap -> cancel
+                    Logger.log("upload cancelled sent=" + sent.get() + "/" + flen);
+                    setStatus("upload interrupted, cancelled");
+                    try { conn.disconnect(); } catch (Throwable ig) {}
+                    try { up.interrupt(); } catch (Throwable ig) {}
+                    if (fbox != null) fbox.endUpload();
+                    return false;
+                }
+            }
+            int code = fc.getResponseCode();
+            Logger.log("phone r=" + code + " " + pack + " " + gname + " " + sent.get() + "B");
+            if (code == 200) { done++; if (fbox != null) fbox.showDone(); return true; }
+            if (fbox != null) fbox.endUpload();
+            return false;
+        } catch (Throwable t) {
+            setStatus("upload failed " + t.getMessage());
+            Logger.log("phone EX " + t);
+            if (fbox != null) fbox.endUpload();
+            return false;
+        } finally {
+            grading = false;
+        }
+    }
+
+    /** graded filename stem for a source shot: G<filmTag><frame4>.JPG */
+    private String gnameFor(File src, int filmIdx) {
+        String frame = "";
+        String sn = src.getName();
+        for (int i = 0; i < sn.length(); i++) { char ch = sn.charAt(i); if (ch >= '0' && ch <= '9') frame += ch; }
+        while (frame.length() < 4) frame = "0" + frame;
+        if (frame.length() > 4) frame = frame.substring(frame.length() - 4);
+        int fi = (filmIdx < 9 ? 10 : 100) + filmIdx;
+        return "G" + fi + frame + ".JPG";
+    }
+
+    /** H/2 batch upload: both frames + their films + mode in one atomic POST to /ingest2 */
+    private boolean gradePairViaPhone(Job j) {
+        java.net.HttpURLConnection conn = null;
+        final java.util.concurrent.atomic.AtomicLong sent = new java.util.concurrent.atomic.AtomicLong();
+        try {
+            final long f0len = j.src.length(), f1len = j.src2.length();
+            final long total = f0len + f1len;
+            final File src0 = j.src, src1 = j.src2;
+            String name = gnameFor(src0, j.filmIdx);
+            String pack0 = packOf(j.filmIdx), pack1 = packOf(j.filmIdx2);
+            String postQ = "";
+            if (!postSel.isEmpty()) {                       // the pair must carry the post-process too
+                StringBuilder pb = new StringBuilder();
+                for (String c : postSel) { if (pb.length() > 0) pb.append(','); pb.append(c); }
+                postQ = "&post=" + java.net.URLEncoder.encode(pb.toString());
+            }
+            if (fbox != null) fbox.beginUpload();
+            conn = (java.net.HttpURLConnection) new java.net.URL(
+                "http://" + phoneIp() + ":8800/ingest2?mode=" + pairModeName()
+                    + "&film0=" + java.net.URLEncoder.encode(pack0, "UTF-8")
+                    + "&film1=" + java.net.URLEncoder.encode(pack1, "UTF-8")
+                    + "&name=" + name + "&len0=" + f0len + "&len1=" + f1len + postQ).openConnection();
+            conn.setDoOutput(true); conn.setRequestMethod("POST");
+            conn.setConnectTimeout(10000); conn.setReadTimeout(120000);   // two grades + compose
+            conn.setFixedLengthStreamingMode((int) total);
+            final java.net.HttpURLConnection fc = conn;
+            Thread up = new Thread(new Runnable() { public void run() {
+                try {
+                    java.io.OutputStream os = fc.getOutputStream();
+                    long s = 0;
+                    for (File src : new File[]{src0, src1}) {
+                        java.io.FileInputStream fi = new java.io.FileInputStream(src);
+                        byte[] buf = new byte[16384]; int r;
+                        while ((r = fi.read(buf)) >= 0) {
+                            os.write(buf, 0, r); s += r; sent.set(s);
+                            if (fbox != null) fbox.setProgress(total > 0 ? (float) s / (float) total : 0f);
+                        }
+                        fi.close();
+                    }
+                    os.flush(); os.close();
+                } catch (Throwable t) { Logger.log("pair upload-thread EX " + t); }
+            }}, "up2");
+            up.setDaemon(true); up.start();
+            long last = -1, lastChange = System.currentTimeMillis(), start = lastChange;
+            while (up.isAlive()) {
+                up.join(400);
+                long now = System.currentTimeMillis();
+                if (sent.get() != last) { last = sent.get(); lastChange = now; }
+                if (now - lastChange > 15000 || now - start > 240000) {
+                    Logger.log("pair upload cancelled sent=" + sent.get() + "/" + total);
+                    setStatus("upload interrupted, cancelled");
+                    try { conn.disconnect(); } catch (Throwable ig) {}
+                    try { up.interrupt(); } catch (Throwable ig) {}
+                    if (fbox != null) fbox.endUpload();
+                    return false;
+                }
+            }
+            int code = fc.getResponseCode();
+            Logger.log("phone pair r=" + code + " " + pack0 + "+" + pack1 + " " + name + " " + sent.get() + "B");
+            if (code == 200) { done++; if (fbox != null) fbox.showDone(); return true; }
+            if (fbox != null) fbox.endUpload();
+            return false;
+        } catch (Throwable t) {
+            setStatus("pair upload failed " + t.getMessage());
+            Logger.log("phone pair EX " + t);
+            if (fbox != null) fbox.endUpload();
+            return false;
+        } finally {
+            grading = false;
+        }
+    }
+
+    private void grade(final Job j) {
+        grading = true;
+        Logger.log("grade: begin " + j.src.getName() + " film#" + j.filmIdx);
+        final String fname = names.size() > j.filmIdx && j.filmIdx < names.size()
+                ? names.get(j.filmIdx) : ("#" + j.filmIdx);
+        setStatus("processing " + fname);
+        long t0 = System.currentTimeMillis();
+        boolean ok = j.pair ? gradePairViaPhone(j) : gradeViaPhone(j, fname, t0);
+        if (ok) bounceCount = 0;
+        else {
+            failedPaths.add(j.src.getAbsolutePath());
+            if (j.src2 != null) failedPaths.add(j.src2.getAbsolutePath());
+            if (j.pair) handler.post(new Runnable() { public void run() {   // re-arm the pair for retry
+                pairStaged = 0; pair0File = null; pair0Film = -1; refreshPair();
+            }});
+            Logger.log("grade: mark failed for retry " + j.src.getName());
+            forceWifiReconnect();                      // any upload failure -> bounce wifi and reconnect
+        }
+        if (true) { return; }
+        try {
+            long h = FilmLib.nativeLoad(films.get(j.filmIdx).getAbsolutePath(), TEX.getAbsolutePath());
+            if (h == 0) { setStatus("film load failed"); grading = false; return; }
+            String frame = "";
+            String sn = j.src.getName();
+            for (int i = 0; i < sn.length(); i++) {
+                char ch = sn.charAt(i);
+                if (ch >= '0' && ch <= '9') frame += ch;
+            }
+            while (frame.length() < 4) frame = "0" + frame;
+            if (frame.length() > 4) frame = frame.substring(frame.length() - 4);
+            int fi = (j.filmIdx < 9 ? 10 : 100) + j.filmIdx;
+            File temp = new File(GRADED, "G" + fi + frame + ".JPG");
+            int r = 2;
+            for (int attempt = 0; attempt < 3 && r == 2; attempt++) {
+                if (attempt > 0) {
+                    Logger.log("grade: retry after format error");
+                    try { Thread.sleep(1000); } catch (InterruptedException e) { break; }
+                }
+                r = FilmLib.nativeProcess(h, j.src.getAbsolutePath(), temp.getAbsolutePath(), SCALES[qualityIdx], 92);
+            }
+            FilmLib.nativeFree(h);
+            long ms = System.currentTimeMillis() - t0;
+            if (r == 0) {
+                done++;
+                setStatus("OK " + temp.getName() + "  " + (ms / 1000) + "." + (ms % 1000 / 100) + "s  total " + done
+                        + "  PLAY to view");
+            } else {
+                setStatus("process failed r=" + r);
+            }
+            Logger.log("graded r=" + r + " " + ms + "ms " + j.src.getName() + " -> " + temp.getName());
+        } catch (Throwable t) {
+            Logger.log("grade: " + t);
+            setStatus("process error: " + t);
+        }
+        grading = false;
+    }
+
+    /** graded takes the original's DCIM slot; the original is archived to
+     * OpenFilm6K/ORIG. Falls back to leaving the graded file in GRADED. */
+    private String place(File graded, File original) {
+        try {
+            File originals = new File(GRADED.getParentFile(), "ORIG");   // 8.3-safe: this FUSE rejects 9-char dir names
+            originals.mkdirs();
+            File backup = new File(originals, original.getName());
+            if (backup.exists()) backup = new File(originals,
+                    original.getName().substring(0, original.getName().lastIndexOf('.'))
+                            + "_" + System.currentTimeMillis() + ".JPG");
+            if (!move(original, backup)) {
+                Logger.log("place: archive failed, graded stays in GRADED");
+                return graded.getName();
+            }
+            if (!move(graded, original)) {
+                Logger.log("place: slot write failed — restoring original");
+                move(backup, original);
+                return graded.getName();
+            }
+            Logger.log("place: " + original.getName() + " graded, original archived");
+            return original.getName();
+        } catch (Throwable t) {
+            Logger.log("place: " + t);
+            return graded.getName();
+        }
+    }
+
+    /** copy + verify + delete. The FUSE renameTo lies on cross-directory moves
+     * (returns true but only renames in place), so we never trust it. */
+    private static boolean move(File from, File to) {
+        try {
+            if (to.exists() && !to.delete()) return false;
+            java.io.InputStream in = new FileInputStream(from);
+            java.io.OutputStream outV = new java.io.FileOutputStream(to);
+            byte[] buf = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0) outV.write(buf, 0, n);
+            outV.close();
+            in.close();
+            if (to.length() != from.length()) {
+                Logger.log("move verify failed: " + from.length() + " vs " + to.length());
+                to.delete();
+                return false;
+            }
+            return from.delete();
+        } catch (Throwable t) {
+            Logger.log("move " + from.getName() + ": " + t);
+            return false;
+        }
+    }
+
+    // ---------------------------------------------------------------- ui
+
+    private final Runnable readoutTick = new Runnable() {
+        public void run() {
+            if (overlayState == OV_FULL && browser < 0 && settings < 0) renderHud();
+            handler.postDelayed(this, 700);
+        }
+    };
+
+    private void renderHud() {
+        if (hlIdx != 0 && !adjOk(hlIdx)) { hlIdx = adjOk(lastParam) ? lastParam : (adjOk(2) ? 2 : 1); }
+        if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.spotOn = spotMode; fbox.afMode = rig.focusMode(); fbox.afName = rig.focusModeName(); fbox.afDisp = rig.focusModeDisplay(); fbox.metMode = metMode; }
+        if (fbox != null) { fbox.filmFav = selFav(sel); fbox.c1 = c1Held; }
+        if (fbox != null) {
+            String pi = printInfo == 1 ? "D" : printInfo == 2 ? "E" : printInfo == 3 ? "DE" : printInfo == 4 ? "F" : printInfo == 5 ? "FE" : "";
+            String bd = stampMode >= 100 ? "USR" : stampMode == 4 ? "B1" : stampMode == 5 ? "B2" : stampMode == 8 ? "H" : stampMode == 9 ? "2" : stampMode == 10 ? "X" : stampMode == 11 ? "W" : stampMode == 12 ? "WB1" : stampMode == 13 ? "WB2" : stampMode == 14 ? "WB3" : "";
+            String pp = postSel.isEmpty() ? "" : "+";
+            fbox.stampMark = (pi + (pi.length() > 0 && bd.length() > 0 ? "+" : "") + bd + (pp.length() > 0 ? " " + pp : "")).trim();
+        }
+        if (fbox != null) { fbox.pairDisp = isPairMode() ? pairSlot : -1; fbox.pairBlink = pairBlinkOn; fbox.halfMask = (stampMode == 8); fbox.wideMask = (stampMode >= 11 && stampMode <= 14); fbox.ghostFinder = ghostFinder; }
+        String fn2 = selName(sel);
+        int di = fn2.toUpperCase().indexOf(".FLM");
+        if (di > 0) fn2 = fn2.substring(0, di);
+        fbox.setFilm(fn2);
+        fbox.hl = spotMode ? -1 : hlIdx;   // AEL spot-adjust mode takes over the highlight; bottom rows go plain white
+        String ml = (sceneIdx == 0 ? "P" : sceneIdx == 1 ? "A" : sceneIdx == 2 ? "S" : "M");
+        fbox.setParams(ml + "|" + shutterText() + "|" + "F" + apertureText() + "|" + (ev >= 0 ? "+" : "-") + Math.abs(ev) + "|" + "ISO" + isoText());
+        fbox.postInvalidate();
+        hud.setVisibility(View.INVISIBLE);
+    }
+
+    private String currentFilmLine() {
+        return (sel + 1) + "/" + totalSel() + " " + selName(sel);
+    }
+
+    private String shutterText() {
+        Object p = rig.shutterSpeed();
+        try {
+            if (p != null) {
+                Object n = p.getClass().getField("first").get(p);
+                Object d = p.getClass().getField("second").get(p);
+                int ni = ((Number) n).intValue(), di = ((Number) d).intValue();
+                if (di == 1) return ni + "s";
+                if (ni == 1) return "1/" + di;
+                return ni + "/" + di;
+            }
+        } catch (Throwable t) {}
+        return "--";
+    }
+
+    private String apertureText() {
+        int a = rig.aperture();
+        if (a <= 0) return "--";
+        int whole = a / 100, frac = a % 100;
+        return frac == 0 ? String.valueOf(whole) : whole + "." + (frac / 10);
+    }
+
+    private String isoText() {
+        if (isoIdx < isos.size()) {
+            int v = isos.get(isoIdx);
+            return v == 0 ? "AUTO" : String.valueOf(v);
+        }
+        return "--";
+    }
+
+    /** ISO to print on the stamp: when metering is AUTO, use the ISO actually
+     *  recorded in the captured JPEG's EXIF instead of the word "AUTO". */
+    private String stampIso(File src) {
+        boolean auto = isoIdx < isos.size() && isos.get(isoIdx) == 0;
+        if (!auto && isoIdx < isos.size()) return String.valueOf(isos.get(isoIdx));
+        int ex = exifIso(src);
+        return ex > 0 ? String.valueOf(ex) : isoText();
+    }
+
+    /** read ISOSpeedRatings (0x8827) / ISOSpeed (0x8833) from the JPEG EXIF, or -1 */
+    private int exifIso(File f) {
+        try {
+            java.io.FileInputStream in = new java.io.FileInputStream(f);
+            byte[] b = new byte[131072];
+            int n = 0, r;
+            while (n < b.length && (r = in.read(b, n, b.length - n)) > 0) n += r;
+            in.close();
+            if (n < 4 || (b[0] & 0xFF) != 0xFF || (b[1] & 0xFF) != 0xD8) return -1;
+            int i = 2;
+            while (i + 4 <= n) {
+                if ((b[i] & 0xFF) != 0xFF) break;
+                int mk = b[i + 1] & 0xFF;
+                if (mk == 0xD8 || mk == 0x01 || (mk >= 0xD0 && mk <= 0xD7)) { i += 2; continue; }
+                if (mk == 0xDA) break;                                  // start of scan
+                int len = ((b[i + 2] & 0xFF) << 8) | (b[i + 3] & 0xFF);
+                if (mk == 0xE1 && i + 10 <= n
+                        && (b[i+4]&0xFF)=='E' && (b[i+5]&0xFF)=='x' && (b[i+6]&0xFF)=='i'
+                        && (b[i+7]&0xFF)=='f' && b[i+8] == 0 && b[i+9] == 0) {
+                    int iso = parseExifIso(b, i + 10);
+                    if (iso > 0) return iso;
+                }
+                i += 2 + len;
+            }
+        } catch (Throwable t) { Logger.log("exifIso: " + t); }
+        return -1;
+    }
+
+    private int parseExifIso(byte[] b, int t) {
+        if (t + 8 > b.length) return -1;
+        boolean le = b[t] == 'I';
+        if (!((b[t]=='I'&&b[t+1]=='I') || (b[t]=='M'&&b[t+1]=='M'))) return -1;
+        if (rd16(b, t + 2, le) != 42) return -1;
+        int ifd0 = t + (int) rd32(b, t + 4, le);
+        int exifIfd = 0;
+        int cnt = rd16(b, ifd0, le);
+        for (int k = 0; k < cnt; k++) {
+            int e = ifd0 + 2 + k * 12;
+            if (e + 12 > b.length) break;
+            if (rd16(b, e, le) == 0x8769) exifIfd = t + (int) rd32(b, e + 8, le);
+        }
+        if (exifIfd == 0) return -1;
+        int cnt2 = rd16(b, exifIfd, le);
+        for (int k = 0; k < cnt2; k++) {
+            int e = exifIfd + 2 + k * 12;
+            if (e + 12 > b.length) break;
+            int tag = rd16(b, e, le), type = rd16(b, e + 2, le);
+            long count = rd32(b, e + 4, le);
+            if (tag == 0x8827 || tag == 0x8833) {
+                int sz = (type == 3 ? 2 : 4);                        // SHORT=3, LONG=4
+                long v = (count * sz <= 4) ? rdVal(b, e + 8, sz, le)
+                                           : rdVal(b, t + (int) rd32(b, e + 8, le), sz, le);
+                if (v > 0) return (int) v;
+            }
+        }
+        return -1;
+    }
+
+    private static int rd16(byte[] b, int o, boolean le) {
+        if (o + 2 > b.length) return 0;
+        int a = b[o] & 0xFF, c = b[o + 1] & 0xFF;
+        return le ? (a | (c << 8)) : ((a << 8) | c);
+    }
+
+    private static long rd32(byte[] b, int o, boolean le) {
+        if (o + 4 > b.length) return 0;
+        long a = b[o] & 0xFF, c = b[o + 1] & 0xFF, d = b[o + 2] & 0xFF, e = b[o + 3] & 0xFF;
+        return le ? (a | (c << 8) | (d << 16) | (e << 24)) : ((a << 24) | (c << 16) | (d << 8) | e);
+    }
+
+    private static long rdVal(byte[] b, int o, int sz, boolean le) {
+        return sz == 2 ? rd16(b, o, le) : rd32(b, o, le);
+    }
+
+    private String evText() {
+        return String.valueOf(ev);
+    }
+
+    private void setStatus(final String s) {
+        Logger.log("status: " + s);
+    }
+
+    /** on launch: turn WiFi on and wait for a connection before the UI becomes usable */
+    private volatile long lastWifiReconnect = 0;
+    private volatile int bounceCount = 0;
+
+    /** any upload failure bounces the wifi radio and reruns the connect flow (escalating backoff) */
+    private void forceWifiReconnect() {
+        long now = System.currentTimeMillis();
+        long wait = 8000L << Math.min(bounceCount, 6);      // 8s -> 16s -> ... -> ~8.5min cap
+        if (now - lastWifiReconnect < wait) return;
+        bounceCount++;
+        lastWifiReconnect = now;
+        Logger.log("wifi: forcing reconnect after upload failure");
+        bounceAndReconnect();
+    }
+
+    /** hard radio bounce + full connect flow (no debounce — used by failure path and resume check) */
+    private void bounceAndReconnect() {
+        new Thread(new Runnable() { public void run() {
+            try {
+                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getSystemService("wifi");
+                wm.setWifiEnabled(false);
+                Thread.sleep(1000);
+                wm.setWifiEnabled(true);
+            } catch (Throwable t) { Logger.log("wifi bounce EX " + t); }
+            bootWifi();                                // poll loop waits for real IP + host probe
+        }}, "wifireconnect").start();
+    }
+
+    private void bootWifi() {
+        netReady = false;                          // entering a connect flow invalidates previous state (stale netReady froze the poll)
+        bootStart = System.currentTimeMillis();
+        if (fbox != null) fbox.netReady = false;
+        Logger.log("wifi: connect flow start");
+        final android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getSystemService("wifi");
+        boolean hostUp = false;
+        try {
+            if (wm != null && wifiUsable(wm) && hostPingOk(wm)) {
+                hostUp = true;
+                if (pullFilmList()) {                      // only enter shooting once the film list is really here
+                    maybeInitMode();                   // empty card + no cached model: gate on the setup shot
+                    netReady = true;
+                    if (fbox != null) { fbox.netReady = true; fbox.postInvalidate(); }
+                    Logger.log("wifi: already up (ping ok)");
+                    triggerWatch();
+                    if (pendingHolder != null) startCamera(pendingHolder);
+                    renderOverlay();
+                    return;
+                }
+                Logger.log("films pull failed, retrying (t+" + (System.currentTimeMillis() - bootStart) + "ms)");
+            }
+        } catch (Throwable t) { Logger.log("wifi check: " + t); }
+        if (!hostUp) {
+            try {                                            // unproven/stale state -> hard radio reset forces a genuine connect
+                if (wm != null && wm.isWifiEnabled()) {
+                    Logger.log("wifi: stale/unproven state, bouncing radio");
+                    wm.setWifiEnabled(false);
+                    Thread.sleep(1000);
+                }
+            } catch (Throwable t) { Logger.log("wifi bounce EX " + t); }
+            Logger.log("wifi: enabling");
+            try { wm.setWifiEnabled(true); } catch (Throwable t) { Logger.log("wifi enable EX " + t); }
+        }
+        handler.post(new Runnable() { public void run() {
+            if (netReady) return;
+            int pct = (int) ((System.currentTimeMillis() - bootStart) / 150);
+            if (pct > 85) pct = 85;                  // never fabricate progress the link has not earned
+            try {
+                int st = wm.getWifiState();
+                if (st == android.net.wifi.WifiManager.WIFI_STATE_ENABLING) pct = Math.max(pct, 40);
+                else if (st == android.net.wifi.WifiManager.WIFI_STATE_ENABLED) pct = Math.max(pct, 70);
+            } catch (Throwable t) {}
+            boolean wifi = false, host = false;
+            try { wifi = wifiUsable(wm); } catch (Throwable t) {}
+            if (wifi) host = hostReachable(wm);       // real end-to-end check: kills stale-IP false positives
+            boolean up = wifi && host;
+            long now = System.currentTimeMillis();
+            String ns;
+            if (!wifi) {
+                String sup = "?";
+                try {
+                    android.net.wifi.WifiInfo wi = wm.getConnectionInfo();
+                    if (wi != null && wi.getSupplicantState() != null) sup = wi.getSupplicantState().toString();
+                } catch (Throwable t) {}
+                ns = "link=down sup=" + sup;
+            } else {
+                ns = "ip=" + ipStr(wifiIp(wm)) + " host=" + (host ? "ok" : "down");
+            }
+            if (!ns.equals(lastNetState) || now - lastNetLog >= 2000) {   // throttle: no line every 120 ms
+                lastNetState = ns;
+                lastNetLog = now;
+                Logger.log("wifi poll: " + ns + " (t+" + (now - bootStart) + "ms)");
+            }
+            if (pct < 85) pct = 85;                  // 100 only once the films are actually in
+            if (fbox != null) { fbox.wifiPct = pct; fbox.postInvalidate(); }
+            if (up) {
+                if (pullFilmList()) {                  // the shooting screen opens only when the list is really here
+                    if (fbox != null) fbox.wifiPct = 100;
+                    Logger.log("wifi: connected + host reachable (t+" + (now - bootStart) + "ms)");
+                    maybeInitMode();                   // empty card + no cached model: gate on the setup shot
+                    netReady = true;
+                    if (fbox != null) fbox.netReady = true;
+                    triggerWatch();                    // retry anything that failed while offline
+                    if (pendingHolder != null) startCamera(pendingHolder);
+                    renderOverlay();
+                    if (fbox != null) fbox.postInvalidate();
+                    return;
+                }
+                if (now - lastFilmsFailLog >= 2000) {  // throttled: the pull itself already takes seconds
+                    lastFilmsFailLog = now;
+                    Logger.log("films pull failed, retrying (t+" + (now - bootStart) + "ms)");
+                }
+                handler.postDelayed(this, 1500);       // host is up: retry /films at a sane rate, not every 120 ms
+                return;
+            }
+            handler.postDelayed(this, 120);            // keep connecting until it actually works (no timeout)
+        }});
+    }
+
+    private volatile String lastNetState = "";
+    private volatile long lastNetLog = 0;
+    private volatile long lastFilmsFailLog = 0;
+
+    private static int wifiIp(android.net.wifi.WifiManager wm) {
+        try {
+            android.net.wifi.WifiInfo wi = wm.getConnectionInfo();
+            return wi != null ? wi.getIpAddress() : 0;
+        } catch (Throwable t) { return 0; }
+    }
+
+    private static String ipStr(int ip) {
+        return (ip & 0xff) + "." + ((ip >> 8) & 0xff) + "." + ((ip >> 16) & 0xff) + "." + ((ip >> 24) & 0xff);
+    }
+
+    private boolean wifiUsable(android.net.wifi.WifiManager wm) {
+        try {
+            if (wm == null || !wm.isWifiEnabled()) return false;
+            android.net.wifi.WifiInfo wi = wm.getConnectionInfo();
+            return wi != null && wi.getIpAddress() != 0
+                && wi.getSupplicantState() == android.net.wifi.SupplicantState.COMPLETED;
+        } catch (Throwable t) { return false; }
+    }
+
+    /** proven-live check: real HTTP /ping round trip against the host */
+    private boolean hostPingOk(android.net.wifi.WifiManager wm) {
+        try {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                new java.net.URL("http://" + phoneIp() + ":8800/ping").openConnection();
+            c.setConnectTimeout(800); c.setReadTimeout(800);
+            java.io.InputStream in = c.getInputStream();
+            byte[] b = new byte[32];
+            int n = in.read(b); in.close();
+            c.disconnect();
+            return n > 0 && new String(b, 0, n).contains("pong");
+        } catch (Throwable t) { return false; }
+    }
+
+    /** can we actually reach the OpenFilm6K host (gateway:8800) right now? */
+    private boolean hostReachable(android.net.wifi.WifiManager wm) {
+        try {
+            java.net.Socket s = new java.net.Socket();
+            s.connect(new java.net.InetSocketAddress(java.net.InetAddress.getByName(phoneIp()), 8800), 600);
+            s.close();
+            return true;
+        } catch (Throwable t) { return false; }
+    }
+
+    // ---- two-column menu: LEFT = stamp (print info + frame, ONE mutually exclusive list) | RIGHT = post (multi) ----
+    // the stamp codes 0..14 are the phone app's single stamp/border list, so both UIs agree
+    private static final int[] STAMP_CODES = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
+    // full names, WITHOUT the mode code (the HUD keeps showing the short code)
+    private static final String[] STAMP_NAMES = { "None", "Date", "Exposure", "Date + exposure", "White border", "Film edge", "Film name", "Film + exposure", "Half-frame", "Double exposure", "4-shot collage", "Wide", "Wide white border", "Wide film edge", "Wide sprocket" };
+    private static final String[] POST_CATS = { "leak", "scratch", "dust", "veiling", "softfocus", "hdf" };
+    private static final String[] POST_NAMES = { "Light leak", "Scratches", "Dust", "Veiling", "Soft focus", "HDF" };   // same wording as the app
+    // veiling / soft focus / HDF are three takes on the same lens glare: at most ONE at a time
+    private static final String[] POST_ONE_OF = { "veiling", "softfocus", "hdf" };
+    private static boolean isGlare(String c) { for (String o : POST_ONE_OF) if (o.equals(c)) return true; return false; }
+
+    /** the camera's stampMode + printInfo folded into the app's ONE mutually exclusive code space */
+    private int stampCode() {
+        if (stampMode != 0) return stampMode;               // frame codes already match the app's list
+        switch (printInfo) { case 1: return 1; case 2: return 2; case 3: return 3; case 4: return 6; case 5: return 7; default: return 0; }
+    }
+    private void selectWm(int k) {                          // custom watermark card (index into wmIds)
+        if (k < 0 || k >= wmIds.size()) return;
+        printInfo = 0;
+        stampMode = 100 + k;
+        wmSel = wmIds.get(k);
+        onStampModeChanged();
+    }
+    private void setStampCode(int c) {                      // picking one clears the other: print info and frame are exclusive
+        printInfo = 0; stampMode = 0; wmSel = "";
+        if (c == 1 || c == 2 || c == 3) printInfo = c;
+        else if (c == 6) printInfo = 4;
+        else if (c == 7) printInfo = 5;
+        else if (c != 0) stampMode = c;
+        onStampModeChanged();
+    }
+    /** left column layout: custom cards, an unselectable divider, then the 15 stock codes */
+    private int stampDiv() { return wmIds.isEmpty() ? -1 : wmIds.size(); }
+    private int stampStockBase() { return wmIds.size() + (wmIds.isEmpty() ? 0 : 1); }
+    private int stampLeftCount() { return stampStockBase() + STAMP_CODES.length; }
+    private int stampCursor() {
+        int c = stampCode();
+        if (c >= 100) {                                                            // custom watermark card
+            int k = c - 100;
+            if (k >= 0 && k < wmIds.size()) return k;
+            return 0;
+        }
+        for (int i = 0; i < STAMP_CODES.length; i++) if (STAMP_CODES[i] == c) return stampStockBase() + i;
+        return stampStockBase();
+    }
+    private int colOf(int cur) { return cur >= stampLeftCount() ? 1 : 0; }   // 0 = left (stamp), 1 = right (post)
+    private int stepCol(int cur, int col, int d) {
+        int L = stampLeftCount();
+        if (col == 0) {                                                        // the divider row is never selectable
+            int dv = stampDiv(), n = cur;
+            for (int i = 0; i < L; i++) {
+                n = (n + d + L) % L;
+                if (dv < 0 || n != dv) break;
+            }
+            return n;
+        }
+        return L + (((cur - L) + d + POST_CATS.length) % POST_CATS.length);
+    }
+    private int colStart(int col) { return col == 0 ? stampCursor() : stampLeftCount() + lastPost; }
+
+    private void renderStampMenu() {
+        if (fbox == null) return;
+        // DSEG14 cannot tell [] from () apart, so both the single-select and the multi-select columns
+        // simply mark the on entries with an asterisk (same convention as the film menu's favourites)
+        StringBuilder L = new StringBuilder();
+        int sc = stampCursor();
+        int lc = stampLeftCount();
+        int dv = stampDiv(), sb = stampStockBase();
+        for (int i = 0; i < lc; i++) {
+            if (i > 0) L.append('\n');
+            String nm = i < wmIds.size() ? wmNames.get(i)
+                    : (i == dv ? "----------------" : STAMP_NAMES[i - sb]);
+            L.append(i == sc ? "* " : "  ").append(nm);
+        }
+        StringBuilder R = new StringBuilder();
+        for (int i = 0; i < POST_CATS.length; i++) {
+            if (i > 0) R.append('\n');
+            R.append(postSel.contains(POST_CATS[i]) ? "* " : "  ").append(POST_NAMES[i]);
+        }
+        int col = colOf(stampMenu);
+        int lcount = stampLeftCount();
+        fbox.setMenu2(L.toString(), col == 0 ? stampMenu : -1, col == 0 ? stampMenu : sc,          // left: focus, else keep the applied stamp in view
+                      R.toString(), col == 1 ? stampMenu - lcount : -1, col == 1 ? stampMenu - lcount : lastPost);
+        overlay.setVisibility(View.INVISIBLE);
+    }
+
+    private boolean stampMenuKey(int scan, int dir) {
+        int col = colOf(stampMenu);
+        if (scan == K_UP || dir < 0)       stampMenu = stepCol(stampMenu, col, -1);
+        else if (scan == K_DOWN || dir > 0) stampMenu = stepCol(stampMenu, col, +1);
+        else if (scan == K_LEFT)            stampMenu = colStart(0);           // jump to the left (stamp) column
+        else if (scan == K_RIGHT)           stampMenu = stampLeftCount() + lastPost;     // jump to the right (post) column
+        else if (scan == K_ENTER) {
+            if (col == 0) {
+                if (stampMenu < wmIds.size()) selectWm(stampMenu);                       // custom watermark card
+                else if (stampMenu != stampDiv()) setStampCode(STAMP_CODES[stampMenu - stampStockBase()]);
+            }
+            else {
+                String c = POST_CATS[stampMenu - stampLeftCount()];
+                if (postSel.remove(c)) { /* toggled off */ }
+                else {
+                    if (isGlare(c)) for (String o : POST_ONE_OF) postSel.remove(o);   // only the glare trio is one-of-three
+                    postSel.add(c);
+                }
+            }
+            if (col == 1) lastPost = stampMenu - stampLeftCount();
+            savePrefs(); renderOverlay(); renderHud(); return true;
+        }
+        else if (scan == K_FN || scan == K_MENU) { stampMenu = -1; renderOverlay(); renderHud(); return true; }
+        else return true;   // consume every key while the menu is open
+        if (colOf(stampMenu) == 1) lastPost = stampMenu - STAMP_CODES.length;
+        renderOverlay();
+        return true;
+    }
+
+    private void renderOverlay() {
+        if (stampMenu >= 0) {
+            renderStampMenu();
+        } else if (browser >= 0) {
+            StringBuilder sb = new StringBuilder("Film (center=load / Fn=close)\n\n");
+            java.util.List<String> dn = displayNames();
+            for (int i = 0; i < dn.size(); i++) {
+                if (i == browser) sb.append("> ");
+                else if (i == sel) sb.append("* ");
+                else sb.append("  ");
+                sb.append(dn.get(i)).append('\n');
+            }
+            if (fbox != null) fbox.setMenu(dn, browser, favArr());
+            overlay.setVisibility(View.INVISIBLE);
+        } else if (settings >= 0) {
+            StringBuilder sb = new StringBuilder("Settings (center=run)\n\n");
+            for (int i = 0; i < SETTINGS_ROWS.length; i++) {
+                sb.append(i == settings ? "> " : "  ").append(SETTINGS_ROWS[i]);
+                if (i == 0) sb.append("  ").append(SCALE_NAMES[qualityIdx]);
+                sb.append('\n');
+            }
+            overlay.setText(sb);
+            overlay.setVisibility(View.VISIBLE);
+        } else {
+            overlay.setVisibility(View.INVISIBLE);
+            if (fbox != null) fbox.clearMenu();
+        }
+        if (overlayState != OV_NONE) renderHud();
+        else hud.setVisibility(View.INVISIBLE);
+    }
+
+    // ---------------------------------------------------------------- input
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        if (capDim) {                 // screen locked (manual): first press wakes — FIRST so nothing can trap the keys
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) capWake();
+            return true;
+        }
+        if (!netReady) return true;   // boot screen: nothing operable until WiFi is up
+        int scan = e.getScanCode();
+        if (fbox != null && fbox.licOpen) {   // licences page owns the keyboard for BOTH actions (before any other arm)
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                licensesKey(scan, 0);          // ↑/↓ scroll, Fn/MENU close (non-NEX)
+            } else if (e.getAction() == KeyEvent.ACTION_UP) {
+                downHeld = false; handler.removeCallbacks(downLongAction);   // never leave the 5s debug arm live
+                upHeld = false; handler.removeCallbacks(upLongAction);
+                if (scan == K_FN && km.fnC1) closeLicensesPage();           // NEX: Fn closes the page on release
+            }
+            return true;                       // consume: no S1/S2/C2/C4/AEL, no 5s-down arm, no menu toggle
+        }
+        if (fbox != null && fbox.logOpen) {   // log viewer owns the keyboard for BOTH actions
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                logKey(scan, 0);               // ↑/↓ scroll, Fn/MENU close (non-NEX)
+            } else if (e.getAction() == KeyEvent.ACTION_UP) {
+                downHeld = false; handler.removeCallbacks(downLongAction);
+                upHeld = false; handler.removeCallbacks(upLongAction);
+                if (scan == K_FN && km.fnC1) closeLogPage();                // NEX: Fn closes the page on release
+            }
+            return true;                       // consume: no capture / menu changes
+        }
+        if (km == KM_RX100 && (scan == 610 || scan == 611)) {   // RX100 zoom lever: W=611 wide, T=610 tele
+            int d = (scan == 611) ? rig.zoomDirection("wide") : rig.zoomDirection("tele");
+            if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                handler.removeCallbacks(zoomStopRunnable);
+                if (zoomDir != d) { zoomDir = d; rig.zoomStart(d); }
+            } else if (e.getAction() == KeyEvent.ACTION_UP) {
+                handler.removeCallbacks(zoomStopRunnable);
+                handler.postDelayed(zoomStopRunnable, 140);   // bridge the ~100ms lever pulses
+            }
+            return true;
+        }
+        if (initMode) {   // empty-card setup: shutter + half-press focus only (menus/pages stay mutually exclusive)
+            if (scan == K_S2) {
+                if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) shootInit();
+                else if (e.getAction() == KeyEvent.ACTION_UP) shutterUp();   // normal release: cancelTakePicture before preview restart
+            } else if (scan == K_S1) {
+                if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                    afCancel = false; if (fbox != null) fbox.set(1); rig.focus();
+                } else if (e.getAction() == KeyEvent.ACTION_UP) {
+                    if (!shooting) { rig.cancelFocus(); afCancel = true; if (fbox != null) fbox.set(0); }
+                }
+            }
+            return true;
+        }
+        if (infoMode) {   // debug info screen: a fresh key press returns (ignore the held DOWN's own auto-repeat)
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0 && !(scan == K_DOWN && downHeld)) {
+                Logger.log("info closed by act=" + e.getAction() + " scan=" + scan + " rep=" + e.getRepeatCount());
+                infoMode = false; if (fbox != null) { fbox.info = false; fbox.postInvalidate(); }
+            }
+            return true;
+        }
+        if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+            Logger.log("key " + scan);
+        }
+        if (scan == K_DOWN && e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {   // hold DOWN 5s -> debug info screen
+            downHeld = true; handler.removeCallbacks(downLongAction); handler.postDelayed(downLongAction, 5000);
+        }
+        if (scan == K_UP && e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0
+                && viewing < 0 && browser < 0 && settings < 0 && stampMenu < 0) {   // hold UP 5s on the main screen -> log viewer
+            upHeld = true; handler.removeCallbacks(upLongAction); handler.postDelayed(upLongAction, 5000);
+        }
+        if (e.getAction() == KeyEvent.ACTION_UP || e.getAction() == KeyEvent.ACTION_MULTIPLE) {
+                if (e.getAction() == KeyEvent.ACTION_UP && scan == K_S2 && browser < 0 && settings < 0 && stampMenu < 0) shutterUp();
+                if (e.getAction() == KeyEvent.ACTION_UP && scan == K_S1 && !shooting) {   // S1 released mid-focus: cancel it (firmware behaviour)
+                    rig.cancelFocus(); afCancel = true;
+                    if (fbox != null) fbox.set(0);
+                }
+                if (e.getAction() == KeyEvent.ACTION_UP && scan == K_DOWN) { downHeld = false; handler.removeCallbacks(downLongAction); }
+                if (e.getAction() == KeyEvent.ACTION_UP && scan == K_UP) { upHeld = false; handler.removeCallbacks(upLongAction); }
+            if (e.getAction() == KeyEvent.ACTION_UP && scan == K_C1) { c1Held = false; renderHud(); }
+            if (e.getAction() == KeyEvent.ACTION_UP && scan == K_FN && km.fnC1) {   // NEX Fn: short = open menu, long = release C1-hold
+                fnHeld = false;
+                handler.removeCallbacks(fnLongAction);
+                if (fnFired) { c1Held = false; renderHud(); }
+                else if (browser < 0 && settings < 0 && stampMenu < 0) { browser = sel; licSeq = 0; renderOverlay(); }
+            }
+        if (e.getAction() == KeyEvent.ACTION_UP && (scan == K_C2 || (K_C4 != 0 && scan == K_C4))) {
+            c2Held = false;
+            handler.removeCallbacks(c2LongAction);
+            if (!c2Fired) {                                             // short press: toggle the two-column menu (left stamp / right post)
+                stampMenu = (stampMenu >= 0) ? -1 : stampCursor();
+                Logger.log("B: menu " + (stampMenu >= 0 ? "open" : "close"));
+                renderOverlay(); renderHud();
+            }
+            c2Fired = false;                                            // never leave a stale long-press flag (B would go dead)
+        }
+            if (e.getAction() == KeyEvent.ACTION_UP && km == KM_RX100 && scan == K_ENTER) {
+                rxEnterHeld = false;
+                handler.removeCallbacks(rxEnterLongAction);
+                if (!rxEnterFired && viewing < 0 && browser < 0 && settings < 0 && stampMenu < 0) toggleSpot();
+                rxEnterFired = false;
+            }
+            if (e.getAction() == KeyEvent.ACTION_UP && scan == K_AEL) {
+                aelHeld = false;
+                handler.removeCallbacks(aelLongAction);
+                if (!aelFired) toggleSpot();
+                aelFired = false;
+            }
+            return true;   // consume ALL keys, never let firmware/system handle PLAY etc.
+        }
+        if (e.getAction() == KeyEvent.ACTION_DOWN && scan == K_AEL && e.getRepeatCount() == 0) {
+            aelHeld = true; aelFired = false;
+            handler.postDelayed(aelLongAction, 600);
+            return true;
+        }
+        if (e.getAction() != KeyEvent.ACTION_DOWN || e.getRepeatCount() > 0) return true;
+        if (scan == K_S1 && (stampMenu >= 0 || browser >= 0 || settings >= 0)) {   // focus press always returns to shooting
+            stampMenu = -1; browser = -1; settings = -1;
+            Logger.log("S1: menu closed -> shooting");
+            renderOverlay(); renderHud();
+            // falls through: the same press still focuses (S1 branch below)
+        }
+        int dir = (scan == K_WHEEL_CW || scan == K_DIAL_CW) ? 1
+                : (scan == K_WHEEL_CCW || scan == K_DIAL_CCW) ? -1 : 0;
+        if (viewing >= 0) return viewerKey(scan, dir);
+        if (stampMenu >= 0) return stampMenuKey(scan, dir);
+        if (browser >= 0) return browserKey(scan, dir);
+        if (settings >= 0) return settingsKey(scan, dir);
+        if (scan == K_WHEEL_CW || scan == K_WHEEL_CCW || inArr(K_WHEEL_EXTRA, scan)) {   // 波轮: change the highlighted value
+            int wd = (scan == K_WHEEL_CCW) ? -1 : 1;
+            if (spotMode && !c1Held) {                        // focus-adjust: wheel cycles AF area mode (C1+wheel still changes film)
+                String m = (wd > 0) ? rig.cycleFocusModeBack() : rig.cycleFocusMode();
+                setStatus("AF " + m); renderHud(); return true;
+            }
+            return dialItem(wd);
+        }
+        if (scan == K_DIAL_CW || scan == K_DIAL_CCW) {   // 后转盘: EV; with C1 held -> cycle favorites
+            int dd = (scan == K_DIAL_CW) ? 1 : -1;
+            if (c1Held) { jumpFav(dd); renderHud(); return true; }
+            ev = Math.max(evMin, Math.min(evMax, ev + dd));
+            rig.setEv(ev); renderHud(); return true;
+        }
+        if (K_FRONT_CW != 0 && (scan == K_FRONT_CW || scan == K_FRONT_CCW)) {   // 前转盘 (front dial): select film (C1 held = favorites only)
+            int fd = (scan == K_FRONT_CW) ? 1 : -1;
+            if (c1Held) { jumpFav(fd); }
+            else { stepSel(fd); }
+            renderHud(); return true;
+        }
+
+
+        if (scan == K_S1) { afCancel = false; if (fbox != null) fbox.set(1); rig.focus(); return true; }
+        if (scan == K_S2) { shoot(); return true; }
+        if (scan == K_FN) {
+            if (km.fnC1) {   // NEX: short press = open film menu (on UP), long press = hold C1 (favorites mode)
+                fnHeld = true; fnFired = false;
+                handler.removeCallbacks(fnLongAction);
+                handler.postDelayed(fnLongAction, 600);
+                return true;
+            }
+            if (stampMenu < 0) { browser = sel; licSeq = 0; renderOverlay(); } return true;
+        }
+        if (scan == K_C1) {                                        // in focus-adjust: exit it and jump to film row
+            c1Held = true;
+            if (spotMode) {
+                spotMode = false;
+                if (fbox != null) fbox.spotOn = false;
+            }
+            hlIdx = 0;
+            renderHud(); return true;
+        }
+        if (scan == K_C2 || (K_C4 != 0 && scan == K_C4)) {   // long-press = toggle LCD/EVF view; short-press = open the two-column menu (on UP)
+            c2Held = true; c2Fired = false;
+            handler.removeCallbacks(c2LongAction);
+            handler.postDelayed(c2LongAction, 600);
+            return true;
+        }
+        if (K_C3 != 0 && scan == K_C3) {   // quick AF-area-mode switch, without entering focus-adjust
+            setStatus("AF " + rig.cycleFocusMode()); renderHud(); return true;
+        }
+        if (scan == K_ENTER) {
+            if (km == KM_RX100) {                      // no AEL key: short = enter/exit focus-adjust, long = recentre
+                rxEnterHeld = true; rxEnterFired = false;
+                handler.removeCallbacks(rxEnterLongAction);
+                if (spotMode) handler.postDelayed(rxEnterLongAction, 600);
+                return true;
+            }
+            if (spotMode) { cycleMetering(); return true; }   // focus-adjust: centre cycles the metering mode
+            if (km == KM_RX100) { toggleSpot(); return true; }   // no AEL key on the RX100: centre enters focus-adjust
+            sceneIdx = (sceneIdx + 1) % 4;
+            rig.setSceneMode(SCENE_MODES[sceneIdx]);
+            renderOverlay(); renderHud();
+            setStatus("mode " + SCENE_NAMES[sceneIdx]);
+            return true;
+        }
+        if (spotMode && (scan == K_UP || scan == K_DOWN || scan == K_LEFT || scan == K_RIGHT)) {
+            int d = 120;
+            if (scan == K_UP) spotY -= d;
+            else if (scan == K_DOWN) spotY += d;
+            else if (scan == K_LEFT) spotX -= d;
+            else if (scan == K_RIGHT) spotX += d;
+            rig.setSpot(spotX, spotY);
+            if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.postInvalidate(); }
+            return true;
+        }
+        if (scan == K_UP) { hlIdx = 0; renderHud(); return true; }
+        if (scan == K_DOWN) { hlIdx = adjOk(lastParam) ? lastParam : 2; renderHud(); return true; }
+        if (scan == K_LEFT || scan == K_RIGHT) {
+            int d = (scan == K_RIGHT) ? 1 : -1;
+            if (hlIdx == 0) {
+                if (c1Held) { jumpFav(d); }                     // C1 held: cycle favorites only
+                else { stepSel(d); }
+            }
+            else {
+                int h = hlIdx;
+                for (int i = 0; i < 5; i++) { h += d; if (h < 1) h = 5; if (h > 5) h = 1; if (adjOk(h)) break; }
+                hlIdx = h; lastParam = h;
+            }
+            renderHud(); return true;
+        }
+        if (scan == K_ENTER) { sceneIdx = (sceneIdx + 1) % 4; rig.setSceneMode(SCENE_MODES[sceneIdx]); renderOverlay(); renderHud(); return true; }
+        if (scan == K_MENU) { savePrefs(); finish(); return true; }
+        if (scan == K_LEFT || scan == K_RIGHT) {
+            dialMode = (dialMode + (scan == K_RIGHT ? 1 : MODES.length - 1)) % MODES.length;
+            renderOverlay();
+            return true;
+        }
+        if (dir != 0) {
+            int dm = dialMode;
+            if (dm == 0) dm = (sceneIdx == 1) ? 2 : (sceneIdx == 2 || sceneIdx == 3) ? 1 : 4;
+            return dialAdjust(dm, dir);
+        }
+        return true;
+    }
+
+    private int hlIdx = 0;   // start on film row
+    private int lastParam = 2;   // remembered param-row cursor
+    private final java.util.HashSet<String> favs = new java.util.HashSet<String>();   // by FILM NAME: survives list reordering
+    private boolean c1Held = false;
+    private int stampMode = 0;   // BORDER/special only: 0 none, 4 B1(white-card), 5 B2(film edge), 8 H(half), 9 2(double), 10 X(collage), 11 W(wide), 12 WB1, 13 WB2, 14 WB3
+    private int printInfo = 0;   // PRINT INFO (independent of the frame): 0 none, 1 D(date), 2 E(exposure), 3 DE, 4 F(film name), 5 FE
+    private final java.util.LinkedHashSet<String> postSel = new java.util.LinkedHashSet<String>();   // post-process categories: leak / scratch / dust / veiling (multi-select)
+    private final java.util.ArrayList<String> wmIds = new java.util.ArrayList<String>();     // custom watermark cards pulled from the host
+    private final java.util.ArrayList<String> wmNames = new java.util.ArrayList<String>();
+    private String wmSel = "";    // persisted custom card id (stampMode >= 100 points into wmIds)
+    private int stampMenu = -1;   // >=0: two-column menu open; cursor 0..14 = stamp, 15..18 = post
+    private int lastPost = 0;     // remembered right-column cursor (post), for L/R column switching
+    private boolean spotMode = false;
+    private String metMode = "";            // metering mode value (Sony vendor table)
+    private String[] metList = null;        // values the camera offers
+    /** toggle focus-adjust (AEL on bodies that have the key; centre button on the RX100) */
+    /** focus-adjust + centre key: step to the next metering mode the camera offers */
+    private void cycleMetering() {
+        String[] list = metList;
+        if (list == null || list.length == 0) { setStatus("METER n/a"); return; }
+        int idx = -1;
+        for (int i = 0; i < list.length; i++)
+            if (list[i] != null && list[i].equalsIgnoreCase(metMode)) { idx = i; break; }
+        String next = list[(idx + 1) % list.length];
+        boolean ok = rig.setMeteringMode(next);
+        String now = rig.meteringMode();
+        metMode = (now != null && now.length() > 0) ? now : next;
+        if (fbox != null) { fbox.metMode = metMode; fbox.postInvalidate(); }
+        setStatus("METER " + metName(metMode) + (ok ? "" : " (?)"));
+        Logger.log("metering cycle: " + metMode + " ok=" + ok + " list=" + java.util.Arrays.toString(list));
+        renderHud();
+    }
+
+    /** short user-facing name of a metering mode value */
+    private static String metName(String v) {
+        if (v == null) return "";
+        String s = v.toLowerCase(java.util.Locale.US);
+        if (s.contains("multi")) return "MULTI";
+        if (s.contains("spot")) return "SPOT";
+        if (s.contains("average")) return "AVERAGE";
+        if (s.contains("weighted")) return "CENTER";
+        return v.toUpperCase(java.util.Locale.US);
+    }
+
+    private void toggleSpot() {
+        spotMode = !spotMode;
+        Logger.log("A: spotMode=" + (spotMode ? "on" : "off"));
+        if (spotMode) {                                     // entering adjust: refresh from system
+            try {
+                int[] spt2 = CameraRig.readSystemSpot(rig.camera().getParameters());
+                if (spt2 != null) { rig.adoptSpot(spt2[0], spt2[1]); spotX = spt2[0]; spotY = spt2[1]; }
+            } catch (Throwable ig) {}
+        }
+        if (fbox != null) { fbox.spotOn = spotMode; fbox.spotX = spotX; fbox.spotY = spotY; }
+        renderHud();
+    }
+    private boolean rxEnterHeld = false, rxEnterFired = false;
+    private final Runnable rxEnterLongAction = new Runnable() { public void run() {
+        if (!rxEnterHeld || capDim) return;
+        rxEnterFired = true;   // release will not toggle focus-adjust
+        cycleMetering();
+    } };
+    private boolean aelHeld = false, aelFired = false;
+    private final Runnable aelLongAction = new Runnable() { public void run() {
+        if (!aelHeld || capDim) return;
+        aelFired = true;   // release won't toggle focus-adjust mode
+        spotX = 0; spotY = 0;
+        rig.setSpot(spotX, spotY);
+        if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.postInvalidate(); }
+        Logger.log("A: long (spot recentered)");
+    } };
+    private boolean fnHeld = false, fnFired = false;
+    private final Runnable fnLongAction = new Runnable() { public void run() {   // NEX:长按 Fn = 按住 C1 (进入切换收藏卷选择模式)
+        if (!fnHeld) return;
+        fnFired = true;
+        c1Held = true;
+        hlIdx = 0;
+        if (spotMode) { spotMode = false; if (fbox != null) fbox.spotOn = false; }
+        renderHud();
+        Logger.log("NEX fn long: c1Held");
+    } };
+
+    private boolean c2Held = false, c2Fired = false;
+    private final Runnable c2LongAction = new Runnable() { public void run() {
+        if (!c2Held) return;
+        c2Fired = true;
+        ghostFinder = (ghostFinder + 1) % 2;                 // long-press C2/B: switch the global UI display mode (LCD / EVF)
+        if (fbox != null) { fbox.ghostFinder = ghostFinder; fbox.postInvalidate(); }
+        savePrefs();
+        setStatus("VIEW " + (ghostFinder == 0 ? "LCD" : "EVF"));
+        Logger.log("B: long (VIEW " + (ghostFinder == 0 ? "LCD" : "EVF") + ")");
+    } };
+
+    private int spotX = 0, spotY = 0;
+
+    private boolean adjOk(int idx) {
+        switch (idx) {
+            case 0: return true;                       // film row
+            case 1: return true;                       // mode
+            case 2: return sceneIdx == 2 || sceneIdx == 3;   // shutter: S/M only
+            case 3: return sceneIdx == 1 || sceneIdx == 3;   // aperture: A/M only
+            case 4: return true;                       // EV
+            case 5: return true;                       // ISO
+        }
+        return true;
+    }
+
+
+    /** step the selected film by d (+/-1), skipping the custom/official divider row (never selectable) */
+    private void stepSel(int d) {
+        sel = (sel + d + totalSel()) % totalSel();
+        if (sel == divSel()) sel = (sel + d + totalSel()) % totalSel();
+        savePrefs();
+    }
+
+    private boolean dialItem(int dir) {
+        if (!adjOk(hlIdx)) return true;
+        switch (hlIdx) {
+            case 0: if (c1Held) { jumpFav(dir); } else { stepSel(dir); } break;
+            case 1: sceneIdx = (sceneIdx + dir + 4) % 4; rig.setSceneMode(SCENE_MODES[sceneIdx]); break;
+            case 2: rig.adjustShutter(dir); break;
+            case 3: rig.adjustAperture(dir); break;
+            case 4: ev = Math.max(evMin, Math.min(evMax, ev + dir)); rig.setEv(ev); break;
+            case 5: if (!isos.isEmpty()) { isoIdx = Math.max(0, Math.min(isos.size() - 1, isoIdx + dir)); rig.setIso(isos.get(isoIdx)); } break;
+        }
+        renderOverlay(); renderHud();
+        return true;
+    }
+
+    private boolean dialAdjust(int dm, int dir) {
+        switch (dialMode) {
+            case 1: rig.adjustShutter(dir); break;     // shutter
+            case 2: rig.adjustAperture(dir); break;    // aperture
+            case 3:                                    // ISO
+                if (!isos.isEmpty()) {
+                    isoIdx = Math.max(0, Math.min(isos.size() - 1, isoIdx + dir));
+                    rig.setIso(isos.get(isoIdx));
+                }
+                break;
+            case 4:                                    // EV
+                ev = Math.max(evMin, Math.min(evMax, ev + dir));
+                rig.setEv(ev);
+                break;
+            case 5:                                    // film select
+                stepSel(dir);
+                break;
+        }
+        renderOverlay();
+        return true;
+    }
+
+    private int vZoom = 0;      // 0=1x 1=2x 2=4x
+    private float vPanY = 0f;
+
+    static MainActivity self;
+    static void focusFeedback(final boolean ok) {
+        if (self == null) return;
+        if (self.afCancel) {   // callback from a cancelled focus: don't show "focus ✗"
+            self.afCancel = false;
+            self.handler.post(new Runnable() { public void run() { if (self.fbox != null) self.fbox.set(0); } });
+            return;
+        }
+        self.handler.post(new Runnable() {
+            public void run() {
+                self.setStatus(ok ? "focus ✓" : "focus ✗");
+                if (self.fbox != null) self.fbox.set(ok ? 2 : 3);
+                if (self.fbox != null) self.fbox.postDelayed(new Runnable() { public void run() { self.fbox.set(0); } }, 2500);
+            }
+        });
+    }
+
+    private android.graphics.Bitmap curBm;
+
+    private void openViewer() {
+        graded.clear();
+        File[] fs = GRADED.listFiles();
+        if (fs != null) {
+            for (File f : fs) {
+                String n = f.getName().toLowerCase();
+                if (n.endsWith(".jpg")) graded.add(f);
+            }
+            java.util.Collections.sort(graded, new java.util.Comparator<File>() {
+                public int compare(File a, File b) { return Long.valueOf(b.lastModified()).compareTo(a.lastModified()); }
+            });
+        }
+        if (graded.isEmpty()) { setStatus("no graded shots yet"); return; }
+        viewing = 0;
+        showGraded();
+    }
+
+    private void showGraded() {
+        File f = graded.get(viewing);
+        android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+        o.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
+        o.inSampleSize = 8;                     // 750px ARGB_8888 = 2.2MB, fits 2.3 VM budget
+        android.graphics.Bitmap bm;
+        try {
+            bm = android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+        } catch (Throwable t) { bm = null; }
+        if (curBm != null) { try { curBm.recycle(); } catch (Throwable ig) {} curBm = null; }
+        viewer.setImageBitmap(null);
+        if (bm == null) { setStatus("decode failed (memory) " + f.getName()); return; }
+        curBm = bm;
+        viewer.setImageBitmap(bm);
+        applyZoom();
+        viewer.setVisibility(View.VISIBLE);
+        renderViewerHud(f);
+    }
+
+    private void renderViewerHud(File f) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("OpenFilm6K viewer  #").append(BUILD).append("\n")
+          .append(f.getName()).append("  (").append(viewing + 1).append("/").append(graded.size()).append(")\n\n")
+          .append("wheel=page  center=zoom  PLAY/MENU=back");
+        overlay.setText(sb);
+        overlay.setVisibility(View.VISIBLE);
+        hud.setVisibility(View.INVISIBLE);
+        status.setVisibility(View.INVISIBLE);
+    }
+
+    private void applyZoom() {
+        float z = vZoom == 0 ? 1f : vZoom == 1 ? 2f : 4f;
+        android.graphics.Matrix m = new android.graphics.Matrix();
+        m.postScale(z, z);
+        m.postTranslate(0, vPanY);
+        viewer.setImageMatrix(m);
+        viewer.setScaleType(android.widget.ImageView.ScaleType.MATRIX);
+    }
+
+    private boolean viewerKey(int scan, int dir) {
+        if (vZoom > 0 && dir != 0) {              // zoomed: wheel pans vertically
+            float step = dir * 150f * vZoom;
+            float maxPan = 400f * vZoom;
+            vPanY = Math.max(-maxPan, Math.min(0, vPanY + step));
+            applyZoom();
+            return true;
+        }
+        if (dir != 0 && !graded.isEmpty()) {
+            viewing = (viewing + dir + graded.size()) % graded.size();
+            vZoom = 0; vPanY = 0;
+            showGraded();
+            return true;
+        }
+        if (scan == K_ENTER) {                    // zoom cycle 1x->2x->4x
+            vZoom = (vZoom + 1) % 3;
+            if (vZoom == 0) vPanY = 0;
+            applyZoom();
+            setStatus("zoom x" + (vZoom == 0 ? 1 : vZoom == 1 ? 2 : 4));
+            return true;
+        }
+        if (scan == K_PLAY || scan == K_MENU || scan == K_DELETE) {
+            viewing = -1;
+            viewer.setVisibility(View.INVISIBLE);
+            overlay.setVisibility(View.INVISIBLE);
+            renderOverlay();
+            setStatus("");
+            return true;
+        }
+        return true;
+    }
+
+    /** visible line count of the film list (mirrors FBox.drawMenu) — the LEFT/RIGHT page step */
+    private int menuPage() {
+        if (fbox == null || fbox.getHeight() <= 0) return 10;
+        float ch = fbox.getHeight() / 22f;
+        return Math.max(3, (int) ((fbox.getHeight() * 0.62f) / (ch * 1.35f)));
+    }
+
+    /** expected scan code at position i of the hidden unlock sequence ↑ → ↓ ↓ ↓ */
+    private int licExpected(int i) {
+        if (i == 0) return K_UP;
+        if (i == 1) return K_RIGHT;
+        return K_DOWN;   // positions 2, 3, 4
+    }
+
+    /** the ↑→↓↓↓ unlock typed on the film list: only keys 2..5 are swallowed; key 1 (↑) still navigates */
+    private boolean licSeqStep(int scan) {
+        if (licSeq > 0 && scan == licExpected(licSeq)) {
+            licSeq++;
+            if (licSeq >= 5) { openLicenses(); return true; }
+            return true;                       // in-sequence: consume, don't move the list
+        }
+        licSeq = (scan == K_UP) ? 1 : 0;        // mismatch: restart (or arm) on the first key
+        return false;
+    }
+
+    private boolean browserKey(int scan, int dir) {
+        if (licSeqStep(scan)) return true;                           // hidden ↑→↓↓↓ unlock -> licences page
+        if (scan == K_LEFT || scan == K_RIGHT) {                     // page up / page down through the list
+            int pg = menuPage() * (scan == K_RIGHT ? 1 : -1);
+            browser = Math.max(0, Math.min(totalSel() - 1, browser + pg));
+            if (browser == divSel()) browser += (pg > 0 ? 1 : -1);
+            if (browser < 0) browser = 0;
+            if (browser > totalSel() - 1) browser = totalSel() - 1;
+            renderOverlay(); return true;
+        }
+        if (scan == K_C1) {
+            if (browser >= NSPECIAL && browser != divSel()) {   // only real films can be favorited
+                int r = filmIdx(browser);
+                String nm = names.get(r);
+                if (favs.contains(nm)) favs.remove(nm); else favs.add(nm);
+                savePrefs();
+            }
+            renderOverlay(); return true;
+        }
+        if (scan == K_UP || scan == K_DOWN) { dir = (scan == K_DOWN) ? 1 : -1; }
+        if (dir != 0) {
+            browser = (browser + dir + totalSel()) % totalSel();
+            if (browser == divSel()) browser = (browser + dir + totalSel()) % totalSel();   // the divider is never selectable
+            renderOverlay();
+            return true;
+        }
+        if (scan == K_ENTER) {
+            if (browser == divSel()) return true;
+            sel = browser;
+            savePrefs();
+            browser = -1;
+            renderOverlay();
+            setStatus("loaded " + selName(sel));
+            return true;
+        }
+        if (scan == K_FN && (km.fnC1 || km == KM_RX100)) {   // NEX/RX100: Fn toggles the favourite (menu stays open)
+            if (browser >= NSPECIAL && browser != divSel()) {   // only real films can be favorited
+                int r = filmIdx(browser);
+                String nm = names.get(r);
+                if (favs.contains(nm)) favs.remove(nm); else favs.add(nm);
+                savePrefs();
+            }
+            renderOverlay(); return true;
+        }
+        if (scan == K_FN || scan == K_MENU) { browser = -1; renderOverlay(); return true; }
+        if (scan == K_S2) { browser = -1; renderOverlay(); shoot(); return true; }
+        return true;
+    }
+
+    /** leave the film list and show the full-screen licences page (reads assets/licenses.txt once) */
+    private void openLicenses() {
+        browser = -1;                              // Fn will return to the shooting HUD, not the list
+        licSeq = 0;
+        handler.removeCallbacks(downLongAction); downHeld = false;   // the sequence's final ↓ armed the 5s debug timer: cancel it
+        handler.removeCallbacks(upLongAction); upHeld = false;
+        if (fbox == null) return;
+        fbox.clearMenu();
+        try {
+            java.io.InputStream in = getAssets().open("licenses.txt");
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[8192]; int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            in.close();
+            fbox.setLicenses(new String(bo.toByteArray(), "UTF-8"));
+        } catch (Throwable t) {
+            Logger.log("licenses load fail: " + t);
+            fbox.setLicenses("Licences asset missing: " + t);
+        }
+        overlay.setVisibility(View.INVISIBLE);
+        Logger.log("licences page opened");
+    }
+
+    /** hide the licences page and restore the shooting HUD */
+    private void closeLicensesPage() {
+        if (fbox == null) return;
+        handler.removeCallbacks(downLongAction); downHeld = false;   // belt-and-braces: no debug screen can pop after returning
+        fbox.licOpen = false; fbox.licLines = null; fbox.licTop = 0;
+        fbox.postInvalidate();
+        renderOverlay(); renderHud();
+        Logger.log("licences page closed");
+    }
+
+    /** licences page keys: ↑/↓ scroll, Fn returns to the shooting HUD; everything else is consumed */
+    private boolean licensesKey(int scan, int dir) {
+        if (fbox == null) return true;
+        if (scan == K_FN || scan == K_MENU) {
+            if (scan == K_FN && km.fnC1) return true;   // NEX Fn acts on release (see the ACTION_UP handler)
+            closeLicensesPage();
+            return true;
+        }
+        int max = (fbox.licLines != null) ? Math.max(0, fbox.licLines.length - Math.max(1, fbox.licPage)) : 0;
+        if (scan == K_UP) { if (fbox.licTop > 0) { fbox.licTop--; fbox.postInvalidate(); } return true; }
+        if (scan == K_DOWN) { if (fbox.licTop < max) { fbox.licTop++; fbox.postInvalidate(); } return true; }
+        return true;   // consume everything else (no accidental capture / menu changes)
+    }
+
+    /** long-press UP: show the in-memory log at the newest line; mutually exclusive with menus / licences */
+    private void openLogPage() {
+        upHeld = false;
+        handler.removeCallbacks(upLongAction);
+        handler.removeCallbacks(downLongAction); downHeld = false;
+        browser = -1; settings = -1; stampMenu = -1;      // clear every other overlay state
+        if (fbox == null) return;
+        fbox.clearMenu();
+        fbox.licOpen = false; fbox.licLines = null; fbox.licTop = 0;
+        overlay.setVisibility(View.INVISIBLE);
+        String[] lines = Logger.fileTail(400);            // on-disk: previous session's crash stack + this boot
+        if (lines.length == 0) {
+            lines = Logger.recent(400);                   // unreadable/missing file: use what the ring has
+        } else {
+            String[] ring = Logger.recent(400);           // append lines the writer has not flushed yet
+            String last = lines[lines.length - 1];
+            String cut = last.length() >= 12 ? last.substring(0, 12) : last;
+            java.util.ArrayList<String> merged = new java.util.ArrayList<String>();
+            for (String l : lines) merged.add(l);
+            for (String l : ring) {
+                String ts = l.length() >= 12 ? l.substring(0, 12) : l;
+                if (ts.compareTo(cut) > 0) merged.add(l);  // "HH:mm:ss.SSS " prefix, simple compare
+            }
+            lines = merged.toArray(new String[merged.size()]);
+        }
+        fbox.setLog(lines);
+        Logger.log("log page opened");
+    }
+
+    /** hide the log viewer and restore the shooting HUD */
+    private void closeLogPage() {
+        if (fbox == null) return;
+        upHeld = false; handler.removeCallbacks(upLongAction);
+        handler.removeCallbacks(downLongAction); downHeld = false;
+        fbox.logOpen = false; fbox.logLines = null; fbox.logTop = 0;
+        fbox.postInvalidate();
+        renderOverlay(); renderHud();
+        Logger.log("log page closed");
+    }
+
+    /** log viewer keys: ↑/↓ scroll, Fn returns to the shooting HUD; everything else is consumed */
+    private boolean logKey(int scan, int dir) {
+        if (fbox == null) return true;
+        if (scan == K_FN || scan == K_MENU) {
+            if (scan == K_FN && km.fnC1) return true;   // NEX Fn acts on release (see the ACTION_UP handler)
+            closeLogPage();
+            return true;
+        }
+        int max = (fbox.logLines != null) ? Math.max(0, fbox.logLines.length - Math.max(1, fbox.logPage)) : 0;
+        if (scan == K_UP) { if (fbox.logTop > 0) { fbox.logTop--; fbox.postInvalidate(); } return true; }
+        if (scan == K_DOWN) { if (fbox.logTop < max) { fbox.logTop++; fbox.postInvalidate(); } return true; }
+        return true;   // consume everything else (no accidental capture / menu changes)
+    }
+
+    private boolean settingsKey(int scan, int dir) {
+        if (dir != 0) {
+            settings = (settings + dir + SETTINGS_ROWS.length) % SETTINGS_ROWS.length;
+            renderOverlay();
+            return true;
+        }
+        if (scan == K_ENTER) {
+            if (settings == 0) {
+                qualityIdx = (qualityIdx + 1) % SCALES.length;
+                savePrefs();
+            } else if (settings == 1) {
+                settings = -1;
+                renderOverlay();
+                String p = newestImageViaProvider(0);
+                if (p == null) {
+                    File pf = newestPhoto();
+                    if (pf != null) p = pf.getAbsolutePath();
+                }
+                if (p != null) enqueue(new Job(new File(p), resolveSel(sel)));
+                else setStatus("no photos found");
+            } else if (settings == 2) {
+                settings = -1;
+                Logger.log("restart via settings");
+                Logger.flush();
+                System.exit(0);   // cold restart: monkey/launcher relaunches, fresh dex
+            } else {
+                settings = -1;
+            }
+            renderOverlay();
+            return true;
+        }
+        if (scan == K_C1 || scan == K_MENU) { settings = -1; renderOverlay(); return true; }
+        return true;
+    }
+
+    private String favsStr() {
+        StringBuilder sb = new StringBuilder();
+        java.util.HashSet<String> done = new java.util.HashSet<String>();
+        for (int i = 0; i < names.size(); i++) { String n = names.get(i); if (favs.contains(n) && done.add(n)) { if (sb.length() > 0) sb.append(","); sb.append(n); } }
+        for (String n : favs) if (done.add(n)) { if (sb.length() > 0) sb.append(","); sb.append(n); }   // keep favs whose film isn't in the current list (e.g. list not pulled yet)
+        return sb.toString();
+    }
+
+    private boolean[] favArr() {
+        boolean[] b = new boolean[totalSel()];
+        for (int i = 0; i < names.size(); i++) b[posOf(i)] = favs.contains(names.get(i));
+        return b;
+    }
+
+    private void jumpFav(int dir) {
+        if (favs.isEmpty()) return;
+        java.util.ArrayList<String> l = new java.util.ArrayList<String>();
+        for (int i = 0; i < names.size(); i++) if (favs.contains(names.get(i))) l.add(names.get(i));   // list order
+        if (l.isEmpty()) return;
+        int cur = filmIdx(sel);
+        String curName = (cur >= 0 && cur < names.size()) ? names.get(cur) : null;
+        int pos = -1;
+        for (int i = 0; i < l.size(); i++) if (l.get(i).equals(curName)) pos = i;
+        if (pos < 0) { pos = 0; for (int i = 0; i < l.size(); i++) if (names.indexOf(l.get(i)) > cur) { pos = i; break; } }
+        else pos = (pos + dir + l.size()) % l.size();
+        sel = posOf(names.indexOf(l.get(pos)));
+        savePrefs();
+    }
+
+    private void savePrefs() {
+        StringBuilder psb = new StringBuilder();
+        for (String c : postSel) { if (psb.length() > 0) psb.append(','); psb.append(c); }
+        android.content.SharedPreferences.Editor ed = getPreferences(MODE_PRIVATE).edit()
+                .putInt("film2", sel)
+                .putInt("quality", qualityIdx)
+                .putString("favs", favsStr())
+                .putInt("stamp", stampMode)
+                .putString("wmid", wmSel)
+                .putInt("printinfo", printInfo)
+                .putString("post", psb.toString())
+                .putInt("gfinder", ghostFinder);
+        String nm = selName();                            // persist the selected film by NAME too (the index is unstable across list changes)
+        if (nm.length() > 0) { wantFilm = nm; ed.putString("selfilm", nm); }
+        ed.commit();
+    }
+
+    private String selName() {
+        int fi = filmIdx(sel);
+        return (fi >= 0 && fi < names.size()) ? names.get(fi) : "";
+    }
+
+    /** re-select the persisted film by name once the (host) list is available; no-op if absent */
+    private void applyWantFilm() {
+        if (wantFilm == null || wantFilm.isEmpty()) return;
+        int idx = names.indexOf(wantFilm);
+        if (idx >= 0) sel = posOf(idx);
+    }
+
+    @Override
+    public void finish() {
+        rig.release();
+        super.finish();
+    }
+}

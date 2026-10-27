@@ -1,0 +1,10 @@
+out/
+*.apk
+*.idsig
+debug.keystore
+__pycache__/
+.build
+
+# internal working documents are not published
+docs/plans/
+docs/*-plan.md
