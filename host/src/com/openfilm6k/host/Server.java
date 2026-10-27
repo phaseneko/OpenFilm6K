@@ -1702,14 +1702,18 @@ public class Server {
         try {
             android.graphics.Bitmap bm0 = android.graphics.BitmapFactory.decodeFile(photo.getAbsolutePath());
             if (bm0 == null) return photo;
-            if (bm0.getHeight() > bm0.getWidth()) {   // portrait: rotate 90 CW (same geometry as the border renderer)
+            boolean wide = q.get("wb2") != null || q.get("wb3") != null;   // WB family crops to 2.7:1 first
+            boolean fills = q.get("wb3") != null;                          // WB3: photo fills the strip 1:1
+            boolean strip = wide || q.get("b2") != null;                   // a 135 strip always runs horizontally
+            // the strip / panorama frames turn a portrait shot landscape before cropping (like WB2);
+            // a plain border (B1) keeps the photo upright instead
+            if (strip && bm0.getHeight() > bm0.getWidth()) {
                 android.graphics.Matrix rm = new android.graphics.Matrix(); rm.postRotate(90f);
                 android.graphics.Bitmap rot = android.graphics.Bitmap.createBitmap(bm0, 0, 0, bm0.getWidth(), bm0.getHeight(), rm, true);
                 bm0.recycle(); bm0 = rot;
             }
-            boolean wide = q.get("wb2") != null || q.get("wb3") != null;   // WB family crops to 2.7:1 first
-            boolean fills = q.get("wb3") != null;                          // WB3: photo fills the strip 1:1
-            float target = wide ? 2.7f : 1.5f;
+            boolean portraitShot = !strip && bm0.getHeight() > bm0.getWidth();
+            float target = wide ? 2.7f : (portraitShot ? 2f / 3f : 1.5f);
             int fw0 = bm0.getWidth(), fh0 = bm0.getHeight();
             int cw, ch;
             if (fw0 > fh0 * target) { ch = fh0; cw = Math.round(fh0 * target); }
@@ -1879,7 +1883,8 @@ public class Server {
         try {
             android.graphics.Bitmap bm0 = android.graphics.BitmapFactory.decodeFile(graded.getAbsolutePath());
             if (bm0 == null) return graded.getAbsolutePath();
-            // portrait shots: rotate 90 deg CW first, so the frame ends up landscape
+            // 135 frame: a portrait shot is turned landscape first, exactly like the WB2 border, then
+            // cropped to 3:2 — the strip always runs horizontally
             if (bm0.getHeight() > bm0.getWidth()) {
                 android.graphics.Matrix rm = new android.graphics.Matrix();
                 rm.postRotate(90f);
@@ -1887,7 +1892,6 @@ public class Server {
                 bm0.recycle();
                 bm0 = rot;
             }
-            // crop to the 135 frame ratio (36:24 = 3:2 landscape), centred
             int fw0 = bm0.getWidth(), fh0 = bm0.getHeight();
             float target = 1.5f;
             int cw, ch;

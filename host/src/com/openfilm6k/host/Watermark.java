@@ -86,6 +86,7 @@ final class Watermark {
         String id, name;
         float ar = 1.5f;
         int bg = 0xFFFFFFFF;
+        boolean padapt = true;       // portrait fit: re-anchor the layout onto a portrait card (on by default)
         final List<El> els = new ArrayList<El>();
     }
 
@@ -122,6 +123,7 @@ final class Watermark {
                 String bg = cv.optString("bg", "#FFFFFF");
                 try { t.bg = Color.parseColor(bg); } catch (Throwable ig) { t.bg = 0xFFFFFFFF; }
             }
+            t.padapt = o.optBoolean("padapt", true);       // portrait fit is on unless a template says otherwise
             JSONArray a = o.optJSONArray("elements");
             if (a != null) {
                 for (int i = 0; i < a.length() && t.els.size() < 40; i++) {
@@ -266,6 +268,7 @@ final class Watermark {
         t.name = name == null || name.trim().isEmpty() ? "Untitled" : name.trim();
         t.ar = 1.5f;
         t.bg = 0xFFFFFFFF;
+        t.padapt = true;
         El p = new El();
         p.type = "photo";
         p.x = 0.05f; p.y = 0.05f; p.w = 0.90f; p.h = 0.70f;
@@ -294,7 +297,7 @@ final class Watermark {
         e.src = s.src; e.opacity = s.opacity;
         e.cx0 = s.cx0; e.cy0 = s.cy0; e.cx1 = s.cx1; e.cy1 = s.cy1;
         e.text = s.text; e.size = s.size; e.color = s.color; e.align = s.align; e.bold = s.bold; e.font = s.font;
-        e.shOn = s.shOn; e.shColor = s.shColor; e.shBlur = s.shBlur; e.shDx = s.shDx; e.shDy = s.shDy;
+        e.shOn = s.shOn; e.shColor = s.shColor; e.shBlur = s.shBlur; e.shDx = s.shDx; e.shDy = s.shDy; e.shBlend = s.shBlend; e.blend = s.blend; e.alpha = s.alpha;
         return e;
     }
 
@@ -343,6 +346,7 @@ final class Watermark {
             cv.put("ar", r4(t.ar));
             cv.put("bg", colorStr(t.bg));
             o.put("canvas", cv);
+            o.put("padapt", t.padapt);
             JSONArray a = new JSONArray();
             for (El e : t.els) {
                 JSONObject j = new JSONObject();
@@ -430,6 +434,58 @@ final class Watermark {
 
     // ---------------------------------------------------------------- render
 
+    /**
+     * Re-layout a template for a portrait card. Distances are handled in SHORT-EDGE units: the
+     * landscape reference is (ar x 1) and the portrait card is (1 x ar), so both share one unit and
+     * the same area. Per axis: a box spanning the axis stays stretched; a box with symmetric margins
+     * keeps both margins when the axis grows (bars / bands) or its size and centre when it shrinks;
+     * otherwise it keeps its size and its distance to the nearer edge.
+     */
+    static List<El> mapPortrait(List<El> els, float ar) {
+        final float lx0 = ar, ly0 = 1f, lx1 = 1f, ly1 = ar;
+        List<El> out = new ArrayList<El>(els.size());
+        for (El e : els) {
+            El m = copyEl(e);
+            // a photo / image lives in its crop viewport: map the VIEWPORT (so an inset photo keeps
+            // its bars in short-edge units) and make the element box the viewport itself
+            boolean cropped = ("photo".equals(e.type) || "img".equals(e.type))
+                    && (e.cx0 > 0.001f || e.cy0 > 0.001f || e.cx1 < 0.999f || e.cy1 < 0.999f);
+            float bx = e.x, by = e.y, bw = e.w, bh = e.h;
+            if (cropped) {
+                bx = e.x + e.cx0 * e.w; by = e.y + e.cy0 * e.h;
+                bw = (e.cx1 - e.cx0) * e.w; bh = (e.cy1 - e.cy0) * e.h;
+                m.cx0 = 0f; m.cy0 = 0f; m.cx1 = 1f; m.cy1 = 1f;
+            }
+            // the main photo is the flexible part of a layout: when it takes most of an axis, keep
+            // BOTH margins so the band fills the extra space instead of leaving a gap
+            boolean big = cropped || "photo".equals(e.type) || "img".equals(e.type);
+            float[] hx = axisFit(bx * lx0, bw * lx0, lx0, lx1, big && bw >= 0.5f);
+            float[] vy = axisFit(by * ly0, bh * ly0, ly0, ly1, big && bh >= 0.5f);
+            m.x = hx[0] / lx1; m.w = hx[1] / lx1;
+            m.y = vy[0] / ly1; m.h = vy[1] / ly1;
+            m.size = e.size / ar;              // text size is a fraction of the canvas HEIGHT
+            out.add(m);
+        }
+        return out;
+    }
+
+    /** {start, length} of a box [a, a+s] on an axis that goes from L0 to L1 (same units) */
+    static float[] axisFit(float a, float s, float L0, float L1) { return axisFit(a, s, L0, L1, false); }
+
+    static float[] axisFit(float a, float s, float L0, float L1, boolean fill) {
+        final float eps = 0.03f;               // this close to both edges = a stretched box
+        float m1 = a, m2 = L0 - a - s;
+        if (m1 <= eps && m2 <= eps) return new float[]{0f, L1};
+        float tol = 0.02f + 0.05f * Math.max(m1, m2);
+        if (fill || Math.abs(m1 - m2) <= tol) {        // symmetric: keep both margins, else size + centre
+            if (L1 >= L0) return new float[]{m1, L1 - m1 - m2};
+            return new float[]{(L1 - s) / 2f, s};
+        }
+        if (m1 < m2) return new float[]{m1, s};            // nearer the start edge
+        return new float[]{L1 - m2 - s, s};                // nearer the end edge
+    }
+
+
     /** Overwrites {@code graded} with the composited card; returns its path. Never throws. */
     static String render(File graded, File src, String film, String id) {
         Tpl t = load(id);
@@ -445,33 +501,50 @@ final class Watermark {
             int pw = b.outWidth, ph = b.outHeight;
             if (pw <= 0 || ph <= 0) return graded.getAbsolutePath();
 
+            // portrait fit: a portrait shot takes the template's reciprocal aspect and the design is
+            // RE-ANCHORED per axis in short-edge units — nothing is rotated, so whatever sat on the
+            // top / bottom edge stays there (the bars and their text keep their orientation).
+            boolean portrait = t.padapt && ph > pw;
+            float ar = Math.max(0.05f, t.ar);
+            List<El> els = portrait ? mapPortrait(t.els, ar) : t.els;
             El photo = null;
-            for (El e : t.els) if ("photo".equals(e.type)) { photo = e; break; }
+            for (El e : els) if ("photo".equals(e.type)) { photo = e; break; }
 
             // canvas: the photo slot's pixel height follows the photo, the card is capped at MAX_EDGE
-            float ch = Math.min(ph, 2400f) / Math.max(0.05f, photo.h);
-            float cw = ch * t.ar;
+            // card size: landscape follows the photo slot height as before; in portrait the card is
+            // sized so the photo band keeps 1:1 pixels across its width (no upscaling)
+            float ch, cw;
+            if (portrait) {
+                float bw = (photo != null && photo.w > 0.05f) ? photo.w : 1f;
+                cw = Math.min((float) MAX_EDGE, Math.max(2f, pw / Math.min(1f, bw)));
+                ch = cw * ar;
+            } else {
+                ch = Math.min(ph, 2400f) / Math.max(0.05f, (photo != null && photo.h > 0.05f) ? photo.h : 1f);
+                cw = ch * ar;
+            }
             if (cw > MAX_EDGE) { float k = MAX_EDGE / cw; cw = MAX_EDGE; ch *= k; }
             if (ch > MAX_EDGE) { float k = MAX_EDGE / ch; ch = MAX_EDGE; cw *= k; }
             int CW = Math.max(2, Math.round(cw)), CH = Math.max(2, Math.round(ch));
-            int mn = Math.min(CW, CH);
+            int DW = CW, DH = CH;
+            int mn = Math.min(DW, DH);
 
-            out = Bitmap.createBitmap(CW, CH, Bitmap.Config.ARGB_8888);
-            sTarget = out;                                  // adaptive text reads the pixels under it
-            Canvas cv = new Canvas(out);
+            Bitmap buf = Bitmap.createBitmap(DW, DH, Bitmap.Config.ARGB_8888);
+            sTarget = buf;                                  // adaptive text reads the pixels under it
+            Canvas cv = new Canvas(buf);
             cv.drawColor(t.bg);
 
             int idx = 0;
-            for (El el : t.els) {
-                RectF r = new RectF(el.x * CW, el.y * CH, (el.x + el.w) * CW, (el.y + el.h) * CH);
+            for (El el : els) {
+                RectF r = new RectF(el.x * DW, el.y * DH, (el.x + el.w) * DW, (el.y + el.h) * DH);
                 if (r.width() < 4f || r.height() < 4f) continue;
                 if ("photo".equals(el.type)) drawPhoto(cv, el, t, graded, mn, ++idx);
                 else if ("img".equals(el.type)) drawImg(cv, el, t, mn);
-                else if ("line".equals(el.type)) drawLine(cv, el, CW, CH);
-                else if ("rect".equals(el.type)) drawRectEl(cv, el, CW, CH, mn, ++idx, t.bg);
-                else if ("logo".equals(el.type)) drawLogo(cv, el, CW, CH, mn, src);
-                else drawText(cv, el, t, CW, CH, mn, src, film, ++idx);
+                else if ("line".equals(el.type)) drawLine(cv, el, DW, DH);
+                else if ("rect".equals(el.type)) drawRectEl(cv, el, DW, DH, mn, ++idx, t.bg);
+                else if ("logo".equals(el.type)) drawLogo(cv, el, DW, DH, mn, src);
+                else drawText(cv, el, t, DW, DH, mn, src, film, ++idx);
             }
+            out = buf;
 
             FileOutputStream fo = new FileOutputStream(graded);
             out.compress(Bitmap.CompressFormat.JPEG, 95, fo);
@@ -486,6 +559,7 @@ final class Watermark {
             if (out != null) out.recycle();
         }
     }
+
 
     // ---------------------------------------------------------------- fonts
 
@@ -1213,7 +1287,9 @@ final class Watermark {
 
     // ---------------------------------------------------------------- helpers
 
-    /** decode the CENTRAL cover-crop of the photo at roughly the slot size (portrait is rotated 90 CW) */
+    /** decode the CENTRAL cover-crop of the photo at roughly the slot size.
+     *  The pipeline hands us upright pixels (the camera bakes the orientation into the pixels and the
+     *  EXIF tag is gone), so nothing is rotated here — a portrait file is simply a portrait photo. */
     private static Bitmap decodeCover(File f, int tw, int th) {
         BitmapRegionDecoder rd = null;
         try {
@@ -1222,33 +1298,20 @@ final class Watermark {
             BitmapFactory.decodeFile(f.getAbsolutePath(), b);
             int iw = b.outWidth, ih = b.outHeight;
             if (iw <= 0 || ih <= 0) return null;
-            boolean rot = ih > iw;
-            int sw = rot ? ih : iw, sh = rot ? iw : ih;      // dimensions after rotation
-            float slotA = tw / (float) Math.max(1, th), srcA = sw / (float) sh;
+            float slotA = tw / (float) Math.max(1, th), srcA = iw / (float) ih;
             int cw, ch;
-            if (srcA > slotA) { ch = sh; cw = Math.max(1, Math.round(sh * slotA)); }
-            else { cw = sw; ch = Math.max(1, Math.round(sw / slotA)); }
-            int cx = (sw - cw) / 2, cy = (sh - ch) / 2;
+            if (srcA > slotA) { ch = ih; cw = Math.max(1, Math.round(ih * slotA)); }
+            else { cw = iw; ch = Math.max(1, Math.round(iw / slotA)); }
+            int cx = (iw - cw) / 2, cy = (ih - ch) / 2;
 
             int s = 1;
             while (cw / (s * 2) >= tw && ch / (s * 2) >= th) s *= 2;
-
-            int rx, ry, rw, rh;                              // source-file rect
-            if (!rot) { rx = cx; ry = cy; rw = cw; rh = ch; }
-            else { rx = cy; ry = ih - cx - cw; rw = ch; rh = cw; }
 
             android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
             o.inSampleSize = s;
             o.inPreferredConfig = Bitmap.Config.ARGB_8888;
             rd = BitmapRegionDecoder.newInstance(f.getAbsolutePath(), false);
-            Bitmap part = rd.decodeRegion(new Rect(rx, ry, rx + rw, ry + rh), o);
-            if (part == null) return null;
-            if (!rot) return part;
-            Matrix mtx = new Matrix();
-            mtx.postRotate(90f);
-            Bitmap outBm = Bitmap.createBitmap(part, 0, 0, part.getWidth(), part.getHeight(), mtx, true);
-            if (outBm != part) part.recycle();
-            return outBm;
+            return rd.decodeRegion(new Rect(cx, cy, cx + cw, cy + ch), o);
         } catch (Throwable ex) {
             Engine.dbg("wm decode " + ex);
             return null;

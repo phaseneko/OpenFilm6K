@@ -286,6 +286,7 @@ public class L {
         {"wmAddLogo", "品牌 Logo", "品牌 Logo", "Brand logo", "", "", "", "", "", "", ""},
         {"wmAddRect", "矩形", "矩形", "Rectangle", "", "", "", "", "", "", ""},
         {"wmGRect", "矩形", "矩形", "Rectangle", "", "", "", "", "", "", ""},
+        {"wmPortrait", "竖拍适配", "豎拍適配", "Portrait fit", "", "", "", "", "", "", ""},
         {"wmGLogo", "Logo", "Logo", "Logo", "", "", "", "", "", "", ""},
         {"wmPropsLogo", "Logo 属性", "Logo 屬性", "Logo properties", "", "", "", "", "", "", ""},
         {"wmLogoTitle", "品牌 Logo", "品牌 Logo", "Brand logos", "", "", "", "", "", "", ""},

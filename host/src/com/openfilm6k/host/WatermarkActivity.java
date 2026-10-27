@@ -1624,7 +1624,7 @@ public class WatermarkActivity extends Activity {
         private float downX, downY, startX, startY, startW, startH, startSize, rl, rt, rr, rb0;
         private final Map<String, Bitmap> cache = new HashMap<String, Bitmap>();
         private final RectF[] iconRects = {new RectF(), new RectF(), new RectF(), new RectF()};
-        private final RectF resetRect = new RectF(), bgRect = new RectF();   // board buttons (nothing selected)
+        private final RectF resetRect = new RectF(), bgRect = new RectF(), padRect = new RectF();   // board buttons
         private float zoom = 1f, panX = 0f, panY = 0f;      // viewport transform (pinch / two-finger pan)
         private boolean twoFinger;
         private float gSpan, gX, gY;
@@ -1733,7 +1733,7 @@ public class WatermarkActivity extends Activity {
             }
         }
 
-        /** board buttons (screen space, only while nothing is selected): reset size + background */
+        /** board buttons (screen space, only while nothing is selected): portrait switch + reset + background */
         private void drawBoardButtons(Canvas cv) {
             float is = Ux.dp(40), gap = Ux.dp(8);
             float right = getWidth() - is - Ux.dp(10);
@@ -1742,8 +1742,15 @@ public class WatermarkActivity extends Activity {
             float l = right - (needsSizeReset() ? is + gap : 0f);
             resetRect.set(needsSizeReset() ? l : 0, needsSizeReset() ? bottom : 0,
                     needsSizeReset() ? l + is : 0, needsSizeReset() ? bottom + is : 0);
+            Paint m = new Paint(Paint.ANTI_ALIAS_FLAG);      // measure the label so the pill fits any locale
+            m.setTypeface(Typeface.DEFAULT_BOLD);
+            m.setTextSize(Ux.dp(12));
+            float pw = Ux.dp(13) + Ux.dp(6) + m.measureText(L.s("wmPortrait")) + Ux.dp(11) * 2;
+            float lp = l - pw - gap;                         // portrait switch, leftmost
+            padRect.set(lp, bottom, lp + pw, bottom + is);
+
+            boolean on = tpl != null && tpl.padapt;
             Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
-            bg.setColor(0xEE000080);
             Paint bd = new Paint(Paint.ANTI_ALIAS_FLAG);
             bd.setStyle(Paint.Style.STROKE);
             bd.setStrokeWidth(Ux.dp(1));
@@ -1753,15 +1760,48 @@ public class WatermarkActivity extends Activity {
             gl.setTypeface(Typeface.DEFAULT_BOLD);
             gl.setTextAlign(Paint.Align.CENTER);
             float[][] rects = {{resetRect.left, resetRect.top, resetRect.right, resetRect.bottom},
-                    {bgRect.left, bgRect.top, bgRect.right, bgRect.bottom}};
-            String[] glyphs = {"\u27F3", "\u25D0"};
-            for (int i = 0; i < 2; i++) {
+                    {bgRect.left, bgRect.top, bgRect.right, bgRect.bottom},
+                    {padRect.left, padRect.top, padRect.right, padRect.bottom}};
+            String[] glyphs = {"⟳", "◐", ""};
+            for (int i = 0; i < 3; i++) {
                 float[] r = rects[i];
                 if (r[2] - r[0] < 2) continue;
+                bg.setColor(i == 2 && on ? 0xEE7A4A00 : 0xEE000080);
                 cv.drawRoundRect(new RectF(r[0], r[1], r[2], r[3]), Ux.dp(4), Ux.dp(4), bg);
+                bd.setColor(i == 2 && on ? 0xFFFFC107 : 0x99FFFFFF);
                 cv.drawRoundRect(new RectF(r[0], r[1], r[2], r[3]), Ux.dp(4), Ux.dp(4), bd);
-                gl.setTextSize(Ux.dp(20));
-                cv.drawText(glyphs[i], (r[0] + r[2]) / 2f, (r[1] + r[3]) / 2f + Ux.dp(7), gl);
+                if (i < 2) {
+                    gl.setTextSize(Ux.dp(20));
+                    gl.setColor(0xFFFFFFFF);
+                    cv.drawText(glyphs[i], (r[0] + r[2]) / 2f, (r[1] + r[3]) / 2f + Ux.dp(7), gl);
+                } else {
+                    float cb = Ux.dp(13);
+                    float bx = r[0] + Ux.dp(11), by = (r[1] + r[3]) / 2f - cb / 2f;
+                    Paint cbBg = new Paint(Paint.ANTI_ALIAS_FLAG);
+                    cbBg.setColor(on ? 0xFFFFC107 : 0x00000000);
+                    cv.drawRoundRect(new RectF(bx, by, bx + cb, by + cb), Ux.dp(2), Ux.dp(2), cbBg);
+                    Paint cbBd = new Paint(Paint.ANTI_ALIAS_FLAG);
+                    cbBd.setStyle(Paint.Style.STROKE);
+                    cbBd.setStrokeWidth(Ux.dp(1.2f));
+                    cbBd.setColor(on ? 0xFF7A4A00 : 0xCCFFFFFF);
+                    cv.drawRoundRect(new RectF(bx, by, bx + cb, by + cb), Ux.dp(2), Ux.dp(2), cbBd);
+                    if (on) {                                // tick
+                        Paint tk = new Paint(Paint.ANTI_ALIAS_FLAG);
+                        tk.setStyle(Paint.Style.STROKE);
+                        tk.setStrokeWidth(Ux.dp(2));
+                        tk.setStrokeCap(Paint.Cap.ROUND);
+                        tk.setColor(0xFF201000);
+                        android.graphics.Path path = new android.graphics.Path();
+                        path.moveTo(bx + cb * 0.22f, by + cb * 0.52f);
+                        path.lineTo(bx + cb * 0.44f, by + cb * 0.76f);
+                        path.lineTo(bx + cb * 0.80f, by + cb * 0.26f);
+                        cv.drawPath(path, tk);
+                    }
+                    gl.setTextSize(Ux.dp(12));
+                    gl.setTextAlign(Paint.Align.LEFT);
+                    gl.setColor(on ? 0xFFFFD54F : 0xFFFFFFFF);
+                    cv.drawText(L.s("wmPortrait"), bx + cb + Ux.dp(6), (r[1] + r[3]) / 2f + Ux.dp(4), gl);
+                }
             }
         }
 
@@ -2365,6 +2405,7 @@ public class WatermarkActivity extends Activity {
                     onButton = false;
                     if (sel < 0) {
                         if (bgRect.contains(px, py)) { onButton = true; toggleBg(); return true; }
+                        if (padRect.contains(px, py)) { onButton = true; togglePortraitFit(); return true; }
                         if (resetRect.contains(px, py)) { onButton = true; resetSize(); return true; }
                     }
                     int ch0 = cardHandleHit(px, py);
@@ -2574,6 +2615,15 @@ public class WatermarkActivity extends Activity {
                 h *= Math.max(0f, e.cy1 - e.cy0);
             }
             return w > getWidth() && h > getHeight();
+        }
+
+        /** portrait fit switch: a portrait shot is laid out on a portrait card with the whole design rotated */
+        private void togglePortraitFit() {
+            if (tpl == null) return;
+            tpl.padapt = !tpl.padapt;
+            setDirty(true);
+            invalidate();
+            MainActivity.toast(L.s("wmPortrait") + (tpl.padapt ? "  ✓" : "  ✕"));
         }
 
         /** the rule segment in SCREEN space */
