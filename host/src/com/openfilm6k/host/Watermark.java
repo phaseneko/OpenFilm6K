@@ -545,7 +545,12 @@ final class Watermark {
             cv.drawColor(t.bg);
 
             int idx = 0;
+            boolean toneReady = false, photoPainted = false;
             for (El el : els) {
+                if (!toneReady && photoPainted && adapts(el)) {
+                    sBgGlobal = globalTone(els, DW, DH);   // the photo is under the overlays by now
+                    toneReady = true;
+                }
                 RectF r = new RectF(el.x * DW, el.y * DH, (el.x + el.w) * DW, (el.y + el.h) * DH);
                 if (r.width() < 4f || r.height() < 4f) continue;
                 if ("photo".equals(el.type)) drawPhoto(cv, el, t, graded, mn, ++idx);
@@ -554,6 +559,7 @@ final class Watermark {
                 else if ("rect".equals(el.type)) drawRectEl(cv, el, DW, DH, mn, ++idx, t.bg);
                 else if ("logo".equals(el.type)) drawLogo(cv, el, DW, DH, mn, src);
                 else drawText(cv, el, t, DW, DH, mn, src, film, ++idx);
+                if ("photo".equals(el.type)) photoPainted = true;
             }
             out = buf;
 
@@ -567,6 +573,7 @@ final class Watermark {
             return graded.getAbsolutePath();
         } finally {
             sTarget = null;
+            sBgGlobal = null;
             if (out != null) out.recycle();
         }
     }
@@ -814,6 +821,10 @@ final class Watermark {
 
     /** editor preview: its own crop-aware sampler decides (null = sample sTarget as usual) */
     static Boolean sBgBrightOverride = null;
+
+    /** 明暗适配 is decided for the WHOLE photo, not per element: every adaptive element votes and the
+     *  side with more sample points wins. Non-adaptive elements do not vote. null = not computed. */
+    static Boolean sBgGlobal = null;
 
     /** the shadow's colour after the adaptive flip (alpha is kept) */
     static int shadowInk(El el, float l, float t, float w, float h) {
@@ -1146,11 +1157,17 @@ final class Watermark {
      */
     static boolean bgBright9(float l, float t, float w, float h) {
         if (sBgBrightOverride != null) return sBgBrightOverride;
+        if (sBgGlobal != null) return sBgGlobal;          // one tone for the whole photo
+        float[] v = new float[3];
+        toneVotes(l, t, w, h, v);
+        return toneVerdict(v);
+    }
+
+    /** adds the 9 points of one box to {bright, dark, luminance sum} */
+    static void toneVotes(float l, float t, float w, float h, float[] acc) {
         Bitmap b = sTarget;
         float[] xs = {l, l + w / 2f, l + w, l, l + w / 2f, l + w, l, l + w / 2f, l + w};
         float[] ys = {t, t, t, t + h / 2f, t + h / 2f, t + h / 2f, t + h, t + h, t + h};
-        int bright = 0, dark = 0;
-        double sum = 0;
         for (int i = 0; i < 9; i++) {
             float lum;
             if (b == null || b.isRecycled()) {
@@ -1164,12 +1181,38 @@ final class Watermark {
                         + 0.587f * android.graphics.Color.green(c)
                         + 0.114f * android.graphics.Color.blue(c)) / 255f;
             }
-            sum += lum;
-            if (lum > 0.5f) bright++; else dark++;
+            acc[2] += lum;
+            if (lum > 0.5f) acc[0]++; else acc[1]++;
         }
-        if (bright >= 5) return true;
-        if (dark >= 5) return false;
-        return (sum / 9.0) > 0.5;          // no majority (unreadable pixels): fall back to the mean
+    }
+
+    /** the aggregate verdict: more bright points than dark ones (a tie falls back to the mean) */
+    static boolean toneVerdict(float[] v) {
+        if (v[0] != v[1]) return v[0] > v[1];
+        float n = v[0] + v[1];
+        return n > 0 && v[2] / n > 0.5f;
+    }
+
+    /**
+     * The frame's single 明暗 decision: every element with 明暗适配 enabled (its ink flips, or its
+     * shadow's ink does) contributes its 9 points here; elements without it do not take part.
+     */
+    /** 明暗适配 can only change an overlay's ink; a photo has nothing to flip and never votes */
+    static boolean adapts(El e) {
+        return !"photo".equals(e.type) && !"img".equals(e.type) && (e.blend == 1 || e.shBlend == 1);
+    }
+
+    static Boolean globalTone(List<El> els, int CW, int CH) {
+        float[] acc = new float[3];
+        int voters = 0;
+        for (El e : els) {
+            if (!adapts(e)) continue;
+            float x = e.x * CW, y = e.y * CH;
+            float w = Math.max(2f, e.w * CW), h = Math.max(2f, e.h * CH);
+            toneVotes(x, y, w, h, acc);
+            voters++;
+        }
+        return voters == 0 ? null : Boolean.valueOf(toneVerdict(acc));
     }
 
     /** {token} substitution: EXIF-derived info, the film name, and the marketing model name */

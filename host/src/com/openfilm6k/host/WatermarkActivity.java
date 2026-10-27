@@ -1713,6 +1713,7 @@ public class WatermarkActivity extends Activity {
             cv.drawRect(card, p);
             cv.save();
             cv.clipRect(card);
+            toneCache = null;
             for (int i = 0; i < t.els.size(); i++) drawEl(cv, t.els.get(i), false);
             cv.restore();
             if (sel >= 0 && sel < t.els.size()) drawChrome(cv, t.els.get(sel));   // content-space chrome only
@@ -1972,6 +1973,8 @@ public class WatermarkActivity extends Activity {
             }
         }
 
+        private Boolean toneCache;          // one tone per draw pass, cleared by the callers
+
         private void drawEl(Canvas cv, Watermark.El e, boolean selected) {
             float x = card.left + e.x * card.width();
             float y = card.top + e.y * card.height();
@@ -1981,7 +1984,7 @@ public class WatermarkActivity extends Activity {
             boolean cropOn = !(e.cx0 <= 0.001f && e.cy0 <= 0.001f && e.cx1 >= 0.999f && e.cy1 >= 0.999f);
             // the preview samples the reference photo itself (crop-aware); hand that decision to the
             // shared shadow/logo code so previews and the final render agree
-            Watermark.sBgBrightOverride = adaptiveLum(x, y, w, h) > 0.5f;
+            Watermark.sBgBrightOverride = tone();
             boolean clipCrop = cropOn && !selected;          // unselected: never show the discarded part
             // the shadow is OUTSIDE the element: draw it before the crop clip, otherwise a cropped
             // element loses it entirely in the preview (the renderer never clipped it)
@@ -2037,8 +2040,7 @@ public class WatermarkActivity extends Activity {
                 boolean follow = e.brand == null || e.brand.length() == 0;
                 Bitmap lb = follow ? Logo.own() : Logo.get(e.brand);
                 if (lb != null) {
-                    Watermark.drawLogoBitmap(cv, e, new RectF(x, y, x + w, y + h), mn, lb,
-                            adaptiveLum(x, y, w, h) > 0.5f);
+                    Watermark.drawLogoBitmap(cv, e, new RectF(x, y, x + w, y + h), mn, lb, tone());
                 } else {
                     Paint ph = new Paint(Paint.ANTI_ALIAS_FLAG);
                     ph.setStyle(Paint.Style.STROKE);
@@ -2055,7 +2057,7 @@ public class WatermarkActivity extends Activity {
                 if (e.shOn) Watermark.drawLineShadow(cv, new RectF(x, y, x + w, y + h), e, mn);
                 Paint lp = new Paint(Paint.ANTI_ALIAS_FLAG);
                 int link = e.color;
-                if (e.blend == 1) link = adaptiveLum(x, y, w, h) > 0.5f ? 0xFF000000 : 0xFFFFFFFF;
+                if (e.blend == 1) link = tone() ? 0xFF000000 : 0xFFFFFFFF;
                 int lal = Math.round(android.graphics.Color.alpha(e.color) * e.alpha);
                 lp.setColor((link & 0x00FFFFFF) | (Math.max(0, Math.min(255, lal)) << 24));
                 if (e.blend == 2) lp.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SCREEN));
@@ -2067,7 +2069,7 @@ public class WatermarkActivity extends Activity {
                 if (e.shOn) Watermark.drawPhotoShadow(cv, rr, e, mn, amp, eg[1], 0x5EC7A11AL + 977L, eg[2]);
                 Paint lp = new Paint(Paint.ANTI_ALIAS_FLAG);
                 int link = e.color;
-                if (e.blend == 1) link = adaptiveLum(x, y, w, h) > 0.5f ? 0xFF000000 : 0xFFFFFFFF;
+                if (e.blend == 1) link = tone() ? 0xFF000000 : 0xFFFFFFFF;
                 int lal = Math.round(android.graphics.Color.alpha(e.color) * e.alpha);
                 lp.setColor((link & 0x00FFFFFF) | (Math.max(0, Math.min(255, lal)) << 24));
                 if (amp > 0 || eg[1] >= 1f) {                 // same cut as the renderer
@@ -2105,7 +2107,7 @@ public class WatermarkActivity extends Activity {
                 String[] lines = txt.split("\n", -1);
                 float lh = ts * 1.25f;
                 int ink = e.color;
-                if (e.blend == 1) ink = adaptiveLum(x, y, w, lines.length * lh) > 0.5f ? 0xFF000000 : 0xFFFFFFFF;
+                if (e.blend == 1) ink = tone() ? 0xFF000000 : 0xFFFFFFFF;
                 int al = Math.round(android.graphics.Color.alpha(e.color) * e.alpha);
                 tp.setColor((ink & 0x00FFFFFF) | (Math.max(0, Math.min(255, al)) << 24));
                 if (e.shOn && e.blend != 2 && e.shBlend != 2) {
@@ -2131,7 +2133,8 @@ public class WatermarkActivity extends Activity {
 
         /** preview estimate of the background luminance under a view-space box (card colour, or the
          *  reference photo where the box overlaps it). The final renderer samples the real pixels. */
-        private float adaptiveLum(float x, float y, float w, float h) {
+        /** preview estimate of the tone under a view-space box; adds its 9 points to {bright, dark, sum} */
+        private void adaptiveVotes(float x, float y, float w, float h, float[] acc) {
             Bitmap pv = showPreview ? preview() : null;
             android.graphics.RectF pr = null;
             if (pv != null && t != null) {
@@ -2146,8 +2149,6 @@ public class WatermarkActivity extends Activity {
             }
             float[] xs = {x, x + w / 2f, x + w, x, x + w / 2f, x + w, x, x + w / 2f, x + w};
             float[] ys = {y, y, y, y + h / 2f, y + h / 2f, y + h / 2f, y + h, y + h, y + h};
-            int bright = 0, dark = 0;
-            double sum = 0;
             for (int i = 0; i < 9; i++) {
                 int c = t.bg;
                 if (pv != null && pr != null && pr.width() > 1f && pr.height() > 1f && pr.contains(xs[i], ys[i])) {
@@ -2158,12 +2159,30 @@ public class WatermarkActivity extends Activity {
                 }
                 double lum = (0.299 * android.graphics.Color.red(c) + 0.587 * android.graphics.Color.green(c)
                         + 0.114 * android.graphics.Color.blue(c)) / 255.0;
-                sum += lum;
-                if (lum > 0.5) bright++; else dark++;
+                acc[2] += lum;
+                if (lum > 0.5) acc[0]++; else acc[1]++;
             }
-            if (bright >= 5) return 1f;      // minority obeys majority (5 of 9 decide)
-            if (dark >= 5) return 0f;
-            return (float) (sum / 9.0);
+        }
+
+        private boolean adaptiveVerdict(float[] v) {
+            if (v[0] != v[1]) return v[0] > v[1];
+            float n = v[0] + v[1];
+            return n > 0 && v[2] / n > 0.5f;
+        }
+
+        /** the preview's single 明暗 decision: same rule as the renderer — all adaptive elements vote */
+        private boolean tone() {
+            if (toneCache != null) return toneCache.booleanValue();
+            float[] acc = new float[3];
+            int voters = 0;
+            if (t != null) for (Watermark.El e : t.els) {
+                if (!Watermark.adapts(e)) continue;
+                adaptiveVotes(card.left + e.x * card.width(), card.top + e.y * card.height(),
+                        Math.max(2f, e.w * card.width()), Math.max(2f, e.h * card.height()), acc);
+                voters++;
+            }
+            toneCache = Boolean.valueOf(voters > 0 && adaptiveVerdict(acc));
+            return toneCache.booleanValue();
         }
 
         /** the same paint the editor draws text with (kept 1:1 with the renderer's metrics) */
@@ -2896,6 +2915,7 @@ public class WatermarkActivity extends Activity {
                 RectF save = new RectF(card);
                 card.set(0, 0, w, h);
                 cv.drawColor(t.bg);
+                toneCache = null;
                 for (int i = 0; i < t.els.size(); i++) drawEl(cv, t.els.get(i), false);
                 card.set(save);
             } catch (Throwable ex) {
