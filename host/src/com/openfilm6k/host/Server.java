@@ -280,6 +280,7 @@ public class Server {
                     for (String k : new String[]{"stamp", "stamp2", "b", "b2", "x", "w", "wb1", "wb2", "wb3", "wm"})
                         if (q.get(k) != null) extras.append(' ').append(k).append('=').append(q.get(k));
                     if (extras.length() > 0) MainActivity.say("ingest stamps:" + extras);
+                    normalizeOrientation(src);      // portrait shots from Sony/Panasonic carry a rotation tag
                     // grab the camera's EXIF (APP1) from the untouched upload BEFORE anything
                     // re-encodes it, then carry it onto the final graded JPEG.
                     byte[] exifApp1 = Exif.app1Of(src);
@@ -527,6 +528,52 @@ public class Server {
 
     /** burn watermark(s) / white-card / collage onto the graded output per the camera's params */
     /** screen-blend the TEXT stamps onto a copy of the ORIGINAL (before grading); returns a temp file, or src when nothing to do */
+
+    /**
+     * Sony / Panasonic (and most compact cameras) store a portrait shot as landscape pixels plus an
+     * EXIF rotation. The rest of the app sizes layouts from the pixel dimensions, so bake the rotation
+     * in at ingest: pixels upright, Orientation set to 1, every other tag untouched.
+     */
+    private static void normalizeOrientation(java.io.File f) {
+        int o = 1;
+        android.graphics.Bitmap up = null;
+        try {
+            byte[] app1 = Exif.app1Of(f);
+            o = Exif.orientation(app1);
+            if (o <= 1 || o > 8) return;
+            android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath());
+            if (bm == null) return;
+            android.graphics.Matrix m = new android.graphics.Matrix();
+            switch (o) {
+                case 2: m.setScale(-1, 1); break;
+                case 3: m.setRotate(180); break;
+                case 4: m.setScale(1, -1); break;
+                case 5: m.setRotate(90); m.postScale(-1, 1); break;
+                case 6: m.setRotate(90); break;
+                case 7: m.setRotate(-90); m.postScale(-1, 1); break;
+                default: m.setRotate(-90); break;
+            }
+            up = android.graphics.Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), m, true);
+            if (up != bm) bm.recycle();
+            java.io.File tmp = new java.io.File(f.getParentFile(), f.getName() + ".rot");
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(tmp);
+            up.compress(android.graphics.Bitmap.CompressFormat.JPEG, 97, fo);
+            fo.close();
+            up.recycle();
+            up = null;
+            byte[] jpg = Exif.readAll(tmp);
+            byte[] fixed = Exif.inject(jpg, Exif.withOrientation(app1, 1));
+            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+            out.write(fixed != null ? fixed : jpg);
+            out.close();
+            tmp.delete();
+            Engine.dbg("ingest: orientation " + o + " baked into " + f.getName());
+        } catch (Throwable t) {
+            if (up != null && !up.isRecycled()) up.recycle();
+            Engine.dbg("ingest: orientation " + o + " left alone: " + t);
+        }
+    }
+
     // ---- H (half-frame) / 2 (double-exposure): paired two-shot ingest ----
 
     /** read exactly {@code len} bytes of the request body into {@code out}; false on a short read */
@@ -567,6 +614,8 @@ public class Server {
             src0.delete(); src1.delete();
             return "ERR short read";
         }
+        normalizeOrientation(src0);
+        if (src1 != null) normalizeOrientation(src1);
         byte[] exifApp1 = Exif.app1Of(src0);
         galDir.mkdirs();
         java.io.File out = new java.io.File(galDir, "graded_" + name);

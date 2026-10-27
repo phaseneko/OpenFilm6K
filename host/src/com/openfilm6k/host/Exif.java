@@ -76,6 +76,49 @@ public class Exif {
             return (double) num / den;
         } catch (Throwable t) { return Double.NaN; }
     }
+
+    /** JPEG Orientation (tag 0x0112) from the APP1 block; 1 when absent or unreadable */
+    static int orientation(byte[] app1) {
+        try {
+            if (app1 == null || app1.length < 12) return 1;
+            int base = 10;
+            boolean le = app1[base] == 'I' && app1[base + 1] == 'I';
+            int ifd0 = (int) (le ? u32le(app1, base + 4) : u32be(app1, base + 4));
+            int e = entryOf(app1, base + ifd0, 0x0112, le);
+            if (e < 0) return 1;
+            int v = le ? u16le(app1, e + 8) : u16be(app1, e + 8);
+            return v >= 1 && v <= 8 ? v : 1;
+        } catch (Throwable t) { return 1; }
+    }
+
+    /** the same APP1 block with Orientation rewritten to {@code o} (no-op when the tag is missing) */
+    static byte[] withOrientation(byte[] app1, int o) {
+        try {
+            if (app1 == null) return null;
+            byte[] out = app1.clone();
+            int base = 10;
+            boolean le = out[base] == 'I' && out[base + 1] == 'I';
+            int ifd0 = (int) (le ? u32le(out, base + 4) : u32be(out, base + 4));
+            int e = entryOf(out, base + ifd0, 0x0112, le);
+            if (e < 0) return out;
+            if (le) { out[e + 8] = (byte) (o & 0xFF); out[e + 9] = 0; }
+            else { out[e + 8] = 0; out[e + 9] = (byte) (o & 0xFF); }
+            return out;
+        } catch (Throwable t) { return app1; }
+    }
+
+    /** byte offset of the 12-byte entry for `tag` in the IFD at ifdOff, or -1 */
+    private static int entryOf(byte[] b, int ifdOff, int tag, boolean le) {
+        if (ifdOff < 0 || ifdOff + 2 > b.length) return -1;
+        int n = le ? u16le(b, ifdOff) : u16be(b, ifdOff);
+        for (int i = 0, e = ifdOff + 2; i < n; i++, e += 12) {
+            if (e + 12 > b.length) return -1;
+            int tg = le ? u16le(b, e) : u16be(b, e);
+            if (tg == tag) return e;
+        }
+        return -1;
+    }
+
     /** value/offset field (4 bytes) of `tag` in the IFD at ifdOff, or -1 */
     private static int findTag(byte[] b, int ifdOff, int tag, boolean le) {
         if (ifdOff < 0 || ifdOff + 2 > b.length) return -1;
