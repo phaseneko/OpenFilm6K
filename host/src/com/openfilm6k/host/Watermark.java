@@ -441,16 +441,24 @@ final class Watermark {
      * keeps both margins when the axis grows (bars / bands) or its size and centre when it shrinks;
      * otherwise it keeps its size and its distance to the nearer edge.
      */
+    /**
+     * Re-layout a template for a portrait card.
+     *
+     * The landscape card is the ground truth: how an element is pinned (start edge, end edge, centred,
+     * or stretched across the axis) is decided ONCE from the landscape numbers and never re-derived
+     * after scaling. Two siblings therefore cannot swap sides or drift apart, whatever unit is chosen.
+     * The unit only scales sizes: it is the mean of the card's short edge and its width, i.e. half-way
+     * between "everything by the short edge" and "everything by the width".
+     */
     static List<El> mapPortrait(List<El> els, float ar) {
-        // unit = mean of the short edge and the card width, so the portrait card sits half-way between
-        // "everything scaled by the short edge" and "everything scaled by the width" (both were too far)
-        float k = 2f / (1f + ar);
-        final float lx0 = ar * k, ly0 = k, lx1 = 1f, ly1 = ar;
+        float k = 2f / (1f + ar);                 // design length unit = k * landscape short edge
+        final float lx1 = 1f, ly1 = ar;           // portrait card: width 1 unit, height ar units
+        final float eps = 0.01f, tol = 0.02f;     // both measured on the LANDSCAPE card
         List<El> out = new ArrayList<El>(els.size());
         for (El e : els) {
             El m = copyEl(e);
             // a photo / image lives in its crop viewport: map the VIEWPORT (so an inset photo keeps
-            // its bars in short-edge units) and make the element box the viewport itself
+            // its bars) and make the element box the viewport itself
             boolean cropped = ("photo".equals(e.type) || "img".equals(e.type))
                     && (e.cx0 > 0.001f || e.cy0 > 0.001f || e.cx1 < 0.999f || e.cy1 < 0.999f);
             float bx = e.x, by = e.y, bw = e.w, bh = e.h;
@@ -459,37 +467,35 @@ final class Watermark {
                 bw = (e.cx1 - e.cx0) * e.w; bh = (e.cy1 - e.cy0) * e.h;
                 m.cx0 = 0f; m.cy0 = 0f; m.cx1 = 1f; m.cy1 = 1f;
             }
-            // the main photo is the flexible part of a layout: when it takes most of an axis, keep
-            // BOTH margins so the band fills the extra space instead of leaving a gap
-            boolean big = cropped || "photo".equals(e.type) || "img".equals(e.type);
-            float[] hx = axisFit(bx * lx0, bw * lx0, lx0, lx1, big && bw >= 0.5f);
-            float[] vy = axisFit(by * ly0, bh * ly0, ly0, ly1, big && bh >= 0.5f);
+            boolean photo = "photo".equals(e.type) || "img".equals(e.type);
+            // landscape margins (short-edge units): x axis spans ar, y axis spans 1
+            float[] hx = place(bx * ar, bw * ar, ar, lx1, k, ar, photo, eps, tol);
+            float[] vy = place(by, bh, 1f, ly1, k, ar, photo, eps, tol);
             m.x = hx[0] / lx1; m.w = hx[1] / lx1;
             m.y = vy[0] / ly1; m.h = vy[1] / ly1;
-            m.size = e.size * k / ar;          // text size is a fraction of the canvas HEIGHT
+            m.size = e.size * k / ar;          // text size follows the unit, not the box
             out.add(m);
         }
         return out;
     }
 
-    /** {start, length} of a box [a, a+s] on an axis that goes from L0 to L1 (same units) */
-    static float[] axisFit(float a, float s, float L0, float L1) { return axisFit(a, s, L0, L1, false); }
-
-    static float[] axisFit(float a, float s, float L0, float L1, boolean fill) {
-        final float eps = 0.03f;               // this close to both edges = a stretched box
+    /**
+     * Place one element on one axis. {@code a,s} and {@code L0} are the landscape geometry; the pin is
+     * decided there and only the sizes are converted with {@code k} into the portrait axis of length
+     * {@code L1}. A photo that dominates its axis keeps both margins so the band absorbs the extra room.
+     */
+    static float[] place(float a, float s, float L0, float L1, float k, float ar,
+                         boolean photo, float eps, float tol) {
         float m1 = a, m2 = L0 - a - s;
-        if (m1 <= eps && m2 <= eps) return new float[]{0f, L1};
-        // a fixed small tolerance: a box authored roughly centred stays centred, but a box that merely
-        // happens to sit between two wide margins keeps its start edge (so siblings stay aligned)
-        float tol = 0.02f;
-        if (fill || Math.abs(m1 - m2) <= tol) {        // symmetric: keep both margins, else size + centre
-            if (L1 >= L0) return new float[]{m1, L1 - m1 - m2};
-            return new float[]{(L1 - s) / 2f, s};
+        if (m1 <= eps && m2 <= eps) return new float[]{0f, L1};                    // spans the axis
+        if (photo && s >= 0.5f * L0) return new float[]{m1 * k, L1 - (m1 + m2) * k};   // band: keep margins
+        if (Math.abs(m1 - m2) <= tol) {                                            // centred in the design
+            float c = (m1 + s / 2f) / L0;
+            return new float[]{c * L1 - s * k / 2f, s * k};
         }
-        if (m1 < m2) return new float[]{m1, s};            // nearer the start edge
-        return new float[]{L1 - m2 - s, s};                // nearer the end edge
+        if (m1 < m2) return new float[]{m1 * k, s * k};                            // pinned to the start edge
+        return new float[]{L1 - m2 * k - s * k, s * k};                            // pinned to the end edge
     }
-
 
     /** Overwrites {@code graded} with the composited card; returns its path. Never throws. */
     static String render(File graded, File src, String film, String id) {
