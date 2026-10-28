@@ -175,6 +175,7 @@ class Logo {
      */
     static Bitmap adapt(Bitmap src, boolean bgBright, String slug) {
         if (src == null) return null;
+        if (src == OWN) return src;                                  // the app's own wordmark is never flipped
         if (slug != null && KEEP_AS_IS.contains(slug)) return src;   // badge / solid block: hands off
         String key = System.identityHashCode(src) + (bgBright ? "#B" : "#D");
         Bitmap c = ADAPT.get(key);
