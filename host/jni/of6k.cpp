@@ -1168,7 +1168,7 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             glUniform2f(glGetUniformLocation(g_progHdfPrep, "uRes"), (float) w, (float) h);
             glUniform2f(glGetUniformLocation(g_progHdfPrep, "uOrigin"), g_ox, g_oy);
             glUniform2f(glGetUniformLocation(g_progHdfPrep, "uFull"), (float) g_fw, (float) g_fh);
-            setU(g_progHdfPrep, "uTh", 0.95f); setU(g_progHdfPrep, "uTh2", 1.0f);
+            setU(g_progHdfPrep, "uTh", 0.995f); setU(g_progHdfPrep, "uTh2", 0.999f);   // same highlight gate as the CS-800T film glow
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, cur);
             glUniform1i(glGetUniformLocation(g_progHdfPrep, "uTex"), 0);
@@ -1188,7 +1188,7 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
             glUniform2f(glGetUniformLocation(g_progHdf, "uRes"), (float) w, (float) h);
             glUniform2f(glGetUniformLocation(g_progHdf, "uOrigin"), g_ox, g_oy);
             glUniform2f(glGetUniformLocation(g_progHdf, "uFull"), (float) g_fw, (float) g_fh);
-            setU(g_progHdf, "uK", P[3] > 0.0f ? P[3] : 0.75f);   // strength reduced by a quarter
+            setU(g_progHdf, "uK", P[3] > 0.0f ? P[3] : 0.6f);   // strength reduced by a quarter
             setU(g_progHdf, "uG", P[4] > 0.0f ? P[4] : 5.0f);     // gentler curve -> even softer falloff
             glActiveTexture(GL_TEXTURE0);
             glDrawArrays(GL_TRIANGLES, 0, 3);
