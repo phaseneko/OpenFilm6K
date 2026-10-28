@@ -247,14 +247,23 @@ public class RewindSync {
         pf.edit().putString("rewind_cfg_hash", hash).putString("rewind_cfg_ip", ip).commit();
     }
 
+    /** the film name as the camera may keep it: the head rewrites ' ', '&' and friends to '-' */
+    static String camName(String film) {
+        if (film == null) return "";
+        String t = film.trim().toUpperCase(Locale.US).replaceAll("[^A-Z0-9_.-]", "-");
+        t = t.replaceAll("-{2,}", "-").replaceAll("^[-.]+|[-.]+$", "");
+        return t.length() == 0 ? "FILM" : t;
+    }
+
     /** the ONLY per-slot value the camera accepts: the slot label, i.e. "C1-<film>" (no border) */
     static String slotLabel(int idx) {
         int n = idx + 1;
-        SharedPreferences pf = prefs();
-        String film = pf.getString("rewind_film" + n, "");
+        String film = prefs().getString("rewind_film" + n, "");
         if (film == null || film.trim().length() == 0) film = "FILM" + n;
-        String s = ("C" + n + "-" + film).toUpperCase(Locale.US).replaceAll("[^A-Z0-9_. -]", "-").trim();
-        if (s.length() > 40) s = s.substring(0, 40);
+        // a space cannot be sent: the camera stores the label in a 64-byte field and rebuilds the
+        // shot name from it, turning ' ' and '&' into '-' — send that form so the label round-trips
+        String s = ("C" + n + "-" + camName(film));
+        if (s.length() > 32) s = s.substring(0, 32);   // that 64-byte path leaves ~33 chars for the name
         return s;
     }
 
@@ -269,9 +278,15 @@ public class RewindSync {
                 && s.charAt(1) == '-') {
             return s.charAt(0) - '1';                 // current 1-FILM filenames
         }
+        // no slot head in the name: compare the film name in the form the camera would keep
+        String body = s;
+        if (body.length() > 3 && body.charAt(0) == 'C' && body.charAt(2) == '-') body = body.substring(3);
+        else if (body.length() > 2 && body.charAt(0) >= '1' && body.charAt(0) <= '3'
+                && body.charAt(1) == '-') body = body.substring(2);
         String[] f = films();
         for (int i = 0; i < f.length; i++) {
-            if (f[i] != null && s.equalsIgnoreCase(f[i].trim().toUpperCase(Locale.US))) return i;
+            if (f[i] != null && (body.equalsIgnoreCase(camName(f[i]))
+                    || s.equalsIgnoreCase(camName(f[i])))) return i;
         }
         return -1;
     }
