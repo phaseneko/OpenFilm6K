@@ -30,9 +30,15 @@ java -cp "$BT/lib/d8.jar" com.android.tools.r8.D8 --release --min-api 24 --lib "
 # native engine (C++ core, same GLSL as Java path)
 CXX="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
 mkdir -p out/apklib/lib/arm64-v8a
-"$CXX" -std=c++17 -O2 -shared -fPIC -static-libstdc++ -o out/apklib/lib/arm64-v8a/libof6k.so jni/of6k.cpp jni/turbo/libturbojpeg.a -lEGL -lGLESv3 -llog
+NCNN="$HOME/dnwork/sdk/ncnn-20261020-android-vulkan/arm64-v8a"
+"$CXX" -std=c++17 -O2 -shared -fPIC -fopenmp -static-openmp -I"$NCNN/include" -o out/apklib/lib/arm64-v8a/libof6k.so \
+  jni/of6k.cpp jni/denoise.cpp jni/turbo/libturbojpeg.a -Wl,--start-group \
+  "$NCNN/lib/libncnn.a" "$NCNN/lib/libglslang.a" "$NCNN/lib/libglslang-default-resource-limits.a" \
+  "$NCNN/lib/libMachineIndependent.a" "$NCNN/lib/libOSDependent.a" "$NCNN/lib/libSPIRV.a" "$NCNN/lib/libGenericCodeGen.a" \
+  -Wl,--end-group -lEGL -lGLESv3 -llog -landroid -lz -ldl
 test -s out/apklib/lib/arm64-v8a/libof6k.so || { echo "FATAL: libof6k.so not built"; exit 1; }
-( cd out/apklib && "$BT/aapt" add ../unaligned.apk lib/arm64-v8a/libof6k.so >/dev/null )
+cp "$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" out/apklib/lib/arm64-v8a/ || { echo "FATAL: libc++_shared missing"; exit 1; }
+( cd out/apklib && "$BT/aapt" add ../unaligned.apk lib/arm64-v8a/libof6k.so lib/arm64-v8a/libc++_shared.so >/dev/null )
 # film assets ride in via aapt2 link -A above (aapt add entries are invisible to AssetManager)
 
 "$BT/zipalign" -f 4 out/unaligned.apk out/aligned.apk

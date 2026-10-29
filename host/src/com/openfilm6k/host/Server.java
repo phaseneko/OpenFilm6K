@@ -138,7 +138,9 @@ public class Server {
 
     static Server get() { return I; }
     private volatile boolean up = false;
-    private static android.content.Context ctx;   // app context, for the stamp typeface
+    private static android.content.Context ctx;
+    private static final java.util.concurrent.ExecutorService camWork =
+            java.util.concurrent.Executors.newSingleThreadExecutor();   // app context, for the stamp typeface
 
     /** One-time cleanup for builds that used to keep the upload + a graded copy under
      *  OpenFilm6K/camera/. Those JPEGs were indexed by MediaStore as a second "camera" album
@@ -183,6 +185,7 @@ public class Server {
     void start(android.content.Context c) {
         ctx = c.getApplicationContext();
         if (versionNeedsInstall(ctx)) installAssets(null);   // overwrite once per APK version, silent (service boots)
+        Denoise.install(ctx);
         start();
     }
 
@@ -276,98 +279,15 @@ public class Server {
                 fo.close();
                 if (left > 0) { src.delete(); resp = "ERR short read"; }
                 else {
-                    StringBuilder extras = new StringBuilder();
-                    for (String k : new String[]{"stamp", "stamp2", "b", "b2", "x", "w", "wb1", "wb2", "wb3", "wm"})
-                        if (q.get(k) != null) extras.append(' ').append(k).append('=').append(q.get(k));
-                    if (extras.length() > 0) MainActivity.say("ingest stamps:" + extras);
-                    normalizeOrientation(src);      // portrait shots from Sony/Panasonic carry a rotation tag
-                    // grab the camera's EXIF (APP1) from the untouched upload BEFORE anything
-                    // re-encodes it, then carry it onto the final graded JPEG.
-                    byte[] exifApp1 = Exif.app1Of(src);
-                    if (exifApp1 == null) Engine.dbg("ingest: source carries no APP1/EXIF: " + name);
-                    // render straight into the gallery album: one output file, no second copy
-                    galDir.mkdirs();
-                    java.io.File out = new java.io.File(galDir, "graded_" + name);
-                    String post = q.get("post");
-                    String leakdust = postSubset(post, "leak", "dust", "veiling", "softfocus", "hdf");   // exposure overlays: composited BEFORE the pipeline
-                    String scratch = postSubset(post, "scratch");         // surface overlay: output-level, before any photo frame
-                    String photoOnly = postSubset(leakdust, "dust", "veiling", "softfocus", "hdf");   // lens imaging -> photo only
-                    String leakOnly = postSubset(leakdust, "leak");               // film-base exposure -> whole canvas
-                    boolean isX = q.get("x") != null;
-                    boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null);
-                    boolean filmBorder = isFilmBorder(q);
-                    boolean wmCard = q.get("wm") != null && !q.get("wm").trim().isEmpty();   // custom watermark template
-                    // dust/veiling are lens imaging: apply them to the clean photo BEFORE the date print, otherwise the
-                    // bright printed digits would themselves be picked up as highlights and grow dust around them
-                    java.io.File dusted = src;
-                    if (!photoOnly.isEmpty()) {
-                        java.io.File dv = new java.io.File(workDir, "dv_" + name);
-                        String rd = Engine.get().applyPost(src.getAbsolutePath(), dv.getAbsolutePath(), photoOnly);
-                        if (rd != null && !rd.equals(src.getAbsolutePath()) && new java.io.File(rd).exists()) dusted = new java.io.File(rd);
-                    }
-                    // render order: watermark goes onto the ORIGINAL right after capture, BEFORE all our grading passes
-                    java.io.File pipeIn = wmCard ? dusted : textStampOriginal(dusted, src, q);   // templates draw their own text, after grading
-                    if (dusted != src && dusted != pipeIn) dusted.delete();
-                    String r = null;
-                    if (isX) {   // X collage: each of the 4 films gets its own overlay; the card frame is last
-                        r = collagePost(pipeIn, film, leakOnly, scratch, out);
-                        if (pipeIn != src) pipeIn.delete();
-                    } else {
-                    if (filmBorder) {   // place the (already dusted) photo on the final-res black canvas
-                        pipeIn = buildBorderCanvas(pipeIn, workDir, name, q, null);
-                        if (!leakOnly.isEmpty()) {
-                            java.io.File ov = new java.io.File(workDir, "ov_" + name);
-                            String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakOnly);
-                            if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
-                        }
-                    } else if (!leakOnly.isEmpty()) {   // leak joins the film exposure -> graded by the pipeline
-                        java.io.File ov = new java.io.File(workDir, "ov_" + name);
-                        String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakOnly);
-                        if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
-                    }
-                    r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
-                    if (pipeIn != src) pipeIn.delete();
-                    if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
-                        if (wmCard) {                                                // custom card: post already on the photo, card composited after grading
-                            if (!scratch.isEmpty()) r = scratchColorized(out, film, scratch);
-                            r = Watermark.render(out, src, film, q.get("wm"));
-                        } else if (filmBorder) { r = screenBorderLayer(out, src, film, q); if (!scratch.isEmpty()) r = scratchOverBorder(new java.io.File(r), film, scratch); }   // border screen, then the film scratch (kept out of the sprocket holes)
-                        else if (photoFrame) {                                       // B1/WB1: scratch first, then the frame on top
-                            if (!scratch.isEmpty()) r = scratchColorized(out, film, scratch);
-                            r = stamped(out, src, film, q);
-                        } else {                                                     // borderless / W: output-level scratch after everything
-                            r = stamped(out, src, film, q);
-                            if (!scratch.isEmpty() && r != null && !r.startsWith("ERR"))
-                                r = scratchColorized(new java.io.File(r), film, scratch);
-                        }
-                    }
-                    }
-                    // EXIF goes on last, so it survives the engine's encode AND the white-card/collage frame
-                    if (exifApp1 != null && r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
-                        Exif.carryBytes(out, exifApp1);
-                    resp = r != null && r.startsWith("ERR") == false && new java.io.File(r).exists()
-                            ? "OK " + out.getName() : "ERR render " + r;
-
-                    // update the standing notification from the scan callback — the URI the app hands us
-                    // flow hands us there is registered AND grantable, unlike a racing sync query
-                    try {
-                        final String filmF = film;
-                        final String expoF = readExposure(src);
-                        final String timeF = readTime(src);
-                        final android.graphics.Bitmap thumbF = decodeThumb(new java.io.File(r));
-                        final String gpath = out.getAbsolutePath();
-                        android.media.MediaScannerConnection.scanFile(ctx,
-                            new String[]{gpath}, new String[]{"image/jpeg"},
-                            new android.media.MediaScannerConnection.OnScanCompletedListener() {
-                                public void onScanCompleted(String p, android.net.Uri u) {
-                                    try { HostService.photoInfo(filmF, expoF, timeF, thumbF, u); }
-                                    catch (Throwable t2) { MainActivity.say("notif: " + t2); }
-                                }
-                            });
-                    } catch (Throwable t3) { MainActivity.say("notif prep: " + t3); }
-                    // the original has served its purpose (EXIF, collage, notification): drop it now
-                    // that the notification has already read it, so the scratch dir keeps no JPEGs
-                    if (src.exists()) src.delete();
+                    // keep the http thread free: denoise + grading run on the camera worker so /ping
+                    // and the next upload are answered immediately
+                    final java.io.File fsrc = src;
+                    final java.util.HashMap<String,String> fq = new java.util.HashMap<String,String>(q);
+                    final String ff = film, fn = name;
+                    RenderQueue.submit("cam", new RenderQueue.Job() { public void run() throws Throwable {
+                        processCameraUpload(fsrc, fq, ff, fn);
+                    }});
+                    resp = "OK";
                 }
             }
         }
@@ -602,7 +522,118 @@ public class Server {
      *  {@code mode=half|double&film0=&film1=&name=&len0=&len1=}; body = JPEG0 then JPEG1.
      *  Each frame is graded with its own film, then handed to composePair(), which writes the
      *  single final image. Output: one {@code graded_<name>.jpg} in the album. */
+
+    /** camera /ingest background half: normalize -> denoise -> post -> grade -> album + notification.
+     *  Runs on camWork (single thread) so the http loop stays responsive for /ping and new uploads. */
+    private void processCameraUpload(java.io.File srcF, java.util.HashMap<String,String> q, String film, String name) {
+        java.io.File src = srcF;
+        try {
+        StringBuilder extras = new StringBuilder();
+        for (String k : new String[]{"stamp", "stamp2", "b", "b2", "x", "w", "wb1", "wb2", "wb3", "wm"})
+            if (q.get(k) != null) extras.append(' ').append(k).append('=').append(q.get(k));
+        if (extras.length() > 0) MainActivity.say("ingest stamps:" + extras);
+        normalizeOrientation(src);      // portrait shots from Sony/Panasonic carry a rotation tag
+        // grab the camera's EXIF (APP1) from the untouched upload BEFORE anything
+        // re-encodes it, then carry it onto the final graded JPEG.
+        byte[] exifApp1 = Exif.app1Of(src);
+        if (exifApp1 == null) Engine.dbg("ingest: source carries no APP1/EXIF: " + name);
+        java.io.File dnFile = Denoise.maybe(ctx, src, "cam", exifApp1);
+        java.io.File srcOrig = src;
+        if (dnFile != null) src = dnFile;
+        // render straight into the gallery album: one output file, no second copy
+        galDir.mkdirs();
+        java.io.File out = new java.io.File(galDir, "graded_" + name);
+        String post = q.get("post");
+        String leakdust = postSubset(post, "leak", "dust", "veiling", "softfocus", "hdf");   // exposure overlays: composited BEFORE the pipeline
+        String scratch = postSubset(post, "scratch");         // surface overlay: output-level, before any photo frame
+        String photoOnly = postSubset(leakdust, "dust", "veiling", "softfocus", "hdf");   // lens imaging -> photo only
+        String leakOnly = postSubset(leakdust, "leak");               // film-base exposure -> whole canvas
+        boolean isX = q.get("x") != null;
+        boolean photoFrame = (q.get("b") != null) || (q.get("wb1") != null);
+        boolean filmBorder = isFilmBorder(q);
+        boolean wmCard = q.get("wm") != null && !q.get("wm").trim().isEmpty();   // custom watermark template
+        // dust/veiling are lens imaging: apply them to the clean photo BEFORE the date print, otherwise the
+        // bright printed digits would themselves be picked up as highlights and grow dust around them
+        java.io.File dusted = src;
+        if (!photoOnly.isEmpty()) {
+            java.io.File dv = new java.io.File(workDir, "dv_" + name);
+            String rd = Engine.get().applyPost(src.getAbsolutePath(), dv.getAbsolutePath(), photoOnly);
+            if (rd != null && !rd.equals(src.getAbsolutePath()) && new java.io.File(rd).exists()) dusted = new java.io.File(rd);
+        }
+        // render order: watermark goes onto the ORIGINAL right after capture, BEFORE all our grading passes
+        java.io.File pipeIn = wmCard ? dusted : textStampOriginal(dusted, src, q);   // templates draw their own text, after grading
+        if (dusted != src && dusted != pipeIn) dusted.delete();
+        String r = null;
+        if (isX) {   // X collage: each of the 4 films gets its own overlay; the card frame is last
+            r = collagePost(pipeIn, film, leakOnly, scratch, out);
+            if (pipeIn != src) pipeIn.delete();
+        } else {
+        if (filmBorder) {   // place the (already dusted) photo on the final-res black canvas
+            pipeIn = buildBorderCanvas(pipeIn, workDir, name, q, null);
+            if (!leakOnly.isEmpty()) {
+                java.io.File ov = new java.io.File(workDir, "ov_" + name);
+                String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakOnly);
+                if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
+            }
+        } else if (!leakOnly.isEmpty()) {   // leak joins the film exposure -> graded by the pipeline
+            java.io.File ov = new java.io.File(workDir, "ov_" + name);
+            String rr = Engine.get().applyPost(pipeIn.getAbsolutePath(), ov.getAbsolutePath(), leakOnly);
+            if (rr != null && !rr.equals(pipeIn.getAbsolutePath()) && new java.io.File(rr).exists()) pipeIn = new java.io.File(rr);
+        }
+        r = Engine.get().process(pipeIn.getAbsolutePath(), film, out.getAbsolutePath());
+        if (pipeIn != src) pipeIn.delete();
+        if (r != null && !r.startsWith("ERR") && new java.io.File(r).exists()) {
+            if (wmCard) {                                                // custom card: post already on the photo, card composited after grading
+                if (!scratch.isEmpty()) r = scratchColorized(out, film, scratch);
+                r = Watermark.render(out, src, film, q.get("wm"));
+            } else if (filmBorder) { r = screenBorderLayer(out, src, film, q); if (!scratch.isEmpty()) r = scratchOverBorder(new java.io.File(r), film, scratch); }   // border screen, then the film scratch (kept out of the sprocket holes)
+            else if (photoFrame) {                                       // B1/WB1: scratch first, then the frame on top
+                if (!scratch.isEmpty()) r = scratchColorized(out, film, scratch);
+                r = stamped(out, src, film, q);
+            } else {                                                     // borderless / W: output-level scratch after everything
+                r = stamped(out, src, film, q);
+                if (!scratch.isEmpty() && r != null && !r.startsWith("ERR"))
+                    r = scratchColorized(new java.io.File(r), film, scratch);
+            }
+        }
+        }
+        // EXIF goes on last, so it survives the engine's encode AND the white-card/collage frame
+        if (exifApp1 != null && r != null && !r.startsWith("ERR") && new java.io.File(r).exists())
+            Exif.carryBytes(out, exifApp1);
+        String camResult = r != null && r.startsWith("ERR") == false && new java.io.File(r).exists()
+                ? "OK " + out.getName() : "ERR render " + r;
+        if (!camResult.startsWith("OK")) { Engine.dbg("cam render: " + camResult); MainActivity.say("render: " + camResult); }
+
+        // update the standing notification from the scan callback — the URI the app hands us
+        // flow hands us there is registered AND grantable, unlike a racing sync query
+        try {
+            final String filmF = film;
+            final String expoF = readExposure(src);
+            final String timeF = readTime(src);
+            final android.graphics.Bitmap thumbF = decodeThumb(new java.io.File(r));
+            final String gpath = out.getAbsolutePath();
+            android.media.MediaScannerConnection.scanFile(ctx,
+                new String[]{gpath}, new String[]{"image/jpeg"},
+                new android.media.MediaScannerConnection.OnScanCompletedListener() {
+                    public void onScanCompleted(String p, android.net.Uri u) {
+                        try { HostService.photoInfo(filmF, expoF, timeF, thumbF, u); }
+                        catch (Throwable t2) { MainActivity.say("notif: " + t2); }
+                    }
+                });
+        } catch (Throwable t3) { MainActivity.say("notif prep: " + t3); }
+        // the original has served its purpose (EXIF, collage, notification): drop it now
+        // that the notification has already read it, so the scratch dir keeps no JPEGs
+        if (src.exists()) src.delete();
+        if (srcOrig != src && srcOrig.exists()) srcOrig.delete();
+        } catch (Throwable t) {
+            Engine.dbg("cam upload failed " + name + ": " + t);
+            MainActivity.say("ingest failed: " + t);
+            try { if (src != null && src.exists()) src.delete(); } catch (Throwable ig) {}
+        }
+    }
+
     private String ingestPair(java.io.InputStream raw, Map<String,String> q) {
+        java.io.File cpair0 = null, cpair1 = null;
         String mode = q.get("mode"), film0 = q.get("film0"), film1 = q.get("film1"), name = q.get("name");
         long len0 = parseLen(q.get("len0")), len1 = parseLen(q.get("len1"));
         if (mode == null || film0 == null || film1 == null || name == null || len0 <= 0 || len1 <= 0)
@@ -617,6 +648,10 @@ public class Server {
         normalizeOrientation(src0);
         if (src1 != null) normalizeOrientation(src1);
         byte[] exifApp1 = Exif.app1Of(src0);
+        cpair0 = Denoise.maybe(ctx, src0, "cam", exifApp1);
+        if (cpair0 != null) src0 = cpair0;
+        cpair1 = Denoise.maybe(ctx, src1, "cam", null);
+        if (cpair1 != null) src1 = cpair1;
         galDir.mkdirs();
         java.io.File out = new java.io.File(galDir, "graded_" + name);
         // post-process on a pair: the lens imaging (dust / veiling / soft focus / HDF) and the film-base
@@ -672,6 +707,8 @@ public class Server {
         } catch (Throwable t3) { MainActivity.say("notif prep: " + t3); }
         src0.delete(); src1.delete();
         for (java.io.File t : ptmp) if (t != null && t.exists()) t.delete();
+        if (cpair0 != null && cpair0.exists()) cpair0.delete();
+        if (cpair1 != null && cpair1.exists()) cpair1.delete();
         return ok ? "OK " + out.getName() : "ERR " + r;
     }
 
@@ -970,10 +1007,16 @@ public class Server {
 
     /** spy mode: run the ingest pipeline on a local file — arrival-time stamps built host-side, output into the DCIM album */
     static String spyIngest(java.io.File src, String film, int mode, String post) {
-        return spyIngest(src, film, mode, post, null);
+        return spyIngest(src, film, mode, post, null, "spy");
     }
 
     static String spyIngest(java.io.File src, String film, int mode, String post, String wmId) {
+        return spyIngest(src, film, mode, post, wmId, "spy");
+    }
+
+    static String spyIngest(java.io.File src, String film, int mode, String post, String wmId, String srcMode) {
+        java.io.File dnFile = null;
+        java.io.File srcOrig = src;
         try {
             java.util.HashMap<String,String> q = new java.util.HashMap<>();
             if (wmId != null && wmId.length() > 0) q.put("wm", wmId);   // custom watermark card (mode 15)
@@ -998,6 +1041,8 @@ public class Server {
             }
             if (post != null && post.length() > 0) q.put("post", post);
             byte[] exifApp1 = Exif.app1Of(src);
+            dnFile = Denoise.maybe(ctx, src, srcMode, exifApp1);
+            if (dnFile != null) src = dnFile;
             galDir.mkdirs();
             java.io.File out = new java.io.File(galDir, "graded_" + base + ".jpg");
             String leakdust = postSubset(post, "leak", "dust", "veiling", "softfocus", "hdf");
@@ -1063,6 +1108,7 @@ public class Server {
             boolean ok = r != null && !r.startsWith("ERR") && new java.io.File(r).exists();
             return ok ? "OK " + out.getName() : "ERR " + r;
         } catch (Throwable t) { return "ERR " + t; }
+        finally { try { if (dnFile != null && dnFile.exists()) dnFile.delete(); } catch (Throwable ig) {} }
     }
 
     /** spy pair ingest (半格/双重曝光): two arrived files compose into ONE graded image.
@@ -1077,6 +1123,12 @@ public class Server {
      *  each exposure before grading; scratch is a film-surface overlay on the composed frame. */
     static String spyPairIngest(java.io.File src0, java.io.File src1, String film0, String film1,
                                 boolean half, String post) {
+        return spyPairIngest(src0, src1, film0, film1, half, post, "spy");
+    }
+
+    static String spyPairIngest(java.io.File src0, java.io.File src1, String film0, String film1,
+                                boolean half, String post, String srcMode) {
+        java.io.File pairDn0 = null, pairDn1 = null;
         try {
             if (film0 == null || film0.length() == 0) film0 = "LK-200";
             if (film1 == null || film1.length() == 0) film1 = film0;
@@ -1084,6 +1136,10 @@ public class Server {
             String name = src0.getName();
             String base = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
             byte[] exifApp1 = Exif.app1Of(src0);
+            pairDn0 = Denoise.maybe(ctx, src0, srcMode, exifApp1);
+            if (pairDn0 != null) src0 = pairDn0;
+            pairDn1 = Denoise.maybe(ctx, src1, srcMode, null);
+            if (pairDn1 != null) src1 = pairDn1;
             String lens = postSubset(post, "dust", "veiling", "softfocus", "hdf");
             String leak = postSubset(post, "leak");
             String scratch = postSubset(post, "scratch");

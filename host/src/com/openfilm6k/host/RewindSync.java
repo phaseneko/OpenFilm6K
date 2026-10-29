@@ -55,8 +55,13 @@ public class RewindSync {
     private static volatile boolean baselineThisRun;
     private static volatile long beaconAt;
     private static volatile long lastCfgPushAt;
-    private static volatile int progressDone, progressTotal;
+    private static volatile int progressDone, progressTotal;   // pull (download) progress, legacy getters kept
     private static volatile String progressName = "";
+    private static volatile int pullDone, pullTotal;
+    private static volatile String pullName = "";
+    private static volatile int renderDone, renderTotal;
+    private static volatile String renderName = "";
+    private static volatile boolean rendering = false;
 
     private Thread thread;
     private static Context ctx;
@@ -171,15 +176,26 @@ public class RewindSync {
     /** one-line camera/status summary for the Rewind dialog */
     static String statusLine() {
         String cam = camIp != null ? camIp : L.s("rewindNotFound");
-        String st = status == null ? "" : status.replace('\n', ' ').replace('\r', ' ');
+        // while the render queue still has this batch, report the queue instead of the pull status
+        // (the 8 s sync loop would otherwise keep resetting it to "Pulled N")
+        String st;
+        if (rendering)
+            st = L.s("rewindRender") + " " + Math.min(renderDone + 1, Math.max(renderTotal, 1)) + "/" + renderTotal
+                    + (renderName.length() == 0 ? "" : "  " + renderName);
+        else
+            st = status == null ? "" : status;
+        st = st.replace('\n', ' ').replace('\r', ' ');
         return L.s("rewindCamera") + ": " + cam + "   " + L.s("rewindStatus") + ": " + st;
     }
 
     static int[] progress() {
-        return new int[]{progressDone, progressTotal};
+        return rendering ? new int[]{renderDone, renderTotal} : new int[]{pullDone, pullTotal};
     }
 
-    static String progressName() { return progressName == null ? "" : progressName; }
+    static String progressName() {
+        String n = rendering ? renderName : pullName;
+        return n == null ? "" : n;
+    }
 
     // ---------------------------------------------------------------- camera discovery
 
@@ -370,9 +386,9 @@ public class RewindSync {
             status = L.s("rewindBaseline") + " " + n;
             return;
         }
-        progressDone = 0;
-        progressTotal = 0;
-        progressName = "";
+        pullDone = 0;
+        pullTotal = 0;
+        pullName = "";
 
         // Pairing state must be loaded before any download/reset decision.
         String pendingFpath = pf.getString("rewind_pair_fpath", null);
@@ -385,7 +401,8 @@ public class RewindSync {
 
         // Download the whole batch first.  Rendering can take a while; the camera may drop
         // Wi-Fi after the last transfer, so reset the roll while it is still serving files.
-        ArrayList<Item> items = new ArrayList<Item>();
+        // Pass 1: what is actually new (count first, so the progress bar knows the total).
+        ArrayList<String[]> todo = new ArrayList<String[]>();
         while (m.find()) {
             String block = m.group(1);
             String fpath = tag(block, "FPATH");
@@ -396,10 +413,19 @@ public class RewindSync {
             if (!un.endsWith(".JPG") && !un.endsWith(".JPEG")) continue;
             if (pendingFpath != null && fpath.equals(pendingFpath)) continue;
             if (seen.contains(fpath)) continue;
+            todo.add(new String[]{fpath, name});
+        }
+        ArrayList<Item> items = new ArrayList<Item>();
+        pullDone = 0;
+        pullTotal = todo.size();
+        for (String[] ent : todo) {
+            String fpath = ent[0], name = ent[1];
+            pullName = name;
+            status = L.s("rewindPulling") + " " + (pullDone + 1) + "/" + pullTotal;
             File dest = new File(dir, name);
             try {
                 download(ip, fpath, dest);
-                if (dest.length() == 0) { dest.delete(); continue; }
+                if (dest.length() == 0) { dest.delete(); pullDone++; continue; }
                 Item it = new Item();
                 it.fpath = fpath;
                 it.name = name;
@@ -409,14 +435,21 @@ public class RewindSync {
                 it.wm = pf.getString("rewind_wm" + it.combo, "");
                 it.post = pf.getString("rewind_post" + it.combo, "");
                 items.add(it);
+                seen.add(fpath);   // downloaded = seen, so the 8 s sync loop never re-fetches it while
+                                   // the render queue is still busy (a failed render removes it again)
             } catch (Throwable t) {
                 dest.delete();
                 status = "ERR " + name + ": " + t;
             }
+            pullDone++;
         }
+        if (!todo.isEmpty()) status = L.s("rewindPulling") + " " + pullTotal + "/" + pullTotal;
+
+        pf.edit().putStringSet("rewind_seen", seen).commit();   // persist BEFORE rendering (queue is async)
 
         boolean resetDone = false;
         if (!items.isEmpty() || pf.getBoolean("rewind_roll_pending", false)) {
+            status = L.s("rewindReload");
             resetDone = resetRoll(ip);
             pf.edit().putBoolean("rewind_roll_pending", !resetDone).commit();
             // Clearing the roll can unload Film Mode.  Re-apply the slot names and neutral
@@ -426,65 +459,83 @@ public class RewindSync {
             }
         }
 
-        for (Item it : items) {
-            progressTotal++;
-            progressName = it.name;
-            boolean pairMode = it.stamp == 8 || it.stamp == 9;
+        // Rendering runs on the shared queue: the camera link is already done (files downloaded,
+        // roll reset) so the user/camera never waits for denoise + grading.
+        if (!items.isEmpty()) {   // never reset the counters of a batch that is still rendering
+            renderDone = 0;
+            renderTotal = items.size();
+        }
+        final java.util.ArrayList<Item> qItems = items;
+        final boolean qReset = resetDone;
+        final String[] pend = new String[]{pendingFpath};
+        final File[] pendFile = new File[]{pendingFile};
+        RenderQueue.submit("rewind", new RenderQueue.Job() { public void run() throws Throwable {
+            rendering = true;
             try {
-                if (pendingFile != null && pairMode) {
-                    // second exposure: compose ONE graded image, then mark BOTH originals seen
+            for (Item it : qItems) {
+                renderName = it.name;
+                boolean pairMode = it.stamp == 8 || it.stamp == 9;
+                try {
+                    if (pendFile[0] != null && pairMode) {
+                        // second exposure: compose ONE graded image, then mark BOTH originals seen
+                        String film = filmForFile(it.name);
+                        String pendingFilm = pf.getString("rewind_pair_film", film);
+                        String pendingPost = pf.getString("rewind_pair_post", it.post);
+                        boolean half = pf.getInt("rewind_pair_stamp", it.stamp) == 8;
+                        String r = Server.spyPairIngest(pendFile[0], it.file, pendingFilm, film, half, pendingPost, "rewind");
+                        if (r != null && r.startsWith("OK")) {
+                            seen.add(pend[0]);
+                            seen.add(it.fpath);
+                            lastPulled++;
+                            renderDone++;
+                            status = L.s("rewindPulled") + lastPulled + " " + it.name + " [pair]";
+                            pendFile[0].delete();
+                            it.file.delete();
+                            clearPair(pf);
+                            pend[0] = null;
+                            pendFile[0] = null;
+                        } else {
+                            it.file.delete();
+                            status = "pair ERR " + r;
+                            seen.remove(it.fpath);
+                        }
+                        continue;
+                    }
+                    if (pairMode) {
+                        // first exposure: keep locally, wait for the second; do NOT mark seen
+                        pf.edit().putString("rewind_pair_fpath", it.fpath)
+                                .putString("rewind_pair_path", it.file.getAbsolutePath())
+                                .putString("rewind_pair_film", filmForFile(it.name))
+                                .putInt("rewind_pair_stamp", it.stamp)
+                                .putString("rewind_pair_post", it.post).commit();
+                        pend[0] = it.fpath;
+                        pendFile[0] = it.file;
+                        status = L.s("spyPairWait") + " " + it.name;
+                        continue;
+                    }
                     String film = filmForFile(it.name);
-                    String pendingFilm = pf.getString("rewind_pair_film", film);
-                    String pendingPost = pf.getString("rewind_pair_post", it.post);
-                    boolean half = pf.getInt("rewind_pair_stamp", it.stamp) == 8;
-                    String r = Server.spyPairIngest(pendingFile, it.file, pendingFilm, film, half, pendingPost);
+                    boolean hasWm = it.wm != null && it.wm.length() > 0;
+                    String r = Server.spyIngest(it.file, film, hasWm ? 0 : it.stamp, it.post, it.wm, "rewind");
                     if (r != null && r.startsWith("OK")) {
-                        seen.add(pendingFpath);
                         seen.add(it.fpath);
                         lastPulled++;
-                        progressDone++;
-                        status = L.s("rewindPulled") + lastPulled + " " + it.name + " [pair]";
-                        pendingFile.delete();
+                        renderDone++;
+                        status = L.s("rewindPulled") + lastPulled + " " + it.name;
                         it.file.delete();
-                        clearPair(pf);
-                        pendingFpath = null;
-                        pendingFile = null;
                     } else {
-                        it.file.delete();
-                        status = "pair ERR " + r;
+                        status = "render ERR " + r;
+                        seen.remove(it.fpath);   // retry on the next sync
                     }
-                    continue;
+                } catch (Throwable t) {
+                    status = "ERR " + it.name + ": " + t;
                 }
-                if (pairMode) {
-                    // first exposure: keep locally, wait for the second; do NOT mark seen
-                    pf.edit().putString("rewind_pair_fpath", it.fpath)
-                            .putString("rewind_pair_path", it.file.getAbsolutePath())
-                            .putString("rewind_pair_film", filmForFile(it.name))
-                            .putInt("rewind_pair_stamp", it.stamp)
-                            .putString("rewind_pair_post", it.post).commit();
-                    pendingFpath = it.fpath;
-                    pendingFile = it.file;
-                    status = L.s("spyPairWait") + " " + it.name;
-                    continue;
-                }
-                String film = filmForFile(it.name);
-                boolean hasWm = it.wm != null && it.wm.length() > 0;
-                String r = Server.spyIngest(it.file, film, hasWm ? 0 : it.stamp, it.post, it.wm);
-                if (r != null && r.startsWith("OK")) {
-                    seen.add(it.fpath);
-                    lastPulled++;
-                    progressDone++;
-                    status = L.s("rewindPulled") + lastPulled + " " + it.name;
-                    it.file.delete();
-                } else {
-                    status = "render ERR " + r;
-                }
-            } catch (Throwable t) {
-                status = "ERR " + it.name + ": " + t;
             }
-        }
-        pf.edit().putStringSet("rewind_seen", seen).commit();
-        if (resetDone) pf.edit().putBoolean("rewind_roll_pending", false).commit();
+            } finally {
+                rendering = false;
+                pf.edit().putStringSet("rewind_seen", seen).commit();
+                if (qReset) pf.edit().putBoolean("rewind_roll_pending", false).commit();
+            }
+        }});
     }
 
     private static final class Item {

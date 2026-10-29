@@ -345,21 +345,19 @@ public class FtpServer {
 
     /** render a received still with the configured film, same pipeline as a camera upload */
     private static void ingest(final File f) {
-        Thread t = new Thread(new Runnable() { public void run() {
-            try {
+        RenderQueue.submit("ftp", new RenderQueue.Job() { public void run() throws Throwable {
+            {
                 String film = film();
                 if (film == null) { MainActivity.say("ftp: no film selected"); return; }
                 String post = prefs().getString("ftp_post", "");
                 String wm = prefs().getString("ftp_wm", "");
                 int mode = (wm != null && wm.length() > 0) ? 0 : prefs().getInt("ftp_stamp", 3);
-                String r = Server.spyIngest(f, film, mode, post, wm);
+                String r = Server.spyIngest(f, film, mode, post, wm, "ftp");
                 if (r != null && r.startsWith("OK")) MainActivity.say("ftp " + r);
                 else MainActivity.say("ftp ERR " + r);
                 Engine.dbg(TAG + ": ingest " + f.getName() + " -> " + r);
-            } catch (Throwable t) { Engine.dbg(TAG + " ingest: " + t); }
-        }}, "ftp-render");
-        t.setDaemon(true);
-        t.start();
+            }
+        }});
     }
 
     private static android.content.SharedPreferences prefs() {

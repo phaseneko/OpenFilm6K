@@ -2118,6 +2118,196 @@ public class EditorActivity extends Activity {
         dlg.show();
     }
 
+
+    /** build the dialog content as a FrameLayout: the scroll view fills the window and the
+     *  title bar is drawn ON TOP of it (FrameLayout stacking, no reorder), content padded below. */
+    private android.widget.FrameLayout dialogRoot(android.widget.ScrollView sv, android.view.View tb) {
+        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+        int fp = Ux.dp(2);   // inset: the raised bevel frame is the window background
+        root.setPadding(fp, fp, fp, fp);
+        root.addView(sv, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        root.addView(tb, new android.widget.FrameLayout.LayoutParams(-1, -2, android.view.Gravity.TOP));
+        tb.bringToFront();   // safe here: FrameLayout children do not reorder the layout
+        return root;
+    }
+
+    private void fitScrolled(android.app.Dialog dlg, android.view.ViewGroup root, android.view.View tb,
+                             android.view.View body, android.widget.ScrollView sv, int wp) {
+        tb.measure(android.view.View.MeasureSpec.makeMeasureSpec(wp, android.view.View.MeasureSpec.EXACTLY),
+                   android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+        int tbH = tb.getMeasuredHeight();
+        if (tbH <= 0) tbH = Ux.dp(34);
+        sv.setPadding(0, tbH, 0, 0);
+        body.measure(android.view.View.MeasureSpec.makeMeasureSpec(wp, android.view.View.MeasureSpec.EXACTLY),
+                     android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+        int maxH = (int) (getResources().getDisplayMetrics().heightPixels * 0.86f);
+        int h = Math.min(maxH, body.getMeasuredHeight() + tbH + Ux.dp(8));
+        android.view.Window w = dlg.getWindow();
+        if (w != null) {
+            w.getDecorView().setPadding(0, 0, 0, 0);
+            w.setBackgroundDrawable(Ux.frame98());
+            w.setLayout(wp, h);
+        }
+    }
+
+    /** settings group: on-device denoise — which intake paths, and the ISO / day-night trigger */
+    private android.view.View denoiseGroup() {
+        final android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);
+        final android.widget.FrameLayout g = new android.widget.FrameLayout(this);
+        final LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(new Ux.Etched());
+        c.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+
+        final String[] keys = Denoise.MODES;
+        String[] names = {L.s("dnCam"), L.s("dnSpy"), L.s("dnFtp"), L.s("dnRewind"), L.s("dnLuma")};
+        String cur = pf.getString("dn_modes", "");
+        final java.util.LinkedHashSet<String> sel = new java.util.LinkedHashSet<String>();
+        if (cur != null && cur.length() > 0) for (String one : cur.split(",")) if (one.length() > 0) sel.add(one);
+        for (int row = 0; row < 2; row++) {
+            LinearLayout r = new LinearLayout(this);
+            r.setOrientation(LinearLayout.HORIZONTAL);
+            int cnt = 3;   // always 3 columns so Luma lines up under Spy
+            for (int i = 0; i < cnt; i++) {
+                final int idx = row * 3 + i;
+                if (idx >= keys.length) {   // empty cell keeps the column grid
+                    r.addView(new android.view.View(this), new LinearLayout.LayoutParams(0, -2, 1f));
+                    continue;
+                }
+                CheckBox bx = new CheckBox(this);
+                bx.setText(names[idx]);
+                bx.setButtonDrawable(Ux.checkbox98States(this));
+                bx.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+                bx.setChecked(sel.contains(keys[idx]));
+                bx.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+                    public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
+                        if (v) sel.add(keys[idx]); else sel.remove(keys[idx]);
+                        StringBuilder sb = new StringBuilder();
+                        for (String one : keys) if (sel.contains(one)) { if (sb.length() > 0) sb.append(','); sb.append(one); }
+                        pf.edit().putString("dn_modes", sb.toString()).commit();
+                    }
+                });
+                r.addView(bx, new LinearLayout.LayoutParams(0, -2, 1f));
+            }
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
+            if (row > 0) rlp.topMargin = Ux.dp(6);   // breathing room between the two checkbox rows
+            c.addView(r, rlp);
+        }
+
+        final LinearLayout isoRow = new LinearLayout(this);
+        isoRow.setOrientation(LinearLayout.HORIZONTAL);
+        isoRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView isoLb = new TextView(this);
+        isoLb.setText(L.s("dnIsoLabel"));
+        isoLb.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        isoLb.setTextColor(Ux.TXT);
+        isoRow.addView(isoLb, new LinearLayout.LayoutParams(-2, -2));
+        final android.widget.EditText isoEd = new android.widget.EditText(this);
+        isoEd.setTag("dnIsoEd");
+        isoEd.setText(String.valueOf(pf.getInt("dn_iso", 800)));
+        isoEd.setSingleLine();
+        isoEd.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        isoEd.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        isoEd.setTextColor(Ux.TXT);
+        isoEd.setBackground(Ux.sunkenField());
+        isoEd.setPadding(Ux.dp(6), Ux.dp(6), Ux.dp(6), Ux.dp(6));
+        isoEd.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s1, int a, int b, int d) {}
+            public void onTextChanged(CharSequence s1, int a, int b, int d) {}
+            public void afterTextChanged(android.text.Editable e) {
+                try {
+                    int v = Integer.parseInt(e.toString().trim());
+                    if (v > 0) pf.edit().putInt("dn_iso", v).commit();
+                } catch (Throwable ignored) {}
+            }
+        });
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(0, Ux.dp(38), 1f);
+        ip.leftMargin = Ux.dp(8);
+        isoRow.addView(isoEd, ip);
+
+        final LinearLayout tonRow = new LinearLayout(this);
+        tonRow.setOrientation(LinearLayout.HORIZONTAL);
+        tonRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final TextView tonVal = new TextView(this);
+        tonVal.setText(String.format(java.util.Locale.US, "%.2f", pf.getFloat("dn_tonal", 0.5f)));
+        tonVal.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        tonVal.setTextColor(Ux.TXT);
+        final android.widget.SeekBar tonSk = new android.widget.SeekBar(this);
+        tonSk.setMax(1000);
+        tonSk.setThumb(Ux.thumb98());
+        tonSk.setProgress((int) (pf.getFloat("dn_tonal", 0.5f) * 1000));
+        tonSk.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(android.widget.SeekBar sb, int v, boolean fromUser) {
+                float f = v / 1000f;
+                tonVal.setText(String.format(java.util.Locale.US, "%.2f", f));
+                pf.edit().putFloat("dn_tonal", f).commit();
+            }
+            public void onStartTrackingTouch(android.widget.SeekBar sb) {}
+            public void onStopTrackingTouch(android.widget.SeekBar sb) {}
+        });
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, Ux.dp(22), 1f);
+        sp.leftMargin = Ux.dp(8);
+        tonRow.addView(tonSk, sp);
+        LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(Ux.dp(46), -2);
+        tonRow.addView(tonVal, vp);
+
+        final LinearLayout condRow = new LinearLayout(this);
+        condRow.setOrientation(LinearLayout.HORIZONTAL);
+        condRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView condLb = new TextView(this);
+        condLb.setText(L.s("dnCond"));
+        condLb.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        condLb.setTextColor(Ux.TXT);
+        condRow.addView(condLb, new LinearLayout.LayoutParams(-2, -2));
+        Spinner csp = new Spinner(this);
+        StdSpinnerAdapter csA = new StdSpinnerAdapter(this, new java.util.ArrayList<String>(java.util.Arrays.asList(
+                new String[]{L.s("dnCondIso"), L.s("dnCondTonal")})));
+        csA.spin = csp;
+        csp.setAdapter(csA);
+        final boolean[] tonalMode = {"tonal".equals(pf.getString("dn_by", "iso"))};
+        csp.setSelection(tonalMode[0] ? 1 : 0);
+        csp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                tonalMode[0] = pos == 1;
+                pf.edit().putString("dn_by", tonalMode[0] ? "tonal" : "iso").commit();
+                isoRow.setVisibility(tonalMode[0] ? View.GONE : View.VISIBLE);
+                tonRow.setVisibility(tonalMode[0] ? View.VISIBLE : View.GONE);
+            }
+            public void onNothingSelected(AdapterView<?> p) {}
+        });
+        android.widget.FrameLayout cspW = Ux.wrapSpinner(this, csp);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, Ux.dp(38), 1f);
+        cp.leftMargin = Ux.dp(8);
+        condRow.addView(cspW, cp);
+
+        // same label column width for both rows -> the combobox and the ISO field line up exactly
+        int lw = Math.max((int) condLb.getPaint().measureText(condLb.getText().toString()),
+                          (int) isoLb.getPaint().measureText(isoLb.getText().toString())) + Ux.dp(8);
+        condLb.setLayoutParams(new LinearLayout.LayoutParams(lw, -2));
+        isoLb.setLayoutParams(new LinearLayout.LayoutParams(lw, -2));
+
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
+        rp.topMargin = Ux.dp(4);
+        c.addView(condRow, rp);
+        c.addView(isoRow, rp);
+        c.addView(tonRow, rp);
+        isoRow.setVisibility(tonalMode[0] ? View.GONE : View.VISIBLE);
+        tonRow.setVisibility(tonalMode[0] ? View.VISIBLE : View.GONE);
+
+        TextView h = new TextView(this);
+        h.setText(L.s("denoise"));
+        Ux.styleHeader(h);
+        g.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams il = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        il.topMargin = Ux.dp(10);
+        g.addView(c, il);
+        android.widget.FrameLayout.LayoutParams hl = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        hl.leftMargin = Ux.dp(10);
+        hl.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        g.addView(h, hl);
+        return g;
+    }
+
     private void showSettings() {
         final android.app.Dialog dlg = new android.app.Dialog(this);
         dlg.setCanceledOnTouchOutside(false);
@@ -2281,8 +2471,18 @@ public class EditorActivity extends Activity {
         addGroup(body, qg);
         addGroup(body, settingsGroup(L.s("customScene"), CUSTOM_SCENES, ".jpg", 1001, dlg));
         addGroup(body, settingsGroup(L.s("customLut"), CUSTOM_LUTS, ".cube", 1002, dlg));
+        addGroup(body, denoiseGroup());
         Ux.themeTree(body);   // theme BEFORE mounting the title bar: themeTree would recolor the white title text
-        box.addView(body, new LinearLayout.LayoutParams(-1, -2));
+        android.view.View isoEdV = body.findViewWithTag("dnIsoEd");
+        if (isoEdV instanceof android.widget.EditText) {   // themeTree repaints EditTexts: restore the sunken white field
+            android.widget.EditText ed = (android.widget.EditText) isoEdV;
+            ed.setBackground(Ux.sunkenField());
+            ed.setTextColor(Ux.TXT);
+            ed.setPadding(Ux.dp(6), Ux.dp(6), Ux.dp(6), Ux.dp(6));
+        }
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.setBackgroundColor(Ux.FACE);
+        sv.addView(body, new android.widget.FrameLayout.LayoutParams(-1, -2));
         // win98 tool-dialog title bar: narrow, recessed navy bar, close button flush with bar height
         LinearLayout tb = new LinearLayout(this);
         tb.setOrientation(LinearLayout.HORIZONTAL);
@@ -2304,14 +2504,10 @@ public class EditorActivity extends Activity {
         android.widget.LinearLayout.LayoutParams xlp = new android.widget.LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34));
         xlp.gravity = android.view.Gravity.CENTER_VERTICAL;
         tb.addView(x, xlp);
-        box.addView(tb, 0, new LinearLayout.LayoutParams(-1, -2));
-        dlg.setContentView(box);
-        android.view.Window w = dlg.getWindow();
-        if (w != null) {   // square dialog window with a raised bevel frame
-            w.getDecorView().setPadding(0, 0, 0, 0);   // kill the default decor insets (gap above the title bar)
-            w.setBackgroundDrawable(Ux.frame98());
-            w.setLayout(Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24)), -2);
-        }
+        android.widget.FrameLayout droot = dialogRoot(sv, tb);
+        dlg.setContentView(droot);
+        int wp0 = Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24));
+        fitScrolled(dlg, droot, tb, body, sv, wp0);
         showOwned(dlg);
     }
 
@@ -2566,14 +2762,14 @@ public class EditorActivity extends Activity {
         android.widget.LinearLayout.LayoutParams xlp = new android.widget.LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34));
         xlp.gravity = android.view.Gravity.CENTER_VERTICAL;
         tb.addView(x, xlp);
-        box.addView(tb, 0, new LinearLayout.LayoutParams(-1, -2));
-        dlg.setContentView(box);
-        android.view.Window w = dlg.getWindow();
-        if (w != null) {
-            w.getDecorView().setPadding(0, 0, 0, 0);
-            w.setBackgroundDrawable(Ux.frame98());
-            w.setLayout(Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24)), -2);
-        }
+        android.widget.ScrollView lsv = new android.widget.ScrollView(this);
+        lsv.setBackgroundColor(Ux.FACE);
+        if (body.getParent() != null) ((android.view.ViewGroup) body.getParent()).removeView(body);   // body already sits in box
+        lsv.addView(body, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        android.widget.FrameLayout lroot = dialogRoot(lsv, tb);
+        dlg.setContentView(lroot);
+        int lwp = Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24));
+        fitScrolled(dlg, lroot, tb, body, lsv, lwp);
         dlg.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() { public void onDismiss(android.content.DialogInterface d) {
             lumaCancel = true;   // signal the worker; it still restores the network before exiting
             lumaProgView = null;
@@ -2778,25 +2974,28 @@ public class EditorActivity extends Activity {
         try {
             Object[] st = LumaClient.linkCamera(this, ssid, pass, pr);
             if (st == null) { lumaSay("FAIL: link"); return; }
-            try {
-                File tmp = new File("/sdcard/OpenFilm6K/.work");
+            java.util.List<File> files;
+            try {   // pull everything first, then drop the camera link immediately
+                File tmp = new File("/sdcard/OpenFilm6K/.work/luma");   // own dir: never collides with camera uploads
                 tmp.mkdirs();
-                java.util.List<File> files = LumaClient.pull(this, pr, tmp);
-                int ok = 0;
-                for (File f : files) {
-                    if (lumaCancel) break;
-                    lumaSay("RENDER " + f.getName());
-                    String r = Server.spyIngest(f, film, mode, post, wm);
-                    f.delete();
-                    if (r != null && r.startsWith("OK")) ok++;
-                    lumaSay("OK " + ok + "/" + files.size());
-                }
-                if (!files.isEmpty()) lumaProg(1000);
-                doneMsg[0] = files.isEmpty() ? L.s("lumaNone") : L.s("lumaDone") + " " + ok;
+                files = LumaClient.pull(this, pr, tmp);
             } finally {
                 LumaClient.restore(this, st);
-                lumaSay(doneMsg[0] != null ? doneMsg[0] : "NET RESTORED");
+                lumaSay("NET RESTORED");
             }
+            final String filmF = film, postF = post, wmF = wm;
+            final int modeF = mode;
+            for (final File f : files) {
+                RenderQueue.submit("luma", new RenderQueue.Job() { public void run() throws Throwable {
+                    if (lumaCancel) { f.delete(); lumaSay("CANCEL " + f.getName()); return; }
+                    lumaSay("RENDER " + f.getName());
+                    String r = Server.spyIngest(f, filmF, modeF, postF, wmF, "luma");
+                    f.delete();
+                    lumaSay(r != null && r.startsWith("OK") ? "OK " + f.getName() : "ERR " + r);
+                }});
+            }
+            if (!files.isEmpty()) lumaProg(1000);
+            doneMsg[0] = files.isEmpty() ? L.s("lumaNone") : L.s("lumaDone") + " " + files.size();
         } catch (Throwable t) {
             Engine.dbg("luma run: " + t);
             lumaSay("ERR " + t);
@@ -3715,7 +3914,11 @@ public class EditorActivity extends Activity {
         if (w != null) {
             w.getDecorView().setPadding(0, 0, 0, 0);
             w.setBackgroundDrawable(Ux.frame98());
-            w.setLayout(Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24)), -2);
+            int wp0 = Math.min(Ux.dp(420), getResources().getDisplayMetrics().widthPixels - Ux.dp(24));
+            body.measure(android.view.View.MeasureSpec.makeMeasureSpec(wp0, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+            int maxH0 = (int) (getResources().getDisplayMetrics().heightPixels * 0.86f);
+            w.setLayout(wp0, Math.min(maxH0, body.getMeasuredHeight() + Ux.dp(64)));
         }
         showOwned(dlg);
     }

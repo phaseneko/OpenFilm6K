@@ -20,8 +20,6 @@ public class SpyWatcher {
     private static final String TAG = "spy";
     private static final long POLL_MS = 3000;
     private static final Handler H = new Handler(Looper.getMainLooper());
-    private static final java.util.concurrent.ExecutorService W =
-            java.util.concurrent.Executors.newSingleThreadExecutor();
 
     private static Context ctx;                                 // app context of whoever armed us
     private static volatile boolean running;
@@ -76,8 +74,8 @@ public class SpyWatcher {
     }
 
     private static void dispatch(final File f) {
-        W.execute(new Runnable() { public void run() {
-            try {
+        RenderQueue.submit("spy", new RenderQueue.Job() { public void run() throws Throwable {
+            {
                 SharedPreferences pf = pf();
                 if (!pf.getBoolean("spy_on", false)) return;      // switched off while queued
                 String film = pf.getString("spy_film", null);
@@ -93,13 +91,13 @@ public class SpyWatcher {
                         return;
                     }
                     pf.edit().putString("spy_pair_first", "").commit();
-                    r = Server.spyPairIngest(new File(first), f, film, mode == 8);
+                    r = Server.spyPairIngest(new File(first), f, film, film, mode == 8, "", "spy");
                 } else {
-                    r = Server.spyIngest(f, film, mode, post, pf.getString("spy_wm", ""));   // mode 15: custom card id
+                    r = Server.spyIngest(f, film, mode, post, pf.getString("spy_wm", ""), "spy");   // mode 15: custom card id
                 }
                 if (r != null && r.startsWith("OK")) MainActivity.say(L.s("spyMode") + " " + r);
                 else MainActivity.say(L.s("spyMode") + " ERR " + r);
-            } catch (Throwable t) { Engine.dbg(TAG + " render: " + t); }
+            }
         }});
     }
 
