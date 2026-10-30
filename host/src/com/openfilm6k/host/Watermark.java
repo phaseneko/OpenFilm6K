@@ -247,15 +247,27 @@ final class Watermark {
         }
         Collections.sort(out, new Comparator<String>() {
             public int compare(String a, String b) {
+                // ids embed the creation time (wm-<millis>): sort by that, so merely touching a
+                // template directory (editor save, backup copy) cannot reorder the list
+                long ia = idTime(a), ib = idTime(b);
+                if (ia > 0 && ib > 0 && ia != ib) return ia < ib ? -1 : 1;
                 long la = mt.containsKey(a) ? mt.get(a) : 0L, lb = mt.containsKey(b) ? mt.get(b) : 0L;
-                if (la != lb) return la < lb ? -1 : 1;       // oldest first, newest last
-                return a.compareTo(b);                        // ids carry the creation time
+                if (la != lb) return la < lb ? -1 : 1;
+                return a.compareTo(b);
             }
         });
         return out;
     }
 
     // ---------------------------------------------------------------- authoring
+
+    /** creation time encoded in an id ("wm-1793064680115"); 0 when the id has no numeric tail */
+    static long idTime(String id) {
+        if (id == null) return 0L;
+        int i = id.lastIndexOf('-');
+        if (i < 0 || i + 1 >= id.length()) return 0L;
+        try { return Long.parseLong(id.substring(i + 1)); } catch (Throwable t) { return 0L; }
+    }
 
     static File dir(String id) { return new File(ROOT, id); }
 
