@@ -34,8 +34,8 @@ extern "C" size_t _ZNSt6__ndk113__hash_memoryEPKvm(const void* p, size_t n) {
 
 namespace {
 
-const int T = 512;    // tile size
-const int OV = 32;    // overlap
+const int T = 1536;   // tile size
+const int OV = 192;   // overlap
 
 struct DnState {
     ncnn::Net net;
@@ -125,6 +125,204 @@ static void dnUnsharp(unsigned char* rgba, int W, int H, float amount, int thres
                 int v = (int) p[i + c] + (int) (d * amount);
                 p[i + c] = (unsigned char) (v < 0 ? 0 : (v > 255 ? 255 : v));
             }
+        }
+    }
+}
+
+
+// ---------------- sky band suppression (32-128 + 128-256 px) -------------------
+// The dark sky keeps soft colour/blotch structure at 32..256 px after denoise.
+// Only that band is removed, inside a sky mask, with normalised convolution
+// (fields estimated from masked pixels only, so lights never bleed).
+static void dnBoxU8(const unsigned char* src, unsigned char* dst, int w, int h, int r) {
+    int win = 2 * r + 1;
+    std::vector<int> tmp((size_t) w * h);
+    for (int y = 0; y < h; y++) {
+        const unsigned char* s0 = src + (size_t) y * w;
+        int* t0 = &tmp[(size_t) y * w];
+        int sum = 0;
+        for (int x = -r; x <= r; x++) sum += s0[x < 0 ? 0 : (x >= w ? w - 1 : x)];
+        for (int x = 0; x < w; x++) {
+            t0[x] = sum;
+            int add = x + r + 1, rem = x - r;
+            sum += s0[add >= w ? w - 1 : add] - s0[rem < 0 ? 0 : rem];
+        }
+    }
+    for (int x = 0; x < w; x++) {
+        long sum = 0;
+        for (int y = -r; y <= r; y++) sum += tmp[(size_t) (y < 0 ? 0 : (y >= h ? h - 1 : y)) * w + x];
+        for (int y = 0; y < h; y++) {
+            dst[(size_t) y * w + x] = (unsigned char) (sum / ((long) win * win));
+            int add = y + r + 1, rem = y - r;
+            sum += tmp[(size_t) (add >= h ? h - 1 : add) * w + x] - tmp[(size_t) (rem < 0 ? 0 : rem) * w + x];
+        }
+    }
+}
+
+static void dnBoxF(const float* src, float* dst, int w, int h, int r) {
+    int win = 2 * r + 1;
+    std::vector<float> tmp((size_t) w * h);
+    for (int y = 0; y < h; y++) {
+        const float* s0 = src + (size_t) y * w;
+        float* t0 = &tmp[(size_t) y * w];
+        float sum = 0;
+        for (int x = -r; x <= r; x++) sum += s0[x < 0 ? 0 : (x >= w ? w - 1 : x)];
+        for (int x = 0; x < w; x++) {
+            t0[x] = sum;
+            int add = x + r + 1, rem = x - r;
+            sum += s0[add >= w ? w - 1 : add] - s0[rem < 0 ? 0 : rem];
+        }
+    }
+    for (int x = 0; x < w; x++) {
+        float sum = 0;
+        for (int y = -r; y <= r; y++) sum += tmp[(size_t) (y < 0 ? 0 : (y >= h ? h - 1 : y)) * w + x];
+        for (int y = 0; y < h; y++) {
+            dst[(size_t) y * w + x] = sum / (float) (win * win);
+            int add = y + r + 1, rem = y - r;
+            sum += tmp[(size_t) (add >= h ? h - 1 : add) * w + x] - tmp[(size_t) (rem < 0 ? 0 : rem) * w + x];
+        }
+    }
+}
+
+// sky mask at 1/8 resolution -> feathered float mask at 1/2 resolution
+static bool dnSkyMaskHalf(const unsigned char* rgba, int W, int H,
+                          std::vector<float>& mask2, int& w2, int& h2) {
+    int w8 = W / 8, h8 = H / 8;
+    if (w8 < 24 || h8 < 16) return false;
+    std::vector<unsigned char> y8((size_t) w8 * h8), tmp((size_t) w8 * h8), blur((size_t) w8 * h8);
+    for (int y = 0; y < h8; y++)
+        for (int x = 0; x < w8; x++) {
+            long sum = 0;
+            for (int dy = 0; dy < 8; dy++) {
+                const unsigned char* row = rgba + ((size_t) (y * 8 + dy) * W + x * 8) * 4;
+                for (int dx = 0; dx < 8; dx++)
+                    sum += (77 * row[dx * 4] + 150 * row[dx * 4 + 1] + 29 * row[dx * 4 + 2]) >> 8;
+            }
+            y8[(size_t) y * w8 + x] = (unsigned char) (sum >> 6);
+        }
+    dnBoxU8(y8.data(), blur.data(), w8, h8, 1);
+    std::vector<unsigned char> free8((size_t) w8 * h8);
+    for (size_t i = 0; i < free8.size(); i++) {
+        int det = (int) y8[i] - (int) blur[i]; if (det < 0) det = -det;
+        free8[i] = (y8[i] < 55 && det < 2) ? 1 : 0;
+    }
+    // obstacles grow by one cell so thin bright edges keep blocking the flood
+    std::vector<unsigned char> blocked((size_t) w8 * h8, 0);
+    for (int y = 0; y < h8; y++)
+        for (int x = 0; x < w8; x++) {
+            if (free8[(size_t) y * w8 + x]) continue;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++) {
+                    int yy = y + dy, xx = x + dx;
+                    if (yy >= 0 && yy < h8 && xx >= 0 && xx < w8) blocked[(size_t) yy * w8 + xx] = 1;
+                }
+        }
+    std::vector<unsigned char> sky((size_t) w8 * h8, 0);
+    std::vector<int> stack;
+    for (int x = 0; x < w8; x++) for (int y = 0; y < 2; y++) {
+        size_t i = (size_t) y * w8 + x;
+        if (!blocked[i] && !sky[i]) { sky[i] = 1; stack.push_back((int) i); }
+    }
+    for (int y = 0; y < h8; y++) for (int x = 0; x < 2; x++) {
+        size_t i = (size_t) y * w8 + x;
+        if (!blocked[i] && !sky[i]) { sky[i] = 1; stack.push_back((int) i); }
+    }
+    while (!stack.empty()) {
+        int i = stack.back(); stack.pop_back();
+        int x = i % w8, y = i / w8;
+        const int dxs[4] = {1, -1, 0, 0}, dys[4] = {0, 0, 1, -1};
+        for (int k = 0; k < 4; k++) {
+            int nx = x + dxs[k], ny = y + dys[k];
+            if (nx < 0 || ny < 0 || nx >= w8 || ny >= h8) continue;
+            size_t j = (size_t) ny * w8 + nx;
+            if (blocked[j] || sky[j]) continue;
+            sky[j] = 1; stack.push_back((int) j);
+        }
+    }
+    long cnt = 0;
+    for (size_t i = 0; i < sky.size(); i++) cnt += sky[i];
+    if (cnt * 100 < (long) sky.size() * 2) return false;      // <2% -> not a sky photo
+    // upsample to 1/2 and feather
+    w2 = W / 2; h2 = H / 2;
+    std::vector<unsigned char> m2((size_t) w2 * h2);
+    for (int y = 0; y < h2; y++)
+        for (int x = 0; x < w2; x++)
+            m2[(size_t) y * w2 + x] = sky[(size_t) ((y / 4) < h8 ? (y / 4) : h8 - 1) * w8 + ((x / 4) < w8 ? (x / 4) : w8 - 1)] ? 255 : 0;
+    std::vector<unsigned char> fb((size_t) w2 * h2);
+    dnBoxU8(m2.data(), fb.data(), w2, h2, 4);
+    mask2.resize((size_t) w2 * h2);
+    for (size_t i = 0; i < mask2.size(); i++) {
+        float v = (fb[i] / 255.f - 0.35f) / 0.30f;            // soft shoulder
+        mask2[i] = v < 0 ? 0 : (v > 1 ? 1 : v);
+    }
+    return true;
+}
+
+static void dnSkyBands(unsigned char* rgba, int W, int H) {
+    int w2 = 0, h2 = 0;
+    std::vector<float> mask2;
+    if (!dnSkyMaskHalf(rgba, W, H, mask2, w2, h2)) return;
+    const size_t n = (size_t) w2 * h2;
+    std::vector<float> y2(n), cb2(n), cr2(n), num(n), den(n), t1(n), t2(n);
+    std::vector<float> corrY(n), corrCb(n), corrCr(n);
+    for (int y = 0; y < h2; y++)
+        for (int x = 0; x < w2; x++) {
+            float sr = 0, sg = 0, sb = 0;
+            for (int dy = 0; dy < 2; dy++) {
+                const unsigned char* row = rgba + ((size_t) (y * 2 + dy) * W + x * 2) * 4;
+                for (int dx = 0; dx < 2; dx++) { sr += row[dx * 4]; sg += row[dx * 4 + 1]; sb += row[dx * 4 + 2]; }
+            }
+            sr *= .25f; sg *= .25f; sb *= .25f;
+            float yy = 0.299f * sr + 0.587f * sg + 0.114f * sb;
+            size_t i = (size_t) y * w2 + x;
+            y2[i] = yy; cb2[i] = sb - yy; cr2[i] = sr - yy;
+        }
+    // normalised convolution (mask-weighted) of one plane at radius r
+    auto nconv = [&](float* plane, int r, float* out) {
+        for (size_t i = 0; i < n; i++) num[i] = plane[i] * mask2[i];
+        dnBoxF(num.data(), out, w2, h2, r);
+        dnBoxF(mask2.data(), den.data(), w2, h2, r);
+        for (size_t i = 0; i < n; i++) out[i] /= (den[i] + 1e-4f);
+    };
+    float* planes[3] = {y2.data(), cb2.data(), cr2.data()};
+    float* corrs[3] = {corrY.data(), corrCb.data(), corrCr.data()};
+    for (int c = 0; c < 3; c++) {
+        nconv(planes[c], 8, t1.data());
+        nconv(planes[c], 32, t2.data());
+        for (size_t i = 0; i < n; i++) corrs[c][i] = t1[i] - t2[i];      // 32..128 px
+        nconv(planes[c], 32, t1.data());
+        nconv(planes[c], 64, t2.data());
+        for (size_t i = 0; i < n; i++) corrs[c][i] += t1[i] - t2[i];     // 128..256 px
+    }
+    // single full-resolution pass: apply all three corrections, dither once
+    auto samp = [&](float* pl, int x, int y) {
+        int fx = x >> 1, fy = y >> 1;
+        int fx1 = fx + 1 < w2 ? fx + 1 : w2 - 1, fy1 = fy + 1 < h2 ? fy + 1 : h2 - 1;
+        float wx = (x & 1) * 0.5f, wy = (y & 1) * 0.5f;
+        size_t i00 = (size_t) fy * w2 + fx, i01 = (size_t) fy * w2 + fx1;
+        size_t i10 = (size_t) fy1 * w2 + fx, i11 = (size_t) fy1 * w2 + fx1;
+        return (pl[i00] * (1 - wx) + pl[i01] * wx) * (1 - wy) + (pl[i10] * (1 - wx) + pl[i11] * wx) * wy;
+    };
+    for (int y = 0; y < H; y++) {
+        int my = y >> 1;
+        for (int x = 0; x < W; x++) {
+            float m = mask2[(size_t) my * w2 + (x >> 1)];
+            if (m <= 0.01f) continue;
+            float dy = samp(corrY.data(), x, y) * m;
+            float dcb = samp(corrCb.data(), x, y) * m;
+            float dcr = samp(corrCr.data(), x, y) * m;
+            unsigned char* px = rgba + (size_t) y * W * 4 + x * 4;
+            float r0 = px[0], g0 = px[1], b0 = px[2];
+            float yy = 0.299f * r0 + 0.587f * g0 + 0.114f * b0;
+            float cb = b0 - yy, cr = r0 - yy;
+            float ny = yy - dy, ncb = cb - dcb, ncr = cr - dcr;
+            unsigned int seed = (unsigned int) ((y * 73856093) ^ (x * 19349663)) * 2654435761u;
+            float dith = ((seed >> 16) & 1) ? 0.5f : -0.5f;
+            float nr = ny + ncr, nb = ny + ncb, ng = (ny - 0.299f * nr - 0.114f * nb) / 0.587f;
+            int ri = (int) (nr + dith * m + .5f), gi = (int) (ng + dith * m + .5f), bi = (int) (nb + dith * m + .5f);
+            px[0] = (unsigned char) (ri < 0 ? 0 : (ri > 255 ? 255 : ri));
+            px[1] = (unsigned char) (gi < 0 ? 0 : (gi > 255 ? 255 : gi));
+            px[2] = (unsigned char) (bi < 0 ? 0 : (bi > 255 ? 255 : bi));
         }
     }
 }
@@ -299,6 +497,7 @@ int dnProcessJpg(const char* ip, const char* op, const char* pp, const char* bp,
             dst[i * 4 + 3] = 255;
         }
 
+        dnSkyBands(rgba.data(), W, H);                  // 32-128 + 128-256 px suppression in the sky
         dnUnsharp(rgba.data(), W, H, amount, thresh);   // light unsharp after denoise
         tjhandle tje = tjInitCompress();
         unsigned char* jb = nullptr;

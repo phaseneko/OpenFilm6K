@@ -128,7 +128,7 @@ public class Denoise {
             if (!gate(c, src)) { Engine.dbg("denoise skip: gate iso=" + iso(src) + " tonal=" + String.format(java.util.Locale.US, "%.2f", tonal(src)) + " by=" + pf(c).getString("dn_by","iso")); return null; }
             if (!install(c)) { Engine.dbg("denoise skip: install"); return null; }
             File o = new File(src.getParentFile(), "dn_" + System.currentTimeMillis() + ".jpg");
-            int threads = Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors() - 2));
+            int threads = 1;   // one stream: ncnn Vulkan is faster serial than with competing extractors
             long t0 = System.currentTimeMillis();
             int rc = Engine.denoiseFile(src.getAbsolutePath(), o.getAbsolutePath(),
                     param().getAbsolutePath(), bin().getAbsolutePath(), threads, true);
