@@ -2297,13 +2297,13 @@ public class EditorActivity extends Activity {
         bandLb.setLayoutParams(new LinearLayout.LayoutParams(lw, -2));
         bandRow.addView(bandLb, new LinearLayout.LayoutParams(-2, -2));
         final TextView bandVal = new TextView(this);
-        bandVal.setText(String.format(java.util.Locale.US, "%.0f%%", pf.getFloat("dn_band", 1.0f) * 100f));
+        bandVal.setText(String.format(java.util.Locale.US, "%.0f%%", pf.getFloat("dn_band", 0.65f) * 100f));
         bandVal.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
         bandVal.setTextColor(Ux.TXT);
         final android.widget.SeekBar bandSk = new android.widget.SeekBar(this);
         bandSk.setMax(100);
         bandSk.setThumb(Ux.thumb98());
-        bandSk.setProgress((int) (pf.getFloat("dn_band", 1.0f) * 100f));
+        bandSk.setProgress((int) (pf.getFloat("dn_band", 0.65f) * 100f));
         bandSk.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(android.widget.SeekBar sb, int v, boolean fromUser) {
                 bandVal.setText(String.format(java.util.Locale.US, "%d%%", v));

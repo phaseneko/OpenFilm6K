@@ -129,7 +129,7 @@ public class Denoise {
             if (!install(c)) { Engine.dbg("denoise skip: install"); return null; }
             File o = new File(src.getParentFile(), "dn_" + System.currentTimeMillis() + ".jpg");
             int threads = 1;   // one stream: ncnn Vulkan is faster serial than with competing extractors
-            float band = pf(c).getFloat("dn_band", 1.0f);   // sky 2-band strength (0..2)
+            float band = pf(c).getFloat("dn_band", 0.65f);  // sky 2-band strength (0..1), default 65%
             long t0 = System.currentTimeMillis();
             int rc = Engine.denoiseFile(src.getAbsolutePath(), o.getAbsolutePath(),
                     param().getAbsolutePath(), bin().getAbsolutePath(), threads, true, band);
