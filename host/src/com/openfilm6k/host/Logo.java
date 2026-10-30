@@ -23,6 +23,7 @@ class Logo {
 
     /** slug + Wikimedia Commons file. The SVG is fetched through Special:FilePath, which serves a PNG. */
     static final String[][] BRANDS = {
+            {"openfilm6k", "", "OpenFilm6K", "OpenFilm6K"},   // the app's own mark (never inverted, never downloaded)
             {"canon", "File:Canon logo.svg", "佳能 Canon", "Canon"},
             {"nikon", "File:Nikon Logo.svg", "尼康 Nikon", "Nikon"},
             {"sony", "File:Sony logo.svg", "索尼 Sony", "Sony"},
@@ -127,6 +128,7 @@ class Logo {
     /** decoded logo, cached; null when the file has not been downloaded */
     static Bitmap get(String slug) {
         if (slug == null || slug.length() == 0) return null;
+        if ("openfilm6k".equals(slug)) return own();   // always the app's own wordmark
         if (CACHE.containsKey(slug)) return CACHE.get(slug);
         Bitmap bm = null;
         try {
@@ -317,7 +319,8 @@ class Logo {
         for (int i = 0; i < total; i++) {
             String slug = BRANDS[i][0];
             File out = new File(d, slug + ".png");
-            if (!(out.isFile() && out.length() > 2048)) fetch(BRANDS[i][1], out);
+            String url = BRANDS[i][1];
+            if (url != null && url.length() > 0 && !(out.isFile() && out.length() > 2048)) fetch(url, out);
             if (cb != null) cb.onProgress(i + 1, total);
         }
         Engine.dbg("logo download done: " + have() + "/" + total + " on disk");
