@@ -279,6 +279,7 @@ public class Server {
                 fo.close();
                 if (left > 0) { src.delete(); resp = "ERR short read"; }
                 else {
+                    saveOriginal(src, name);
                     // keep the http thread free: denoise + grading run on the camera worker so /ping
                     // and the next upload are answered immediately
                     final java.io.File fsrc = src;
@@ -646,6 +647,8 @@ public class Server {
             src0.delete(); src1.delete();
             return "ERR short read";
         }
+        saveOriginal(src0, name);
+        saveOriginal(src1, "b_" + name);
         normalizeOrientation(src0);
         if (src1 != null) normalizeOrientation(src1);
         byte[] exifApp1 = Exif.app1Of(src0);
@@ -1008,6 +1011,33 @@ public class Server {
     }
 
     /** spy mode: run the ingest pipeline on a local file — arrival-time stamps built host-side, output into the DCIM album */
+
+    /** original-photo archive: copy the untouched upload into DCIM/OpenFilm6K_Original when enabled */
+    static void saveOriginal(java.io.File src, String name) {
+        try {
+            if (ctx == null || src == null || !src.exists()) return;
+            if (!ctx.getSharedPreferences("of6k", 0).getBoolean("keep_orig", false)) return;
+            java.io.File dir = new java.io.File("/sdcard/DCIM/OpenFilm6K_Original");
+            dir.mkdirs();
+            String base = name == null ? "photo" : name;
+            String ext = "";
+            int dot = base.lastIndexOf('.');
+            if (dot > 0) { ext = base.substring(dot); base = base.substring(0, dot); }
+            java.io.File dst = new java.io.File(dir, base + ext);
+            for (int n = 1; dst.exists() && n < 1000; n++) dst = new java.io.File(dir, base + "_" + n + ext);
+            java.io.FileInputStream in = new java.io.FileInputStream(src);
+            java.io.FileOutputStream out = new java.io.FileOutputStream(dst);
+            byte[] b = new byte[65536];
+            int r;
+            while ((r = in.read(b)) > 0) out.write(b, 0, r);
+            in.close();
+            out.close();
+            android.media.MediaScannerConnection.scanFile(ctx, new String[]{dst.getAbsolutePath()},
+                    new String[]{"image/jpeg"}, null);
+            Engine.dbg("keep-orig " + dst.getName());
+        } catch (Throwable t) { Engine.dbg("keep-orig failed: " + t); }
+    }
+
     static String spyIngest(java.io.File src, String film, int mode, String post) {
         return spyIngest(src, film, mode, post, null, "spy");
     }
@@ -1017,6 +1047,7 @@ public class Server {
     }
 
     static String spyIngest(java.io.File src, String film, int mode, String post, String wmId, String srcMode) {
+        saveOriginal(src, src == null ? null : src.getName());
         java.io.File dnFile = null;
         java.io.File srcOrig = src;
         try {
@@ -1133,6 +1164,8 @@ public class Server {
                                 boolean half, String post, String srcMode) {
         java.io.File pairDn0 = null, pairDn1 = null;
         try {
+            saveOriginal(src0, src0 == null ? null : src0.getName());
+            saveOriginal(src1, src1 == null ? null : src1.getName());
             if (film0 == null || film0.length() == 0) film0 = "LK-200";
             if (film1 == null || film1.length() == 0) film1 = film0;
             String mode = half ? "half" : "double";

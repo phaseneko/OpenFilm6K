@@ -2411,6 +2411,35 @@ public class EditorActivity extends Activity {
         rg.addView(rgl, rll);
         rg.setClipChildren(false);
         addGroup(body, rg);
+        // auto-save originals: copy every received upload into DCIM/OpenFilm6K_Original
+        android.widget.FrameLayout og = new android.widget.FrameLayout(this);
+        android.widget.LinearLayout ogi = new android.widget.LinearLayout(this);
+        ogi.setOrientation(LinearLayout.VERTICAL);
+        ogi.setBackground(new Ux.Etched());
+        ogi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        CheckBox ogc = new CheckBox(this);
+        ogc.setText(L.s("keepOrig"));
+        ogc.setButtonDrawable(Ux.checkbox98States(this));
+        ogc.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        ogc.setChecked(getSharedPreferences("of6k", 0).getBoolean("keep_orig", false));
+        ogc.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(android.widget.CompoundButton b, boolean v) {
+                getSharedPreferences("of6k", 0).edit().putBoolean("keep_orig", v).commit();
+            }
+        });
+        ogi.addView(ogc, new LinearLayout.LayoutParams(-2, -2));
+        TextView ogl = new TextView(this);
+        ogl.setText(L.s("groupOrig"));
+        Ux.styleHeader(ogl);
+        og.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams oil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        oil.topMargin = Ux.dp(10);
+        og.addView(ogi, oil);
+        android.widget.FrameLayout.LayoutParams oll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        oll.leftMargin = Ux.dp(10);
+        oll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        og.addView(ogl, oll);
+        addGroup(body, og);
         // preview watermark group (editor-only; the camera's own stamp choice is unaffected)
         android.widget.FrameLayout pg = new android.widget.FrameLayout(this);
         android.widget.LinearLayout pgi = new android.widget.LinearLayout(this);

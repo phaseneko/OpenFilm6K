@@ -162,6 +162,8 @@ public class L {
         {"ftpUser", "用户", "使用者", "User", "ユーザー", "사용자", "Benutzer", "Utilisateur", "Usuario", "Пользователь", "Usuário"},
         {"ftpPass", "密码", "密碼", "Password", "パスワード", "비밀번호", "Passwort", "Mot de passe", "Contraseña", "Пароль", "Senha"},
         {"spyMode", "监视模式", "監視模式", "Spy mode", "スパイモード", "스파이 모드", "Spionmodus", "Mode espion", "Modo espía", "Режим слежки", "Modo espião"},
+        {"groupOrig", "原图转存", "原圖轉存", "Original photos", "元画像の保存", "원본 사진", "Originalfotos", "Photos originales", "Fotos originales", "Оригиналы", "Fotos originais"},
+        {"keepOrig", "自动转存原图", "自動轉存原圖", "Keep originals", "元画像を保存", "원본 저장", "Originale sichern", "Conserver les originaux", "Guardar originales", "Сохранять оригиналы", "Salvar originais"},
         {"denoise", "降噪", "降噪", "Denoise", "ノイズ低減", "노이즈 감소", "Rauschentfernung", "Réduction du bruit", "Reducción de ruido", "Шумоподавление", "Redução de ruído"},
         {"dnModes", "开启降噪的模式", "啟用降噪的模式", "Denoise in", "ノイズ低減するモード", "노이즈 감소 모드", "Rauschentfernung bei", "Bruit réduit en", "Ruido en", "Шумоподавление в", "Ruído em"},
         {"dnCam", "相机app", "相機app", "Camera app", "カメラアプリ", "카메라 앱", "Kamera-App", "Appareil photo", "Cámara", "Приложение камеры", "App da câmera"},
