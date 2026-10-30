@@ -447,10 +447,6 @@ public class RewindSync {
 
         pf.edit().putStringSet("rewind_seen", seen).commit();   // persist BEFORE rendering (queue is async)
 
-        // transfer finished -> put the camera back into capture mode right away, so the user can
-        // shoot again without waiting for our (asynchronous) rendering
-        try { camGet(ip, 3001, "0", null, 2000, 3000); } catch (Throwable t) { Engine.dbg("3001 back: " + t); }
-
         boolean resetDone = false;
         if (!items.isEmpty() || pf.getBoolean("rewind_roll_pending", false)) {
             status = L.s("rewindReload");
