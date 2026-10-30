@@ -17,17 +17,22 @@ public class RenderQueue {
     public interface Job { void run() throws Throwable; }
 
     /** busy/idle transitions: busy=true when the first job of a batch starts, false when the queue drains */
-    public interface Listener { void onBusyChanged(boolean busy); }
+    public interface Listener { void onBusyChanged(boolean busy, int okPhotos); }
     private static volatile Listener listener;
     public static void setListener(Listener l) { listener = l; }
 
-    private static void fire(boolean busy) {
+    private static final AtomicInteger okPhotos = new AtomicInteger();
+
+    /** a photo finished the whole pipeline successfully (denoise + grade + album write) */
+    public static void noteOk() { okPhotos.incrementAndGet(); }
+
+    private static void fire(boolean busy, int ok) {
         Listener l = listener;
-        if (l != null) try { l.onBusyChanged(busy); } catch (Throwable ig) {}
+        if (l != null) try { l.onBusyChanged(busy, ok); } catch (Throwable ig) {}
     }
 
     public static void submit(final String tag, final Job job) {
-        if (pending.getAndIncrement() == 0) fire(true);
+        if (pending.getAndIncrement() == 0) { okPhotos.set(0); fire(true, 0); }
         EX.execute(new Runnable() { public void run() {
             try {
                 job.run();
@@ -35,7 +40,7 @@ public class RenderQueue {
                 Engine.dbg("queue/" + tag + ": " + t);
                 MainActivity.say("queue " + tag + ": " + t);
             } finally {
-                if (pending.decrementAndGet() == 0) fire(false);
+                if (pending.decrementAndGet() == 0) fire(false, okPhotos.getAndSet(0));
             }
         }});
     }

@@ -91,7 +91,7 @@ public class HostService extends Service {
         h.postDelayed(this, 180);
     }};
 
-    private void setBusy(boolean busy) {
+    private void setBusy(boolean busy, final int okPhotos) {
         final HostService s = this;
         h.post(new Runnable() { public void run() {
             if (busy) {
@@ -103,7 +103,7 @@ public class HostService extends Service {
                 animating = false;
                 h.removeCallbacks(animTick);
                 try { nm.notify(1, build()); } catch (Throwable ig) {}
-                try {   // every pull/post-processing batch is done: one gentle notification tone
+                if (okPhotos > 0) try {   // only when this batch really produced photos
                     android.media.Ringtone r = android.media.RingtoneManager.getRingtone(s,
                             android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION));
                     if (r != null) r.play();
@@ -125,7 +125,7 @@ public class HostService extends Service {
         nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         NotificationChannel ch = new NotificationChannel("of6k", "OpenFilm6K", NotificationManager.IMPORTANCE_LOW);
         nm.createNotificationChannel(ch);
-        RenderQueue.setListener(new RenderQueue.Listener() { public void onBusyChanged(boolean busy) { setBusy(busy); }});
+        RenderQueue.setListener(new RenderQueue.Listener() { public void onBusyChanged(boolean busy, int ok) { setBusy(busy, ok); }});
         registerReceiver(tap, new android.content.IntentFilter("com.openfilm6k.host.PHOTO_TAP"));
     }
     @Override public int onStartCommand(Intent i, int flags, int id) {

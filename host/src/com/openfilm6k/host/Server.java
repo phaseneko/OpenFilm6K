@@ -602,7 +602,8 @@ public class Server {
             Exif.carryBytes(out, exifApp1);
         String camResult = r != null && r.startsWith("ERR") == false && new java.io.File(r).exists()
                 ? "OK " + out.getName() : "ERR render " + r;
-        if (!camResult.startsWith("OK")) { Engine.dbg("cam render: " + camResult); MainActivity.say("render: " + camResult); }
+        if (camResult.startsWith("OK")) RenderQueue.noteOk();
+        else { Engine.dbg("cam render: " + camResult); MainActivity.say("render: " + camResult); }
 
         // update the standing notification from the scan callback — the URI the app hands us
         // flow hands us there is registered AND grantable, unlike a racing sync query
@@ -709,6 +710,7 @@ public class Server {
         for (java.io.File t : ptmp) if (t != null && t.exists()) t.delete();
         if (cpair0 != null && cpair0.exists()) cpair0.delete();
         if (cpair1 != null && cpair1.exists()) cpair1.delete();
+        if (ok) RenderQueue.noteOk();
         return ok ? "OK " + out.getName() : "ERR " + r;
     }
 
@@ -1106,7 +1108,8 @@ public class Server {
                     });
             } catch (Throwable ig) {}
             boolean ok = r != null && !r.startsWith("ERR") && new java.io.File(r).exists();
-            return ok ? "OK " + out.getName() : "ERR " + r;
+            if (ok) RenderQueue.noteOk();
+        return ok ? "OK " + out.getName() : "ERR " + r;
         } catch (Throwable t) { return "ERR " + t; }
         finally { try { if (dnFile != null && dnFile.exists()) dnFile.delete(); } catch (Throwable ig) {} }
     }
@@ -1196,7 +1199,8 @@ public class Server {
                 }
             } catch (Throwable ig) {}
             for (java.io.File t : ptmp) if (t != null && t.exists()) t.delete();
-            return ok ? "OK " + out.getName() : "ERR " + r;
+            if (ok) RenderQueue.noteOk();
+        return ok ? "OK " + out.getName() : "ERR " + r;
         } catch (Throwable t) { return "ERR " + t; }
     }
 
