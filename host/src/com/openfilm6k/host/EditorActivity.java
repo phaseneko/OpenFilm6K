@@ -2286,11 +2286,43 @@ public class EditorActivity extends Activity {
         condLb.setLayoutParams(new LinearLayout.LayoutParams(lw, -2));
         isoLb.setLayoutParams(new LinearLayout.LayoutParams(lw, -2));
 
+        // sky 2-band strength: 0..2 (0 = off), applied inside the native denoise pass
+        final LinearLayout bandRow = new LinearLayout(this);
+        bandRow.setOrientation(LinearLayout.HORIZONTAL);
+        bandRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView bandLb = new TextView(this);
+        bandLb.setText(L.s("dnBand"));
+        bandLb.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        bandLb.setTextColor(Ux.TXT);
+        bandLb.setLayoutParams(new LinearLayout.LayoutParams(lw, -2));
+        bandRow.addView(bandLb, new LinearLayout.LayoutParams(-2, -2));
+        final TextView bandVal = new TextView(this);
+        bandVal.setText(String.format(java.util.Locale.US, "%.0f%%", pf.getFloat("dn_band", 1.0f) * 100f));
+        bandVal.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        bandVal.setTextColor(Ux.TXT);
+        final android.widget.SeekBar bandSk = new android.widget.SeekBar(this);
+        bandSk.setMax(100);
+        bandSk.setThumb(Ux.thumb98());
+        bandSk.setProgress((int) (pf.getFloat("dn_band", 1.0f) * 100f));
+        bandSk.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(android.widget.SeekBar sb, int v, boolean fromUser) {
+                bandVal.setText(String.format(java.util.Locale.US, "%d%%", v));
+                pf.edit().putFloat("dn_band", v / 100f).commit();
+            }
+            public void onStartTrackingTouch(android.widget.SeekBar sb) {}
+            public void onStopTrackingTouch(android.widget.SeekBar sb) {}
+        });
+        LinearLayout.LayoutParams bsp = new LinearLayout.LayoutParams(0, Ux.dp(22), 1f);
+        bsp.leftMargin = Ux.dp(8);
+        bandRow.addView(bandSk, bsp);
+        bandRow.addView(bandVal, new LinearLayout.LayoutParams(Ux.dp(46), -2));
+
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
         rp.topMargin = Ux.dp(4);
         c.addView(condRow, rp);
         c.addView(isoRow, rp);
         c.addView(tonRow, rp);
+        c.addView(bandRow, rp);
         isoRow.setVisibility(tonalMode[0] ? View.GONE : View.VISIBLE);
         tonRow.setVisibility(tonalMode[0] ? View.VISIBLE : View.GONE);
 

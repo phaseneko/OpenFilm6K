@@ -115,11 +115,11 @@ public class Engine {
     /** renders chain into direct buf (RGBA, w*h*4) in place. node rows: 11 floats each */
     private native int nRender(int w, int h, java.nio.ByteBuffer buf, String lutPath, float[] nodes, String[] overlays, String lutPath2, float score, String[] nodeLuts);
     /** on-device denoise: jpeg -> jpeg through the ncnn U-Net (jni/denoise.cpp). 0 = ok */
-    private static native int nDenoiseFile(String inPath, String outPath, String paramPath, String binPath, int threads, boolean gpu);
+    private static native int nDenoiseFile(String inPath, String outPath, String paramPath, String binPath, int threads, boolean gpu, float bandStrength);
 
-    static int denoiseFile(String in, String out, String param, String bin, int threads, boolean gpu) {
+    static int denoiseFile(String in, String out, String param, String bin, int threads, boolean gpu, float bandStrength) {
         if (!NATIVE) return -1;
-        try { return nDenoiseFile(in, out, param, bin, threads, gpu); }
+        try { return nDenoiseFile(in, out, param, bin, threads, gpu, bandStrength); }
         catch (Throwable t) { dbg("denoise native fail: " + t); return -2; }
     }
     private static boolean nInited = false;

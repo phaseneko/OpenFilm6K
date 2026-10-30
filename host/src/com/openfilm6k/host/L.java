@@ -174,6 +174,7 @@ public class L {
         {"dnCond", "降噪条件", "降噪條件", "Denoise when", "ノイズ低減の条件", "노이즈 감소 조건", "Bedingung", "Condition", "Condición", "Условие", "Condição"},
         {"dnCondIso", "最低 ISO", "最低 ISO", "Min ISO", "最小ISO", "최소 ISO", "Min. ISO", "ISO min.", "ISO mín.", "Мин. ISO", "ISO mín."},
         {"dnCondTonal", "昼夜度", "日夜度", "Day/night", "昼夜度", "낮밤 정도", "Tag/Nacht", "Jour/nuit", "Día/noche", "День/ночь", "Dia/noite"},
+        {"dnBand", "天空平滑强度", "天空平滑強度", "Sky smoothing", "空の平滑化", "하늘 평활화", "Himmel-Glättung", "Lissage du ciel", "Suavizado del cielo", "Сглаживание неба", "Suavização do céu"},
         {"dnIsoLabel", "ISO 阈值", "ISO 閾值", "ISO threshold", "ISO しきい値", "ISO 임계값", "ISO-Schwelle", "Seuil ISO", "Umbral ISO", "Порог ISO", "Limite ISO"},
         {"spyEnable", "开启监视模式", "開啟監視模式", "Enable spy mode", "スパイモードを有効化", "감시 모드 활성화", "Spionmodus aktivieren", "Activer le mode espion", "Activar modo espía", "Включить режим слежки", "Ativar modo espião"},
         {"spyNeedPerm", "需要存储权限才能使用监视模式", "需要儲存權限才能使用監視模式", "Storage permission is required for spy mode", "スパイモードにはストレージ権限が必要です", "스파이 모드를 사용하려면 저장소 권한이 필요합니다", "Für den Spionmodus ist Speicherberechtigung erforderlich", "L'autorisation de stockage est requise pour le mode espion", "Se requiere permiso de almacenamiento para el modo espía", "Для режима слежки требуется разрешение на хранилище", "A permissão de armazenamento é necessária para o modo espião"},

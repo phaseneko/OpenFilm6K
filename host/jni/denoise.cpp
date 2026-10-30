@@ -258,7 +258,8 @@ static bool dnSkyMaskHalf(const unsigned char* rgba, int W, int H,
     return true;
 }
 
-static void dnSkyBands(unsigned char* rgba, int W, int H) {
+static void dnSkyBands(unsigned char* rgba, int W, int H, float strength) {
+    if (strength <= 0.001f) return;
     int w2 = 0, h2 = 0;
     std::vector<float> mask2;
     if (!dnSkyMaskHalf(rgba, W, H, mask2, w2, h2)) return;
@@ -289,10 +290,10 @@ static void dnSkyBands(unsigned char* rgba, int W, int H) {
     for (int c = 0; c < 3; c++) {
         nconv(planes[c], 8, t1.data());
         nconv(planes[c], 32, t2.data());
-        for (size_t i = 0; i < n; i++) corrs[c][i] = t1[i] - t2[i];      // 32..128 px
+        for (size_t i = 0; i < n; i++) corrs[c][i] = (t1[i] - t2[i]) * strength;      // 32..128 px
         nconv(planes[c], 32, t1.data());
         nconv(planes[c], 64, t2.data());
-        for (size_t i = 0; i < n; i++) corrs[c][i] += t1[i] - t2[i];     // 128..256 px
+        for (size_t i = 0; i < n; i++) corrs[c][i] += (t1[i] - t2[i]) * strength;     // 128..256 px
     }
     // single full-resolution pass: apply all three corrections, dither once
     auto samp = [&](float* pl, int x, int y) {
@@ -327,7 +328,7 @@ static void dnSkyBands(unsigned char* rgba, int W, int H) {
     }
 }
 
-int dnProcessJpg(const char* ip, const char* op, const char* pp, const char* bp, int threads, int gpu) {
+int dnProcessJpg(const char* ip, const char* op, const char* pp, const char* bp, int threads, int gpu, float bandStrength) {
     std::lock_guard<std::mutex> guard(g_dnLock);
 
     int rc = 0;
@@ -497,7 +498,7 @@ int dnProcessJpg(const char* ip, const char* op, const char* pp, const char* bp,
             dst[i * 4 + 3] = 255;
         }
 
-        dnSkyBands(rgba.data(), W, H);                  // 32-128 + 128-256 px suppression in the sky
+        dnSkyBands(rgba.data(), W, H, bandStrength);    // 32-128 + 128-256 px suppression in the sky
         dnUnsharp(rgba.data(), W, H, amount, thresh);   // light unsharp after denoise
         tjhandle tje = tjInitCompress();
         unsigned char* jb = nullptr;
@@ -518,12 +519,13 @@ int dnProcessJpg(const char* ip, const char* op, const char* pp, const char* bp,
 // jint Engine.nDenoiseFile(inJpg, outJpg, param, bin, threads, gpu)
 JNIEXPORT jint JNICALL
 Java_com_openfilm6k_host_Engine_nDenoiseFile(JNIEnv* env, jobject, jstring inPath, jstring outPath,
-                                             jstring paramPath, jstring binPath, jint threads, jboolean gpu) {
+                                             jstring paramPath, jstring binPath, jint threads, jboolean gpu,
+                                             jfloat bandStrength) {
     const char* ip = env->GetStringUTFChars(inPath, nullptr);
     const char* op = env->GetStringUTFChars(outPath, nullptr);
     const char* pp = env->GetStringUTFChars(paramPath, nullptr);
     const char* bp = env->GetStringUTFChars(binPath, nullptr);
-    int rc = dnProcessJpg(ip, op, pp, bp, (int) threads, (int) gpu);
+    int rc = dnProcessJpg(ip, op, pp, bp, (int) threads, (int) gpu, (float) bandStrength);
     env->ReleaseStringUTFChars(inPath, ip);
     env->ReleaseStringUTFChars(outPath, op);
     env->ReleaseStringUTFChars(paramPath, pp);
