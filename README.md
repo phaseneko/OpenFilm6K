@@ -2,7 +2,7 @@
 
 **Film simulation for Sony A6000 cameras.**
 
-OpenFilm6K is an open-source film-simulation system for Sony cameras that run its camera app (α6000, α7 series, NEX, RX100 III). Shoot with the camera, and your Android phone renders the final film-look photo automatically — LUT color, halation glow, grain, vignette and more, all editable in a node-graph editor. The phone can also compose its own watermark template — text, rules, rectangles, photo slots and camera-brand logos — which the camera stamps onto each shot.
+OpenFilm6K is an open-source film-simulation system for Sony cameras that run its camera app (α6000, α7 series, NEX, RX100 III). Shoot with the camera, and your Android phone renders the final film-look photo automatically — LUT color, halation glow, grain, vignette and more, all editable in a node-graph editor. Photos arriving from any intake path (camera upload, folder watch, FTP, Rewind, Luma) can optionally be denoised on the phone before grading with an ISO or day/night condition; the untouched originals can also be kept in a separate album. The phone can also compose its own watermark template — text, rules, rectangles, photo slots and camera-brand logos — which the camera stamps onto each shot.
 
 ```
 ┌────────────┐   photo (HTTP)   ┌──────────────────────┐
@@ -232,7 +232,7 @@ and the panel shows the camera status, the last sync and the transfer progress.
    the official file byte for byte, refuses anything else, and writes
    `FW_X94A_patched.bin`.
 3. Copy that file to the root of the camera's SD card under the short name `FW_X94A.BIN` and
-   power the camera on — it installs the file itself on boot. A `HFS35.TXT` file appearing
+   power the camera on — it installs the file itself on boot. A `HFS43.TXT` file appearing
    on the card afterwards confirms the new build is running.
 4. Tell the camera which network to join: put a plain-text `wifi.txt` in the SD card root
    with two lines — the phone hotspot's name (2.4 GHz) and its password (up to 26
