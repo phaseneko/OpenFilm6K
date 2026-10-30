@@ -16,8 +16,18 @@ public class RenderQueue {
 
     public interface Job { void run() throws Throwable; }
 
+    /** busy/idle transitions: busy=true when the first job of a batch starts, false when the queue drains */
+    public interface Listener { void onBusyChanged(boolean busy); }
+    private static volatile Listener listener;
+    public static void setListener(Listener l) { listener = l; }
+
+    private static void fire(boolean busy) {
+        Listener l = listener;
+        if (l != null) try { l.onBusyChanged(busy); } catch (Throwable ig) {}
+    }
+
     public static void submit(final String tag, final Job job) {
-        pending.incrementAndGet();
+        if (pending.getAndIncrement() == 0) fire(true);
         EX.execute(new Runnable() { public void run() {
             try {
                 job.run();
@@ -25,7 +35,7 @@ public class RenderQueue {
                 Engine.dbg("queue/" + tag + ": " + t);
                 MainActivity.say("queue " + tag + ": " + t);
             } finally {
-                pending.decrementAndGet();
+                if (pending.decrementAndGet() == 0) fire(false);
             }
         }});
     }

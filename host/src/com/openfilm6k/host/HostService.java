@@ -66,7 +66,7 @@ public class HostService extends Service {
             rv.setTextViewText(R.id.time, pTime == null ? "" : pTime);
             if (pThumb != null) rv.setImageViewBitmap(R.id.thumb, pThumb);
             Notification.Builder b = new Notification.Builder(this, "of6k")
-                .setSmallIcon(R.drawable.ic_notif)
+                .setSmallIcon(animating ? BUSY[frame] : R.drawable.ic_notif)
                 .setStyle(new Notification.DecoratedCustomViewStyle())
                 .setCustomContentView(rv)
                 .setOngoing(true);
@@ -75,8 +75,41 @@ public class HostService extends Service {
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE));
             return b.build();
         }
-        return new Notification.Builder(this, "of6k").setSmallIcon(R.drawable.ic_notif)
+        return new Notification.Builder(this, "of6k").setSmallIcon(animating ? BUSY[frame] : R.drawable.ic_notif)
             .setContentTitle("OpenFilm6K").setOngoing(true).build();
+    }
+
+    // ---- busy icon animation: a lens ring with an orbiting focus point -------------------
+    private static final int[] BUSY = {R.drawable.ic_busy_1, R.drawable.ic_busy_2, R.drawable.ic_busy_3,
+                                       R.drawable.ic_busy_4, R.drawable.ic_busy_5, R.drawable.ic_busy_6};
+    private volatile boolean animating = false;
+    private volatile int frame = 0;
+    private final Runnable animTick = new Runnable() { public void run() {
+        if (!animating) return;
+        frame = (frame + 1) % BUSY.length;
+        try { nm.notify(1, build()); } catch (Throwable ig) {}
+        h.postDelayed(this, 180);
+    }};
+
+    private void setBusy(boolean busy) {
+        final HostService s = this;
+        h.post(new Runnable() { public void run() {
+            if (busy) {
+                if (animating) return;
+                animating = true;
+                h.post(animTick);
+            } else {
+                if (!animating) return;
+                animating = false;
+                h.removeCallbacks(animTick);
+                try { nm.notify(1, build()); } catch (Throwable ig) {}
+                try {   // every pull/post-processing batch is done: one gentle notification tone
+                    android.media.Ringtone r = android.media.RingtoneManager.getRingtone(s,
+                            android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION));
+                    if (r != null) r.play();
+                } catch (Throwable ig) {}
+            }
+        }});
     }
 
     private final Runnable tick = new Runnable() { public void run() {
@@ -92,6 +125,7 @@ public class HostService extends Service {
         nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         NotificationChannel ch = new NotificationChannel("of6k", "OpenFilm6K", NotificationManager.IMPORTANCE_LOW);
         nm.createNotificationChannel(ch);
+        RenderQueue.setListener(new RenderQueue.Listener() { public void onBusyChanged(boolean busy) { setBusy(busy); }});
         registerReceiver(tap, new android.content.IntentFilter("com.openfilm6k.host.PHOTO_TAP"));
     }
     @Override public int onStartCommand(Intent i, int flags, int id) {
