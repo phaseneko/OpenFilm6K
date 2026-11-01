@@ -219,6 +219,10 @@ The stock Rewindpix PS135 firmware does not carry the sync support the phone nee
 release page includes a small script that derives that build from **your own** copy of the
 official firmware; it stores only the differences, so no official firmware is redistributed.
 
+The complete end-to-end guide — official download link, building, installing, Wi-Fi setup,
+rollback and emergency recovery, written so an AI agent can follow it on its own — lives in
+[`docs/rewindpix-firmware.md`](docs/rewindpix-firmware.md).
+
 On the phone, Rewind mode keeps a roll in sync with that camera: enable **Rewind sync**, fill
 the three film slots and the three stamp + post-processing combos, and set the labels the body
 shows (camera label up to 10 uppercase characters, combo labels up to 8). Once the camera
