@@ -1076,6 +1076,8 @@ public class Server {
             byte[] exifApp1 = Exif.app1Of(src);
             dnFile = Denoise.maybe(ctx, src, srcMode, exifApp1);
             if (dnFile != null) src = dnFile;
+            java.io.File caFile = ColorAlign.maybe(ctx, src, srcMode, exifApp1);
+            if (caFile != null) { if (dnFile != null) dnFile.delete(); dnFile = caFile; src = caFile; }
             galDir.mkdirs();
             java.io.File out = new java.io.File(galDir, "graded_" + base + ".jpg");
             String leakdust = postSubset(post, "leak", "dust", "veiling", "softfocus", "hdf");
@@ -1176,6 +1178,10 @@ public class Server {
             if (pairDn0 != null) src0 = pairDn0;
             pairDn1 = Denoise.maybe(ctx, src1, srcMode, null);
             if (pairDn1 != null) src1 = pairDn1;
+            java.io.File caP0 = ColorAlign.maybe(ctx, src0, srcMode, exifApp1);
+            if (caP0 != null) { if (pairDn0 != null) pairDn0.delete(); src0 = caP0; }
+            java.io.File caP1 = ColorAlign.maybe(ctx, src1, srcMode, null);
+            if (caP1 != null) { if (pairDn1 != null) pairDn1.delete(); src1 = caP1; }
             String lens = postSubset(post, "dust", "veiling", "softfocus", "hdf");
             String leak = postSubset(post, "leak");
             String scratch = postSubset(post, "scratch");

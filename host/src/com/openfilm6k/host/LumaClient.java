@@ -427,6 +427,13 @@ public class LumaClient {
         return got;
     }
 
+    /** forget imported ids so the next pull treats every card photo as new.
+     *  a sentinel keeps the list non-empty: an empty list would re-baseline and skip everything. */
+    static void resetImported(Context ctx) {
+        ctx.getSharedPreferences("of6k", 0).edit().putString("luma_seen", "-").commit();
+        Engine.dbg(TAG + " import history cleared");
+    }
+
     private static String join(java.util.Set<String> s) {
         StringBuilder sb = new StringBuilder();
         for (String x : s) { if (sb.length() > 0) sb.append(','); sb.append(x); }

@@ -62,6 +62,7 @@ public class RewindSync {
     private static volatile int renderDone, renderTotal;
     private static volatile String renderName = "";
     private static volatile boolean rendering = false;
+    private static volatile boolean cfgDirty;   // a fresh reload is still due (config changed, nothing new to pull)
 
     private Thread thread;
     private static Context ctx;
@@ -144,11 +145,15 @@ public class RewindSync {
         String ip = findCamera();
         if (ip == null) {
             camIp = null;
+            prefs().edit().remove("rewind_reload_ip").commit();   // next connect = fresh session
             status = L.s("rewindNotFound");
             return;
         }
         camIp = ip;
         baselineThisRun = false;
+        // remember whether the config still needs a (re)load: pushIfNeeded below clears the stored
+        // hash, but a changed slot set still needs the full reload so the camera starts a new roll
+        cfgDirty = cfgDirty(ip);
         synchronized (CAM_LOCK) {
             try { pushIfNeeded(ip); } catch (Throwable t) { status = "push ERR " + t; }
             try { pull(ip); } catch (Throwable t) { status = "pull ERR " + t; }
@@ -165,7 +170,7 @@ public class RewindSync {
         if (ip == null) return;
         Thread t = new Thread(new Runnable() { public void run() {
             synchronized (CAM_LOCK) {
-                try { I.pushIfNeeded(ip); }
+                try { I.pushIfNeeded(ip); I.cfgDirty = true; }   // next sync reloads with a fresh 99 budget
                 catch (Throwable e) { status = "push ERR " + e; }
             }
         } }, "rewind-config-push");
@@ -220,6 +225,14 @@ public class RewindSync {
 
     private void pushIfNeeded(String ip) throws Exception {
         pushIfNeeded(ip, false, -1);
+    }
+
+    /** the slot configuration (or camera address) differs from what the camera already has */
+    private boolean cfgDirty(String ip) {
+        SharedPreferences pf = prefs();
+        String hash = Integer.toHexString(java.util.Arrays.toString(labels()).hashCode());
+        return !hash.equals(pf.getString("rewind_cfg_hash", ""))
+                || !ip.equals(pf.getString("rewind_cfg_ip", ""));
     }
 
     private void pushIfNeeded(String ip, boolean force) throws Exception {
@@ -448,10 +461,15 @@ public class RewindSync {
         pf.edit().putStringSet("rewind_seen", seen).commit();   // persist BEFORE rendering (queue is async)
 
         boolean resetDone = false;
-        if (!items.isEmpty() || pf.getBoolean("rewind_roll_pending", false)) {
+        boolean sessionNew = !ip.equals(pf.getString("rewind_reload_ip", ""));   // first sync after connect
+        boolean cfgReload = (cfgDirty || sessionNew) && todo.isEmpty();         // fresh config, nothing to pull
+        Engine.dbg("rewind: sync ip=" + ip + " cfgDirty=" + cfgDirty + " sessionNew=" + sessionNew
+                + " todo=" + todo.size() + " items=" + items.size() + " reload=" + cfgReload);
+        if (!items.isEmpty() || pf.getBoolean("rewind_roll_pending", false) || cfgReload) {
             status = L.s("rewindReload");
             resetDone = resetRoll(ip);
             pf.edit().putBoolean("rewind_roll_pending", !resetDone).commit();
+            if (resetDone) { cfgDirty = false; pf.edit().putString("rewind_reload_ip", ip).commit(); }
             // Clearing the roll can unload Film Mode.  Re-apply the slot names and neutral
             // parameters immediately so the camera keeps writing Original_Film copies.
             if (resetDone) {
@@ -572,6 +590,18 @@ public class RewindSync {
             status = "reload ERR " + t;
             return false;
         }
+    }
+
+    /** forget which camera files were already imported so the next sync pulls them again.
+     *  baseline stays true: a false baseline would just re-mark every file as seen. */
+    static void resetImported(android.content.Context c) {
+        SharedPreferences pf = c.getSharedPreferences("of6k", 0);
+        pf.edit().remove("rewind_seen")
+                .putBoolean("rewind_baseline", true)
+                .remove("rewind_pair_fpath").remove("rewind_pair_path")
+                .remove("rewind_pair_film").remove("rewind_pair_stamp")
+                .remove("rewind_pair_post").commit();
+        Engine.dbg("rewind: import history cleared");
     }
 
     private static void clearPair(SharedPreferences pf) {

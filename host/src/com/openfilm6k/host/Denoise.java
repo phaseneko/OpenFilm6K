@@ -124,7 +124,7 @@ public class Denoise {
     static File maybe(Context c, File src, String modeKey, byte[] exifApp1) {
         try {
             if (src == null || !src.exists()) { Engine.dbg("denoise skip: no src"); return null; }
-            if (!enabledFor(c, modeKey)) { Engine.dbg("denoise skip: mode " + modeKey + " off"); return null; }
+            if (!enabledFor(c, modeKey)) { Engine.dbg("denoise skip: mode " + modeKey + " off dn_modes=[" + pf(c).getString("dn_modes", "") + "]"); return null; }
             if (!gate(c, src)) { Engine.dbg("denoise skip: gate iso=" + iso(src) + " tonal=" + String.format(java.util.Locale.US, "%.2f", tonal(src)) + " by=" + pf(c).getString("dn_by","iso")); return null; }
             if (!install(c)) { Engine.dbg("denoise skip: install"); return null; }
             File o = new File(src.getParentFile(), "dn_" + System.currentTimeMillis() + ".jpg");

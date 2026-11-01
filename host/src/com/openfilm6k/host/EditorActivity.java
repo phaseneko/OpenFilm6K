@@ -2286,7 +2286,7 @@ public class EditorActivity extends Activity {
         condLb.setLayoutParams(new LinearLayout.LayoutParams(lw, -2));
         isoLb.setLayoutParams(new LinearLayout.LayoutParams(lw, -2));
 
-        // sky 2-band strength: 0..2 (0 = off), applied inside the native denoise pass
+        // sky 2-band strength (0..1, 0 = off): same slider row as WatermarkActivity.num()
         final LinearLayout bandRow = new LinearLayout(this);
         bandRow.setOrientation(LinearLayout.HORIZONTAL);
         bandRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -2294,16 +2294,36 @@ public class EditorActivity extends Activity {
         bandLb.setText(L.s("dnBand"));
         bandLb.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
         bandLb.setTextColor(Ux.TXT);
-        bandLb.setLayoutParams(new LinearLayout.LayoutParams(lw, -2));
-        bandRow.addView(bandLb, new LinearLayout.LayoutParams(-2, -2));
-        final TextView bandVal = new TextView(this);
-        bandVal.setText(String.format(java.util.Locale.US, "%.0f%%", pf.getFloat("dn_band", 0.65f) * 100f));
-        bandVal.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
-        bandVal.setTextColor(Ux.TXT);
+        bandLb.setPadding(0, Ux.dp(4), 0, Ux.dp(2));
+        int blw = Math.max(lw, (int) bandLb.getPaint().measureText(bandLb.getText().toString()) + Ux.dp(8));
+        bandRow.addView(bandLb, new LinearLayout.LayoutParams(blw, -2));
+        Button bandMinus = new Button(this); bandMinus.setText("\u2212");
+        bandMinus.setMinWidth(0); bandMinus.setMinimumWidth(0); bandMinus.setPadding(0, 0, 0, 0);
+        bandRow.addView(bandMinus, new LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34)));
         final android.widget.SeekBar bandSk = new android.widget.SeekBar(this);
         bandSk.setMax(100);
         bandSk.setThumb(Ux.thumb98());
         bandSk.setProgress((int) (pf.getFloat("dn_band", 0.65f) * 100f));
+        LinearLayout.LayoutParams bsp = new LinearLayout.LayoutParams(0, Ux.dp(34), 1f);
+        bsp.leftMargin = Ux.dp(6);
+        bandRow.addView(bandSk, bsp);
+        Button bandPlus = new Button(this); bandPlus.setText("+");
+        bandPlus.setMinWidth(0); bandPlus.setMinimumWidth(0); bandPlus.setPadding(0, 0, 0, 0);
+        LinearLayout.LayoutParams bplp = new LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34));
+        bplp.leftMargin = Ux.dp(6);
+        bandRow.addView(bandPlus, bplp);
+        final TextView bandVal = new TextView(this);
+        bandVal.setText(String.format(java.util.Locale.US, "%.0f%%", pf.getFloat("dn_band", 0.65f) * 100f));
+        bandVal.setTypeface(Ux.seg(this));
+        bandVal.setLetterSpacing(0.25f);
+        bandVal.getPaint().setFakeBoldText(true);
+        bandVal.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(13));
+        bandVal.setGravity(android.view.Gravity.RIGHT);
+        bandVal.setSingleLine(true);
+        bandVal.setMinWidth(Ux.dp(56));
+        LinearLayout.LayoutParams bvlp = new LinearLayout.LayoutParams(-2, -2);
+        bvlp.leftMargin = Ux.dp(6);
+        bandRow.addView(bandVal, bvlp);
         bandSk.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(android.widget.SeekBar sb, int v, boolean fromUser) {
                 bandVal.setText(String.format(java.util.Locale.US, "%d%%", v));
@@ -2312,10 +2332,12 @@ public class EditorActivity extends Activity {
             public void onStartTrackingTouch(android.widget.SeekBar sb) {}
             public void onStopTrackingTouch(android.widget.SeekBar sb) {}
         });
-        LinearLayout.LayoutParams bsp = new LinearLayout.LayoutParams(0, Ux.dp(22), 1f);
-        bsp.leftMargin = Ux.dp(8);
-        bandRow.addView(bandSk, bsp);
-        bandRow.addView(bandVal, new LinearLayout.LayoutParams(Ux.dp(46), -2));
+        bandMinus.setOnClickListener(new android.view.View.OnClickListener() {
+            public void onClick(android.view.View v) { bandSk.setProgress(Math.max(0, bandSk.getProgress() - 1)); }
+        });
+        bandPlus.setOnClickListener(new android.view.View.OnClickListener() {
+            public void onClick(android.view.View v) { bandSk.setProgress(Math.min(bandSk.getMax(), bandSk.getProgress() + 1)); }
+        });
 
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
         rp.topMargin = Ux.dp(4);
@@ -2649,8 +2671,18 @@ public class EditorActivity extends Activity {
         wgi.addView(go, glp2);
         TextView wgl = new TextView(this); wgl.setText(L.s("lumaWifi")); Ux.styleHeader(wgl);
         wg.setClipChildren(false);
+        Button lmRe = reimportButton(L.s("rewindReimport"), new Runnable() { public void run() {
+            confirmAction(L.s("rewindReimport"), L.s("reimportConfirm"), new Runnable() { public void run() {
+                LumaClient.resetImported(getApplicationContext());
+                MainActivity.say(L.s("reimportCleared"));
+                if (go != null) go.performClick();
+            }});
+        }});
         android.widget.FrameLayout.LayoutParams wgil = new android.widget.FrameLayout.LayoutParams(-1, -2);
         wgil.topMargin = Ux.dp(10);
+        LinearLayout.LayoutParams lmrelp = new LinearLayout.LayoutParams(-2, Ux.dp(34));
+        lmrelp.leftMargin = Ux.dp(6);
+        wgi.addView(lmRe, Math.max(0, wgi.getChildCount() - 1), lmrelp);   // left of "transfer"
         wg.addView(wgi, wgil);
         android.widget.FrameLayout.LayoutParams wgll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         wgll.leftMargin = Ux.dp(10);
@@ -3123,10 +3155,20 @@ public class EditorActivity extends Activity {
             glp.leftMargin = Ux.dp(10);
             egi.addView(grant, glp);
         }
+        Button spRe = reimportButton(L.s("spyReimport"), new Runnable() { public void run() {
+            confirmAction(L.s("spyReimport"), L.s("reimportConfirm"), new Runnable() { public void run() {
+                if (SpyWatcher.resetImported(getApplicationContext())) MainActivity.say(L.s("reimportCleared"));
+                else MainActivity.say(L.s("reimportNoSpy"));
+            }});
+        }});
         TextView egl = new TextView(this); egl.setText(L.s("spyMode")); Ux.styleHeader(egl);
         eg.setClipChildren(false);
         android.widget.FrameLayout.LayoutParams egil = new android.widget.FrameLayout.LayoutParams(-1, -2);
         egil.topMargin = Ux.dp(10);
+        egi.addView(new android.view.View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        LinearLayout.LayoutParams sprelp = new LinearLayout.LayoutParams(-2, Ux.dp(34));
+        sprelp.leftMargin = Ux.dp(6);
+        egi.addView(spRe, sprelp);
         eg.addView(egi, egil);
         android.widget.FrameLayout.LayoutParams egll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         egll.leftMargin = Ux.dp(10);
@@ -3529,6 +3571,54 @@ public class EditorActivity extends Activity {
     }
 
     // ---- Rewind mode dialog (PS135): 3 film slots + 3 stamp/post combos + camera sync ----
+    /** small win98 button for the re-import action */
+    private Button reimportButton(String label, final Runnable action) {
+        Button b = new Button(this);
+        Ux.styleButton(b);
+        b.setText(label);
+        b.setPadding(Ux.dp(10), 0, Ux.dp(10), 0);
+        b.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) { action.run(); }});
+        return b;
+    }
+
+    /** win98 confirm box: message + OK/Cancel; OK runs the action */
+    private void confirmAction(String title, String msg, final Runnable action) {
+        final android.app.Dialog[] dh = new android.app.Dialog[1];
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        android.widget.ImageView iv = new android.widget.ImageView(this);
+        iv.setImageResource(R.drawable.warn32);
+        row.addView(iv, new LinearLayout.LayoutParams(Ux.dp(32), Ux.dp(32)));
+        TextView tv = new TextView(this);
+        tv.setText(msg);
+        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        tv.setTextColor(Ux.TXT);
+        tv.setPadding(Ux.dp(12), 0, 0, 0);
+        row.addView(tv, new LinearLayout.LayoutParams(0, -2, 1f));
+        body.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout rowBtn = new LinearLayout(this);
+        Button ok = new Button(this); Ux.styleButton(ok); ok.setText(L.s("btnOk"));
+        ok.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            if (dh[0] != null) dh[0].dismiss();
+            action.run();
+        }});
+        Button cancel = new Button(this); Ux.styleButton(cancel); cancel.setText(L.s("btnCancel"));
+        cancel.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            if (dh[0] != null) dh[0].dismiss();
+        }});
+        rowBtn.addView(ok, new LinearLayout.LayoutParams(0, Ux.dp(38), 1f));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, Ux.dp(38), 1f);
+        clp.leftMargin = Ux.dp(8);
+        rowBtn.addView(cancel, clp);
+        LinearLayout.LayoutParams rbp = new LinearLayout.LayoutParams(-1, -2);
+        rbp.topMargin = Ux.dp(16);
+        body.addView(rowBtn, rbp);
+        dh[0] = MainActivity.winDlg(this, title, body, true);
+        dh[0].show();
+    }
+
     private void showRewind() {
         final android.app.Dialog dlg = new android.app.Dialog(this);
         dlg.setCanceledOnTouchOutside(false);
@@ -3567,10 +3657,21 @@ public class EditorActivity extends Activity {
             }
         });
         egi.addView(en, new LinearLayout.LayoutParams(-2, -2));
+        Button reBtn = reimportButton(L.s("rewindReimport"), new Runnable() { public void run() {
+            confirmAction(L.s("rewindReimport"), L.s("reimportConfirm"), new Runnable() { public void run() {
+                RewindSync.resetImported(getApplicationContext());
+                RewindSync.sync(getApplicationContext());
+                MainActivity.say(L.s("rewindReimportDone"));
+            }});
+        }});
         TextView egl = new TextView(this); egl.setText(L.s("rewindMode")); Ux.styleHeader(egl);
         eg.setClipChildren(false);
         android.widget.FrameLayout.LayoutParams egil = new android.widget.FrameLayout.LayoutParams(-1, -2);
         egil.topMargin = Ux.dp(10);
+        egi.addView(new android.view.View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        LinearLayout.LayoutParams relp = new LinearLayout.LayoutParams(-2, Ux.dp(34));
+        relp.leftMargin = Ux.dp(6);
+        egi.addView(reBtn, relp);
         eg.addView(egi, egil);
         android.widget.FrameLayout.LayoutParams egll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         egll.leftMargin = Ux.dp(10);
@@ -3642,6 +3743,78 @@ public class EditorActivity extends Activity {
         rg.addView(rgl, rgll);
         rg.addView(slotBar, sblp);
         addGroup(body, rg);
+        // group: color alignment — maps the Rewindpix rendering toward the Sony reference,
+        // applied right after denoise and before any post / film grading.
+        // slider row built exactly like WatermarkActivity.num(): - [slider] + value; 0 = off.
+        android.widget.FrameLayout cag = new android.widget.FrameLayout(this);
+        LinearLayout cagi = new LinearLayout(this);
+        cagi.setOrientation(LinearLayout.VERTICAL);
+        cagi.setBackground(new Ux.Etched());
+        cagi.setPadding(Ux.dp(8), Ux.dp(14), Ux.dp(8), Ux.dp(8));
+        LinearLayout caRow = new LinearLayout(this);
+        caRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView caLb = new TextView(this);
+        caLb.setText(L.s("caStrength"));
+        caLb.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(Ux.BODY));
+        caLb.setTextColor(Ux.TXT);
+        caLb.setPadding(0, Ux.dp(4), 0, Ux.dp(2));
+        caRow.addView(caLb, new LinearLayout.LayoutParams(Ux.dp(80), -2));
+        Button caMinus = new Button(this); caMinus.setText("\u2212");
+        caMinus.setMinWidth(0); caMinus.setMinimumWidth(0); caMinus.setPadding(0, 0, 0, 0);
+        caRow.addView(caMinus, new LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34)));
+        final android.widget.SeekBar caSk = new android.widget.SeekBar(this);
+        caSk.setMax(100);
+        caSk.setThumb(Ux.thumb98());
+        caSk.setProgress(Math.round(pf.getFloat("ca_strength", 1f) * 100f));
+        LinearLayout.LayoutParams caslp = new LinearLayout.LayoutParams(0, Ux.dp(34), 1f);
+        caslp.leftMargin = Ux.dp(6);
+        caRow.addView(caSk, caslp);
+        Button caPlus = new Button(this); caPlus.setText("+");
+        caPlus.setMinWidth(0); caPlus.setMinimumWidth(0); caPlus.setPadding(0, 0, 0, 0);
+        LinearLayout.LayoutParams caplp = new LinearLayout.LayoutParams(Ux.dp(34), Ux.dp(34));
+        caplp.leftMargin = Ux.dp(6);
+        caRow.addView(caPlus, caplp);
+        final TextView caVal = new TextView(this);
+        caVal.setTypeface(Ux.seg(this));
+        caVal.setLetterSpacing(0.25f);
+        caVal.getPaint().setFakeBoldText(true);
+        caVal.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ux.ts(13));
+        caVal.setGravity(android.view.Gravity.RIGHT);
+        caVal.setSingleLine(true);
+        caVal.setMinWidth(Ux.dp(56));
+        LinearLayout.LayoutParams cavlp = new LinearLayout.LayoutParams(-2, -2);
+        cavlp.leftMargin = Ux.dp(6);
+        caRow.addView(caVal, cavlp);
+        final Runnable caShow = new Runnable() { public void run() {
+            caVal.setText(String.format(java.util.Locale.US, "%d%%", Math.round(pf.getFloat("ca_strength", 1f) * 100f)));
+        }};
+        caShow.run();
+        caSk.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(android.widget.SeekBar sb, int v, boolean fromUser) {
+                pf.edit().putFloat("ca_strength", v / 100f).commit();
+                caShow.run();
+            }
+            public void onStartTrackingTouch(android.widget.SeekBar sb) {}
+            public void onStopTrackingTouch(android.widget.SeekBar sb) {}
+        });
+        caMinus.setOnClickListener(new android.view.View.OnClickListener() {
+            public void onClick(android.view.View v) { caSk.setProgress(Math.max(0, caSk.getProgress() - 1)); }
+        });
+        caPlus.setOnClickListener(new android.view.View.OnClickListener() {
+            public void onClick(android.view.View v) { caSk.setProgress(Math.min(caSk.getMax(), caSk.getProgress() + 1)); }
+        });
+        cagi.addView(caRow, new LinearLayout.LayoutParams(-1, -2));
+        TextView cagl = new TextView(this); cagl.setText(L.s("caGroup")); Ux.styleHeader(cagl);
+        cag.setClipChildren(false);
+        android.widget.FrameLayout.LayoutParams cagil = new android.widget.FrameLayout.LayoutParams(-1, -2);
+        cagil.topMargin = Ux.dp(10);
+        cag.addView(cagi, cagil);
+        android.widget.FrameLayout.LayoutParams cagll = new android.widget.FrameLayout.LayoutParams(-2, -2);
+        cagll.leftMargin = Ux.dp(10);
+        cagll.topMargin = Ux.dp(10) - Ux.dp(1) - (int) (Ux.BODY * 0.5f * Ux.tscale());
+        cag.addView(cagl, cagll);
+        addGroup(body, cag);
+
 
         final Runnable showSlot = new Runnable() { public void run() {
             bindRewindSlot(content, pf, slot[0], summary);

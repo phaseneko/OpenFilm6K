@@ -53,6 +53,16 @@ public class SpyWatcher {
 
     public static synchronized boolean running() { return running; }
 
+    /** forget the baseline so every file now in the watched folders is treated as new.
+     *  returns false when watch mode is off (its baseline is rebuilt on start anyway). */
+    public static synchronized boolean resetImported(Context c) {
+        if (!running) return false;
+        processed.clear();
+        pending.clear();
+        Engine.dbg(TAG + ": import history cleared");
+        return true;
+    }
+
     private static final Runnable poll = new Runnable() { public void run() {
         if (!running) return;
         try { scan(); } catch (Throwable t) { Engine.dbg(TAG + " poll: " + t); }
