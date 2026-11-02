@@ -207,6 +207,7 @@ public class L {
         {"reimportNoSpy", "请先开启监视模式", "請先開啟監視模式", "Turn on watch mode first", "先に監視モードをオンにしてください", "먼저 감시 모드를 켜세요", "Zuerst Überwachungsmodus einschalten", "Activez d'abord le mode surveillance", "Activa primero el modo vigilancia", "Сначала включите режим наблюдения", "Ative primeiro o modo monitoramento"},
         {"rewindReimport", "重新导入", "重新導入", "Re-import", "再取り込み", "다시 가져오기", "Neu importieren", "Réimporter", "Reimportar", "Импорт заново", "Reimportar"},
         {"rewindReimportDone", "已清除导入记录，开始重新同步", "已清除匯入記錄，開始重新同步", "Import history cleared, syncing", "取り込み履歴を消去しました。同期中", "가져오기 기록을 지웠습니다. 동기화 중", "Importverlauf gelöscht, synchronisiere", "Historique effacé, synchronisation", "Historial borrado, sincronizando", "История очищена, синхронизация", "Histórico limpo, sincronizando"},
+        {"rewindBadName", "文件名不匹配 Rewind 槽位: ", "檔名不符合 Rewind 槽位: ", "Filename doesn't match a Rewind slot: ", "ファイル名が Rewind スロットに一致しません: ", "파일 이름이 Rewind 슬롯과 일치하지 않습니다: ", "Dateiname passt zu keinem Rewind-Slot: ", "Nom de fichier sans slot Rewind correspondant : ", "El nombre no coincide con ninguna ranura Rewind: ", "Имя файла не соответствует слоту Rewind: ", "Nome do arquivo não corresponde a um slot Rewind: "},
         {"rewindCamera", "相机", "相機", "Camera", "カメラ", "카메라", "Kamera", "Appareil", "Cámara", "Камера", "Câmera"},
         {"rewindStatus", "状态", "狀態", "Status", "状態", "상태", "Status", "État", "Estado", "Статус", "Status"},
         {"rewindLast", "上次", "上次", "Last", "前回", "마지막", "Zuletzt", "Dernier", "Última", "Последняя", "Última"},

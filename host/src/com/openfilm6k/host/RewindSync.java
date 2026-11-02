@@ -43,6 +43,8 @@ public class RewindSync {
     private static final String[] DEFAULT_REWIND_FILMS = {"CC-200", "UM-400", "PAN-100"};
     private static final int GAP_MS = 300;
     private static final String NEUTRAL = "0:0:0:0:0:0:0";
+    /** manual Rewind import staging (not watched: a manual batch renders exactly once) */
+    static final String REWIND_INBOX = "/sdcard/OpenFilm6K/rewind_inbox";
     private static final Object CAM_LOCK = new Object();
     private static final RewindSync I = new RewindSync();
 
@@ -370,6 +372,95 @@ public class RewindSync {
     private static String oneLine(String s) {
         if (s == null) return "";
         return s.replace('\n', ' ').replace('\r', ' ').replace('=', '-');
+    }
+
+    /** strict Rewind filename: DCIM<date><slot-label>_<seq>.JPG, mapped to C1/C2/C3. */
+    static int slotForName(String name) {
+        if (name == null) return -1;
+        Matcher m = Pattern.compile("^DCIM\\d{8}(.*)_\\d{4}\\.(?:JPG|JPEG)$", Pattern.CASE_INSENSITIVE).matcher(name);
+        if (!m.find()) return -1;
+        return slotFromLabel(m.group(1).trim());
+    }
+
+    static int slotForLocalFile(File f) { return f == null ? -1 : slotForName(f.getName()); }
+
+    private static boolean inInbox(File f) {
+        return f != null && f.getAbsolutePath().startsWith(REWIND_INBOX + "/");
+    }
+
+    /** Manual Rewind import: strict filename -> slot film/stamp/post, then the normal Rewind
+     *  ingest path ("rewind") so colour alignment and rewind denoise apply. */
+    static void importLocal(android.content.Context c, final java.util.List<File> files) {
+        if (c != null) ctx = c.getApplicationContext();
+        if (files == null || files.isEmpty()) return;
+        final java.util.ArrayList<File> ok = new java.util.ArrayList<File>();
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<String>();
+        String bad = null; int badN = 0;
+        for (File f : files) {
+            if (f == null || !f.isFile()) continue;
+            if (slotForLocalFile(f) < 0) { badN++; if (bad == null) bad = f.getName(); continue; }
+            if (seen.add(f.getAbsolutePath())) ok.add(f);
+        }
+        if (badN > 0) MainActivity.say(L.s("rewindBadName") + bad + (badN > 1 ? " (+" + (badN - 1) + ")" : ""));
+        if (ok.isEmpty()) return;
+        RenderQueue.submit("rewind", new RenderQueue.Job() { public void run() throws Throwable {
+            SharedPreferences pf = prefs();
+            for (File f : ok) {
+                int slot = slotForLocalFile(f);
+                if (slot < 0) continue;
+                String film = films()[slot];
+                int n = slot + 1;
+                int stamp = pf.getInt("rewind_stamp" + n, 1);
+                String post = pf.getString("rewind_post" + n, "");
+                String wm = pf.getString("rewind_wm" + n, "");
+                boolean hasWm = wm != null && wm.length() > 0;
+                boolean pairMode = stamp == 8 || stamp == 9;
+                try {
+                    if (pairMode) {   // same pair state as the camera path: two arrivals = one image
+                        String firstPath = pf.getString("rewind_pair_path", "");
+                        File first = new File(firstPath);
+                        if (firstPath.length() == 0 || !first.exists() || first.length() == 0) {
+                            if (firstPath.length() > 0) clearPair(pf);
+                            pf.edit().putString("rewind_pair_fpath", f.getAbsolutePath())
+                                    .putString("rewind_pair_path", f.getAbsolutePath())
+                                    .putString("rewind_pair_film", film)
+                                    .putInt("rewind_pair_stamp", stamp)
+                                    .putString("rewind_pair_post", post).commit();
+                            status = L.s("spyPairWait") + " " + f.getName();
+                            MainActivity.say(L.s("spyPairWait"));
+                            continue;
+                        }
+                        String pendingFilm = pf.getString("rewind_pair_film", film);
+                        String pendingPost = pf.getString("rewind_pair_post", post);
+                        boolean half = pf.getInt("rewind_pair_stamp", stamp) == 8;
+                        String r = Server.spyPairIngest(first, f, pendingFilm, film, half, pendingPost, "rewind");
+                        if (r != null && r.startsWith("OK")) {
+                            clearPair(pf);
+                            if (inInbox(first)) first.delete();
+                            if (inInbox(f)) f.delete();
+                            status = L.s("imported") + f.getName() + " [pair]";
+                            MainActivity.say(status);
+                        } else {
+                            status = "pair ERR " + r;
+                            MainActivity.say("rewind ERR " + r);
+                        }
+                        continue;
+                    }
+                    String r = Server.spyIngest(f, film, hasWm ? 0 : stamp, post, wm, "rewind");
+                    if (r != null && r.startsWith("OK")) {
+                        status = L.s("imported") + f.getName();
+                        MainActivity.say(status);
+                        if (inInbox(f)) f.delete();
+                    } else {
+                        status = "render ERR " + r;
+                        MainActivity.say("rewind ERR " + r);
+                    }
+                } catch (Throwable t) {
+                    status = "ERR " + f.getName() + ": " + t;
+                    MainActivity.say("rewind ERR " + t);
+                }
+            }
+        }});
     }
 
     // ---------------------------------------------------------------- pull photos

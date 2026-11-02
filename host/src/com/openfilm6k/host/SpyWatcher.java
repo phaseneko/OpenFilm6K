@@ -63,6 +63,29 @@ public class SpyWatcher {
         return true;
     }
 
+    /** Manually picked images: run them through the same pipeline immediately.
+     *  They are marked processed first so a running watcher can't render them twice. */
+    public static synchronized void importNow(Context c, java.util.List<File> files) {
+        if (c != null) ctx = c.getApplicationContext();
+        if (files == null) return;
+        for (File f : files) {
+            if (f == null || !f.isFile()) continue;
+            processed.add(key(f));
+            pending.remove(key(f));
+            dispatch(f, true);
+        }
+    }
+
+    /** Keep the running watcher in step with a folder added after sync() (manual import inbox). */
+    public static synchronized void addWatchedDir(Context c, String path) {
+        if (c != null) ctx = c.getApplicationContext();
+        if (!running || path == null) return;
+        if (!watching.contains(path)) {
+            watching.add(path);
+            for (File f : ls(path)) processed.add(key(f));   // existing files are not "new"
+        }
+    }
+
     private static final Runnable poll = new Runnable() { public void run() {
         if (!running) return;
         try { scan(); } catch (Throwable t) { Engine.dbg(TAG + " poll: " + t); }
@@ -83,11 +106,13 @@ public class SpyWatcher {
         }
     }
 
-    private static void dispatch(final File f) {
+    private static void dispatch(final File f) { dispatch(f, false); }
+
+    private static void dispatch(final File f, final boolean manual) {
         RenderQueue.submit("spy", new RenderQueue.Job() { public void run() throws Throwable {
             {
                 SharedPreferences pf = pf();
-                if (!pf.getBoolean("spy_on", false)) return;      // switched off while queued
+                if (!manual && !pf.getBoolean("spy_on", false)) return;   // switched off while queued
                 String film = pf.getString("spy_film", null);
                 int mode = pf.getInt("spy_stamp", 0);
                 String post = pf.getString("spy_post", "");

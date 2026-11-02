@@ -3169,6 +3169,19 @@ public class EditorActivity extends Activity {
         LinearLayout.LayoutParams sprelp = new LinearLayout.LayoutParams(-2, Ux.dp(34));
         sprelp.leftMargin = Ux.dp(6);
         egi.addView(spRe, sprelp);
+        Button spAdd = new Button(this);   // manual import: pick images from the system picker, run them through this pipeline
+        spAdd.setText("+"); spAdd.setMinWidth(0); spAdd.setMinimumWidth(0); spAdd.setPadding(0, 0, 0, 0);
+        spAdd.setContentDescription(L.s("btnImport"));
+        spAdd.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            android.content.Intent it = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+            it.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            it.setType("image/*");
+            it.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
+            try { startActivityForResult(it, 1004); } catch (Throwable e) { MainActivity.say("picker " + e); }
+        }});
+        LinearLayout.LayoutParams spalp = new LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(34));
+        spalp.leftMargin = Ux.dp(4);
+        egi.addView(spAdd, spalp);
         eg.addView(egi, egil);
         android.widget.FrameLayout.LayoutParams egll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         egll.leftMargin = Ux.dp(10);
@@ -3672,6 +3685,19 @@ public class EditorActivity extends Activity {
         LinearLayout.LayoutParams relp = new LinearLayout.LayoutParams(-2, Ux.dp(34));
         relp.leftMargin = Ux.dp(6);
         egi.addView(reBtn, relp);
+        Button rwAdd = new Button(this);   // manual Rewind import: strict camera filenames, rewind colour alignment
+        rwAdd.setText("+"); rwAdd.setMinWidth(0); rwAdd.setMinimumWidth(0); rwAdd.setPadding(0, 0, 0, 0);
+        rwAdd.setContentDescription(L.s("btnImport"));
+        rwAdd.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            android.content.Intent it = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+            it.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            it.setType("image/*");
+            it.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
+            try { startActivityForResult(it, 1005); } catch (Throwable e) { MainActivity.say("picker " + e); }
+        }});
+        LinearLayout.LayoutParams rwalp = new LinearLayout.LayoutParams(Ux.dp(38), Ux.dp(34));
+        rwalp.leftMargin = Ux.dp(4);
+        egi.addView(rwAdd, rwalp);
         eg.addView(egi, egil);
         android.widget.FrameLayout.LayoutParams egll = new android.widget.FrameLayout.LayoutParams(-2, -2);
         egll.leftMargin = Ux.dp(10);
@@ -4180,6 +4206,7 @@ public class EditorActivity extends Activity {
     /** Android system camera default output folder — offered as a one-tap entry in the spy dialog */
     static final String CAM_DIR = "/sdcard/DCIM/Camera";
     static final String LAB_DIR = "/sdcard/DCIM/LUMIXLab";   // LUMIX Lab app's saved-photo folder
+    static final String SPY_INBOX = "/sdcard/OpenFilm6K/spy_inbox";   // manually picked spy-mode imports
 
     /** true when the watched list already covers the given shortcut folder (also matches /storage/emulated/0/...) */
     static boolean hasShortcutDir(java.util.List<String> dirs, String want) {
@@ -4200,6 +4227,32 @@ public class EditorActivity extends Activity {
 
     @Override protected void onActivityResult(int req, int res, android.content.Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == 1004) {   // spy: manual multi-select -> inbox -> same pipeline
+            if (res != android.app.Activity.RESULT_OK || data == null) return;
+            java.util.ArrayList<android.net.Uri> uris = new java.util.ArrayList<android.net.Uri>();
+            android.content.ClipData cd = data.getClipData();
+            if (cd != null) {
+                for (int i = 0; i < cd.getItemCount(); i++) {
+                    android.content.ClipData.Item item = cd.getItemAt(i);
+                    if (item != null && item.getUri() != null) uris.add(item.getUri());
+                }
+            } else if (data.getData() != null) uris.add(data.getData());
+            importSpyImages(uris);
+            return;
+        }
+        if (req == 1005) {   // rewind: manual multi-select -> strict filename check -> rewind ingest
+            if (res != android.app.Activity.RESULT_OK || data == null) return;
+            java.util.ArrayList<android.net.Uri> uris = new java.util.ArrayList<android.net.Uri>();
+            android.content.ClipData cd = data.getClipData();
+            if (cd != null) {
+                for (int i = 0; i < cd.getItemCount(); i++) {
+                    android.content.ClipData.Item item = cd.getItemAt(i);
+                    if (item != null && item.getUri() != null) uris.add(item.getUri());
+                }
+            } else if (data.getData() != null) uris.add(data.getData());
+            importRewindImages(uris);
+            return;
+        }
         if (req == 1003) {   // spy: the system folder picker returned — store the real path, reopen, preselect
             if (res != android.app.Activity.RESULT_OK || data == null || data.getData() == null) return;
             String p = treePath(data.getData());
@@ -4277,6 +4330,108 @@ public class EditorActivity extends Activity {
         }
         refreshSceneSpinner(sceneTag());
         buildNodeUI();   // LUT picker picks up new custom cubes
+    }
+
+    /** spy mode manual import: copy picked images into the inbox, then render them with the spy pipeline.
+     *  The inbox is added to the watched folder list so 重新导入 can replay the whole batch later. */
+    private void importSpyImages(java.util.ArrayList<android.net.Uri> uris) {
+        if (uris == null || uris.isEmpty()) return;
+        android.content.SharedPreferences pf = getSharedPreferences("of6k", 0);
+        String film = pf.getString("spy_film", null);
+        if (film == null || film.length() == 0) {
+            film = selFilm();
+            if (film != null && film.length() > 0) pf.edit().putString("spy_film", film).commit();
+        }
+        if (film == null || film.length() == 0) { MainActivity.say(L.s("spyFilm") + " " + L.s("noneItem")); return; }
+        java.io.File dir = new java.io.File(SPY_INBOX);
+        dir.mkdirs();
+        java.util.ArrayList<java.io.File> got = new java.util.ArrayList<java.io.File>();
+        for (android.net.Uri u : uris) {
+            String name = null;
+            android.database.Cursor c = null;
+            try {
+                c = getContentResolver().query(u, null, null, null, null);
+                if (c != null && c.moveToFirst()) {
+                    int ci = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                    if (ci >= 0) name = c.getString(ci);
+                }
+            } catch (Throwable ig) {} finally { if (c != null) c.close(); }
+            if (name == null || name.length() == 0) name = "spy_" + System.currentTimeMillis() + ".jpg";
+            name = name.replaceAll("[/\\:]", "_");
+            String low = name.toLowerCase(java.util.Locale.US);
+            if (!low.endsWith(".jpg") && !low.endsWith(".jpeg")) { MainActivity.say(L.s("notJpg") + name); continue; }
+            java.io.File dst = new java.io.File(dir, name);
+            for (int n = 1; dst.exists() && n < 1000; n++) {
+                String base = name, ext = "";
+                int dot = name.lastIndexOf('.');
+                if (dot > 0) { ext = name.substring(dot); base = name.substring(0, dot); }
+                dst = new java.io.File(dir, base + "_" + n + ext);
+            }
+            try {
+                java.io.InputStream in = getContentResolver().openInputStream(u);
+                java.io.FileOutputStream fo = new java.io.FileOutputStream(dst);
+                byte[] buf = new byte[65536]; int k;
+                while ((k = in.read(buf)) > 0) fo.write(buf, 0, k);
+                in.close(); fo.close();
+                got.add(dst);
+            } catch (Throwable t) { MainActivity.say(L.s("importFail") + t); }
+        }
+        if (got.isEmpty()) return;
+        java.util.ArrayList<String> dirs = spyDirs(pf);
+        if (!dirs.contains(SPY_INBOX)) {
+            dirs.add(SPY_INBOX);
+            pf.edit().putString("spy_dirs", android.text.TextUtils.join("\n", dirs)).commit();
+            SpyWatcher.addWatchedDir(getApplicationContext(), SPY_INBOX);
+        }
+        SpyWatcher.importNow(getApplicationContext(), got);
+        MainActivity.say(L.s("imported") + got.size());
+        if (spyDlg != null && spyDlg.isShowing()) {   // refresh the watched-folder list + preselect the inbox
+            spyDlg.dismiss();
+            showSpy();
+            if (spyDirSpin != null && spyDirSpin.getAdapter() != null)
+                for (int i = 0; i < spyDirSpin.getAdapter().getCount(); i++)
+                    if (SPY_INBOX.equals(spyDirSpin.getAdapter().getItem(i).toString())) { spyDirSpin.setSelection(i); break; }
+        }
+    }
+
+    /** Rewind manual import: only strict camera filenames (DCIM...C#-FILM_####.JPG) are accepted;
+     *  they render through RewindSync.importLocal so the slot film/stamp/post and rewind colour
+     *  alignment all apply exactly as if the camera had pulled them. */
+    private void importRewindImages(java.util.ArrayList<android.net.Uri> uris) {
+        if (uris == null || uris.isEmpty()) return;
+        java.io.File archive = new java.io.File("/sdcard/DCIM/OpenFilm6K_Original");
+        java.io.File inbox = new java.io.File(RewindSync.REWIND_INBOX);
+        inbox.mkdirs();
+        java.util.LinkedHashSet<java.io.File> got = new java.util.LinkedHashSet<java.io.File>();
+        int bad = 0; String badName = null;
+        for (android.net.Uri u : uris) {
+            String name = null;
+            android.database.Cursor c = null;
+            try {
+                c = getContentResolver().query(u, null, null, null, null);
+                if (c != null && c.moveToFirst()) {
+                    int ci = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                    if (ci >= 0) name = c.getString(ci);
+                }
+            } catch (Throwable ig) {} finally { if (c != null) c.close(); }
+            if (name == null || name.length() == 0) name = "rewind_" + System.currentTimeMillis() + ".jpg";
+            name = name.replaceAll("[/\\:]", "_");
+            if (RewindSync.slotForName(name) < 0) { bad++; if (badName == null) badName = name; continue; }
+            java.io.File direct = new java.io.File(archive, name);
+            if (direct.isFile()) { got.add(direct); continue; }   // already archived: never make a _1 copy
+            java.io.File dst = new java.io.File(inbox, name);      // keep the exact camera name (slot matching)
+            try {
+                java.io.InputStream in = getContentResolver().openInputStream(u);
+                java.io.FileOutputStream fo = new java.io.FileOutputStream(dst);
+                byte[] buf = new byte[65536]; int k;
+                while ((k = in.read(buf)) > 0) fo.write(buf, 0, k);
+                in.close(); fo.close();
+                got.add(dst);
+            } catch (Throwable t) { MainActivity.say(L.s("importFail") + t); }
+        }
+        if (bad > 0) MainActivity.say(L.s("rewindBadName") + badName + (bad > 1 ? " (+" + (bad - 1) + ")" : ""));
+        if (got.isEmpty()) return;
+        RewindSync.importLocal(getApplicationContext(), new java.util.ArrayList<java.io.File>(got));
     }
 
     /** selected post-process categories for the editor preview (comma list, from prefs) */

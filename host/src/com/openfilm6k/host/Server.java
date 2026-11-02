@@ -1017,6 +1017,7 @@ public class Server {
         try {
             if (ctx == null || src == null || !src.exists()) return;
             if (!ctx.getSharedPreferences("of6k", 0).getBoolean("keep_orig", false)) return;
+            if (src.getAbsolutePath().startsWith("/sdcard/DCIM/OpenFilm6K_Original/")) return;   // already archived
             java.io.File dir = new java.io.File("/sdcard/DCIM/OpenFilm6K_Original");
             dir.mkdirs();
             String base = name == null ? "photo" : name;
