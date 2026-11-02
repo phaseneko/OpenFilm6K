@@ -95,7 +95,7 @@ static const char* FS_GLOW_MASK = FS_HEAD
 static const char* FS_GLOW_DIL = FS_HEAD
     "uniform vec2 uDir; // axis*spacing(px)\n"
     "void main(){ float m=0.0;\n"
-    " for(int i=-3;i<=3;i++) m=max(m,texture(uTex,luv()+float(i)*uDir/uRes).r);\n"
+    " for(int i=-7;i<=7;i++) m=max(m,texture(uTex,luv()+float(i)*uDir/uRes).r);\n"
     " o=vec4(m,m,m,1.0); }\n";
 
 // glow peak mode: ring = clamp(dilated - mask, 0, 1)
@@ -112,9 +112,9 @@ static const char* FS_GLOW_H = FS_HEAD
     "float hm(vec3 c){ float v=uMode<0.5?dot(c,vec3(0.299,0.587,0.114)):max(c.r,max(c.g,c.b)); return smoothstep(uThresh,max(uThresh2,uThresh+0.001),v); }\n"
     "float dth(vec2 p){ vec3 p3=fract(vec3(p.xyx)*0.1031); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }\n"
     "void main(){ vec3 acc=vec3(0.0); float ws=0.0;\n"
-    " for(int i=-12;i<=12;i++){\n"
-    "  float w=exp(-float(i*i)/72.0);\n"
-    "  vec2 to=luv()+vec2(float(i)*uRadius/12.0/uRes.x,0.0);\n"
+    " for(int i=-24;i<=24;i++){\n"
+    "  float w=exp(-float(i*i)/288.0);\n"
+    "  vec2 to=luv()+vec2(float(i)*uRadius/24.0/uRes.x,0.0);\n"
     "  if(uPeak>0.5){ acc+=texture(uOrig,to).rgb*w; ws+=w; }\n"
     "  else { vec3 s=texture(uOrig,to).rgb; acc+=s*hm(s)*w; ws+=w; } }\n"
     " o=vec4(acc/ws + vec3((dth(gl_FragCoord.xy)-0.5)/255.0),1.0); }\n";
@@ -124,9 +124,9 @@ static const char* FS_GLOW_V = FS_HEAD
     "uniform float uRadius,uAmt,uColorMix; uniform vec3 uGlowColor; uniform float uAlpha;\n"
     "float dth(vec2 p){ vec3 p3=fract(vec3(p.xyx)*0.1031); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }\n"
     "void main(){ vec3 blur=vec3(0.0); float ws=0.0;\n"
-    " for(int j=-12;j<=12;j++){\n"
-    "  float w=exp(-float(j*j)/72.0);\n"
-    "  blur+=texture(uTex,luv()+vec2(0.0,float(j)*uRadius/12.0/uRes.y)).rgb*w; ws+=w; }\n"
+    " for(int j=-24;j<=24;j++){\n"
+    "  float w=exp(-float(j*j)/288.0);\n"
+    "  blur+=texture(uTex,luv()+vec2(0.0,float(j)*uRadius/24.0/uRes.y)).rgb*w; ws+=w; }\n"
     " blur/=ws;\n"
     " blur=mix(blur,blur*uGlowColor,uColorMix);\n"
     " vec3 c=texture(uSrc,luv()).rgb;\n"
@@ -213,14 +213,14 @@ static const char* FS_HUE = FS_HEAD
 static const char* FS_BLUR_H = FS_HEAD
     "uniform float uRadius;\n"
     "void main(){ vec3 a=vec3(0.0); float ws=0.0;\n"
-    " for(int i=-12;i<=12;i++){ float w=exp(-float(i*i)/72.0);\n"
-    "  a+=texture(uTex,luv()+vec2(float(i)*uRadius/12.0/uRes.x,0.0)).rgb*w; ws+=w; }\n"
+    " for(int i=-24;i<=24;i++){ float w=exp(-float(i*i)/288.0);\n"
+    "  a+=texture(uTex,luv()+vec2(float(i)*uRadius/24.0/uRes.x,0.0)).rgb*w; ws+=w; }\n"
     " o=vec4(a/ws,1.0); }";
 static const char* FS_BLUR_V = FS_HEAD
     "uniform float uRadius;\n"
     "void main(){ vec3 a=vec3(0.0); float ws=0.0;\n"
-    " for(int j=-12;j<=12;j++){ float w=exp(-float(j*j)/72.0);\n"
-    "  a+=texture(uTex,luv()+vec2(0.0,float(j)*uRadius/12.0/uRes.y)).rgb*w; ws+=w; }\n"
+    " for(int j=-24;j<=24;j++){ float w=exp(-float(j*j)/288.0);\n"
+    "  a+=texture(uTex,luv()+vec2(0.0,float(j)*uRadius/24.0/uRes.y)).rgb*w; ws+=w; }\n"
     " o=vec4(a/ws,1.0); }";
 
 // post-process DUST (splat + blur): a tiny core dot per dust particle, blurred into a soft disc;
@@ -852,7 +852,7 @@ static void runNode(const float* P, int w, int h, GLuint& cur, GLuint& curFbo) {
                 glUniform2f(glGetUniformLocation(g_progGlowMask, "uFull"), g_fw, g_fh);
                 glDrawArrays(GL_TRIANGLES, 0, 3);
                 // dilate H: tex[2] -> tex[4]  (spacing radius*0.2, 7 taps => reach ±0.6*radius)
-                float dilSpc = rEff * 0.2f;
+                float dilSpc = rEff * 0.1f;   // 15 taps at half the old step: no 0.2R staircase
                 glUseProgram(g_progGlowDil);
                 glUniform2f(glGetUniformLocation(g_progGlowDil, "uDir"), dilSpc, 0.0f);
                 bindRun(g_progGlowDil, g_tex[2], g_fbo[4], w, h, g_ox, g_oy, g_fw, g_fh);
