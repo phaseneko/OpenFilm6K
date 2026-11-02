@@ -923,7 +923,7 @@ public class Server {
             if (half == null) return;
             if (portrait) {   // upright shot -> the half is a landscape strip: rotate it to fill the portrait slot
                 android.graphics.Matrix rm = new android.graphics.Matrix();
-                rm.postRotate(-90f);
+                rm.postRotate(90f);   // camera is turned CCW for portrait -> scene appears rotated CW here
                 android.graphics.Bitmap rot = android.graphics.Bitmap.createBitmap(half, 0, 0, half.getWidth(), half.getHeight(), rm, true);
                 half.recycle();
                 half = rot;
