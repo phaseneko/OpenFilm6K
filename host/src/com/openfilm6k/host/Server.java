@@ -905,20 +905,29 @@ public class Server {
         android.graphics.BitmapRegionDecoder rd = android.graphics.BitmapRegionDecoder.newInstance(f.getAbsolutePath(), false);
         try {
             int iw = rd.getWidth(), ih = rd.getHeight();
-            // cover-crop the source to the slot aspect, centered. A landscape 3:2 frame reduces to
-            // its central half (camera half-frame semantics, full height); any other aspect — 4:3,
-            // 16:9, portrait, square (spy mode accepts anything) — gets a plain center crop instead
-            // of being stretched out of shape.
-            float slotA = (float) w / (float) h, srcA = (float) iw / (float) ih;
+            // Half-frame is orientation-agnostic: always take the FULL short edge x the CENTRAL 50%
+            // of the long edge (the camera's half mask), then turn that strip upright for the 3:4
+            // slot. A portrait-held shot therefore lands sideways in the canvas, exactly as if the
+            // orientation had been ignored (the camera's own viewfinder shows the same band).
+            boolean portrait = ih > iw;
+            int longSide = Math.max(iw, ih), shortSide = Math.min(iw, ih);
+            int strip = Math.max(1, Math.round(longSide * 0.5f));
             int cw, ch;
-            if (srcA > slotA) { ch = ih; cw = Math.max(1, Math.round(ih * slotA)); }
-            else              { cw = iw; ch = Math.max(1, Math.round(iw / slotA)); }
+            if (!portrait) { cw = strip; ch = shortSide; }
+            else           { cw = shortSide; ch = strip; }
             int cx = (iw - cw) / 2, cy = (ih - ch) / 2;
             android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
             o.inSampleSize = sc;
             o.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
             android.graphics.Bitmap half = rd.decodeRegion(new android.graphics.Rect(cx, cy, cx + cw, cy + ch), o);
             if (half == null) return;
+            if (portrait) {   // upright shot -> the half is a landscape strip: rotate it to fill the portrait slot
+                android.graphics.Matrix rm = new android.graphics.Matrix();
+                rm.postRotate(-90f);
+                android.graphics.Bitmap rot = android.graphics.Bitmap.createBitmap(half, 0, 0, half.getWidth(), half.getHeight(), rm, true);
+                half.recycle();
+                half = rot;
+            }
             cv.drawBitmap(half, new android.graphics.Rect(0, 0, half.getWidth(), half.getHeight()),
                     new android.graphics.RectF(x, y, x + w, y + h), bp);
             half.recycle();
