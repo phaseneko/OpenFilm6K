@@ -178,7 +178,8 @@ needed. Tick **Enable spy mode** in its dialog, then choose the film, the waterm
 the post-processing; incoming files are rendered exactly like a camera-app shot and appear in
 the notification. Watched folders are added one at a time, with two shortcuts for the common
 locations: the camera folder and the **LUMIX Lab** save folder. Paired modes (half-frame,
-double exposure) wait for the second frame before rendering.
+double exposure) wait for the second frame before rendering. **Re-import** clears the processed-file
+history, so everything currently in the watched folders is rendered again.
 
 ### Luma mode
 
@@ -193,7 +194,8 @@ own Wi-Fi access point and the phone pulls the new shots from it.
 3. The phone joins the camera network, pulls everything that arrived since the last
    transfer, renders it like a camera-app shot and returns to its previous network
    automatically — it is offline while pulling.
-4. The bars show what was transferred; **No new photos** means the card holds nothing newer.
+4. The bars show what was transferred; **No new photos** means the card holds nothing newer. **Re-import** forgets the transferred
+files and starts a fresh transfer.
 
 Newer bodies that work with **Lumix Lab** instead hand their photos to that app: save them
 into the LUMIX Lab folder on the phone and use **Monitor mode** with the "Add LUMIX Lab save
@@ -229,6 +231,12 @@ shows (camera label up to 10 uppercase characters, combo labels up to 8). Once t
 joins the phone's hotspot the settings are pushed automatically; **Sync now** pushes them
 again, **Pull all photos** takes everything on the card, **Refresh** rescans for the camera,
 and the panel shows the camera status, the last sync and the transfer progress.
+
+Photos from this camera also get a **color alignment** pass on the phone: its rendering is
+mapped toward a reference camera before the film look, with separate day and night
+calibrations chosen from the shot itself and a **strength** slider (0 = off). **Re-import**
+forgets the already-imported files of this mode and processes the card again after asking
+for confirmation.
 
 1. Get `patch_rewindpix.py` from the release page and have your own official 1.2.1D firmware
    file (`FW_X94A.bin`) at hand.
