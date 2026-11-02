@@ -264,7 +264,7 @@ for confirmation.
 
 ### Films
 
-A set of film simulations is bundled (CV-250, CV-500, ET-100, ET-64, PR-100, CC-200, CS-800T, EV-500, FC-400, GD-200, LK-200, NC-200, PAN-100, PI-100, PT-400, PX-I, PX-II, RF-400, RF-800, SP-200, UM-400). You can create your own films in the editor, or import extra `.cube` LUTs via the settings dialog.
+A set of film simulations is bundled (CV-250, CV-500, ET-100, ET-64, PR-100, CC-200, CS-800T, EV-500, FC-400, GD-200, LK-200, NC-200, PAN-100, PI-100, PT-400, PX-I, PX-II, RC-400, RF-400, RF-800, SP-200, UM-400). RC-400 is a high-contrast urban negative with a teal-and-orange palette. You can create your own films in the editor, or import extra `.cube` LUTs via the settings dialog.
 
 ## Building from source / repo layout
 
