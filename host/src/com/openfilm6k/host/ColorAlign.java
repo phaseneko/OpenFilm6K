@@ -15,7 +15,7 @@ import java.io.InputStream;
  *  Only the rewind intake path is aligned: other cameras must not be touched. */
 public class ColorAlign {
     private static final String ROOT = "/sdcard/OpenFilm6K/color";
-    private static final String ASSET_VER = "2";
+    private static final String ASSET_VER = "3";
     private static final float LOG2_400 = 8.6439f, LOG2_1600 = 10.6439f;
     private static CubeLib.Lut lutDay, lutNight;
     private static float[] blendBuf;
