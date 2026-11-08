@@ -94,16 +94,18 @@ public class HostService extends Service {
     private void setBusy(boolean busy, final int okPhotos) {
         final HostService s = this;
         h.post(new Runnable() { public void run() {
+            Engine.dbg("host: busy=" + busy + " animating=" + animating + " pending=" + RenderQueue.pending());
             if (busy) {
                 if (animating) return;
                 animating = true;
+                frame = 0;
                 h.post(animTick);
             } else {
-                if (!animating) return;
+                boolean was = animating;
                 animating = false;
                 h.removeCallbacks(animTick);
-                try { nm.notify(1, build()); } catch (Throwable ig) {}
-                if (okPhotos > 0) try {   // only when this batch really produced photos
+                try { nm.notify(1, build()); } catch (Throwable ig) {}   // always restore the plain icon
+                if (was && okPhotos > 0) try {   // only when this batch really produced photos
                     android.media.Ringtone r = android.media.RingtoneManager.getRingtone(s,
                             android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION));
                     if (r != null) r.play();
@@ -113,6 +115,13 @@ public class HostService extends Service {
     }
 
     private final Runnable tick = new Runnable() { public void run() {
+        // watchdog: never leave the status icon on a busy frame once the queue is empty (a lost
+        // idle event or a dead animation chain would otherwise freeze it there)
+        if (animating && RenderQueue.pending() == 0) {
+            Engine.dbg("host: watchdog clears a stale busy icon");
+            animating = false;
+            h.removeCallbacks(animTick);
+        }
         try { nm.notify(1, build()); } catch (Throwable ig) {}
         h.postDelayed(this, 5000);
     }};
@@ -141,6 +150,9 @@ public class HostService extends Service {
     }
     @Override public void onDestroy() {
         try { unregisterReceiver(tap); } catch (Throwable ig) {}
+        animating = false;                        // a recreated instance must not leave a stale
+        h.removeCallbacks(animTick);              // animation chain running against the same
+        h.removeCallbacks(tick);                  // notification id
         CameraBeacon.stop();
         self = null;
         super.onDestroy();
