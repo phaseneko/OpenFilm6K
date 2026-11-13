@@ -1599,9 +1599,34 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         setStatus("wake");
     }
 
+    // Register with the camera's official app framework so it restores this app
+    // after a cold power cycle (same AppInfo/APO handshake the official apps use).
+    private void registerWithCamera() {
+        try {
+            android.content.Intent i = new android.content.Intent("com.android.server.DAConnectionManagerService.AppInfoReceive");
+            i.putExtra("package_name", getPackageName());
+            i.putExtra("class_name", getClass().getName());
+            i.putExtra("large_category", "CATEGORY_REC");
+            i.putExtra("small_category", "SINGLE");
+            i.putExtra("pullingback_key", new String[]{"KEY_USB_CONNECT", "KEY_PLAY"});
+            i.putExtra("resume_key", new String[]{
+                "KEY_POWER_SLIDE_PON", "KEY_RELEASE_APO", "KEY_PLAY_APO", "KEY_MEDIA_INOUT_APO",
+                "KEY_LENS_APO", "KEY_ACCESSORY_APO", "KEY_DEDICATED_APO", "KEY_POWER_APO", "KEY_PLAY_PON"});
+            sendBroadcast(i);
+            Logger.log("appinfo: sent");
+        } catch (Throwable t) { Logger.log("appinfo EX " + t); }
+        try {
+            android.content.Intent a = new android.content.Intent("com.android.server.DAConnectionManagerService.apo");
+            a.putExtra("apo_info", "APO/SPECIAL");
+            sendBroadcast(a);
+            Logger.log("apo: APO/SPECIAL sent");
+        } catch (Throwable t) { Logger.log("apo EX " + t); }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        registerWithCamera();
         if (fbox != null) fbox.verUntil = System.currentTimeMillis() + 1000;   // version hint on every entry
         if (surface.getHolder().getSurface() != null) startCamera(surface.getHolder());
         if (rig.ready()) {

@@ -79,7 +79,7 @@ The camera app needs **no film assets on the camera** — it pulls the film list
 
 ## Using the camera app
 
-The camera app is controlled entirely with the camera's physical keys (no touchscreen).
+The camera app is controlled entirely with the camera's physical keys (no touchscreen). Once it has been opened, switching the camera off and on again brings it back automatically.
 
 ### Boot & connection
 
