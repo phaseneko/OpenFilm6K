@@ -225,13 +225,14 @@ final class CameraRig {
 
     void moveSpot(int dx, int dy) { setSpot(spotX + dx, spotY + dy); }
 
-    /** read the system focus point (-1000..1000) from the param table; null if unavailable */
+    /** read the system focus point (-1000..1000) from the param table; null if unavailable or uninitialized */
     static int[] readSystemSpot(android.hardware.Camera.Parameters p) {
         try {
             String sx = p.get("focus-point-x"), sy = p.get("focus-point-y");
             if (sx == null || sy == null) return null;
             int x = Integer.parseInt(sx.trim()), y = Integer.parseInt(sy.trim());
             if (x < -1000 || x > 1000 || y < -1000 || y > 1000) return null;
+            if (x == -1000 && y == -1000) return null;   // firmware default before the AF point is initialised
             return new int[]{x, y};
         } catch (Throwable t) { return null; }
     }
@@ -440,7 +441,7 @@ final class CameraRig {
             //  in both spaces so the mismatch only surfaced on off-center points)
             p.set("focus-point-x", String.valueOf(spotX));
             p.set("focus-point-y", String.valueOf(spotY));
-            camera.cancelAutoFocus();
+            try { camera.cancelAutoFocus(); } catch (Throwable t) { Logger.log("cancelAF: " + t); }
             camera.setParameters(p);
             spotDirty = false;
             Logger.log("spot " + spotX + "," + spotY + " (param keys)");

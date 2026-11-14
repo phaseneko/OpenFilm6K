@@ -1519,8 +1519,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             String mm0 = rig.syncMetering(p);
             if (mm0 != null) metMode = mm0;
             int[] spt = CameraRig.readSystemSpot(p);            // adopt the system focus point position
-            if (spt != null) { rig.adoptSpot(spt[0], spt[1]); spotX = spt[0]; spotY = spt[1]; Logger.log("sys spot " + spt[0] + "," + spt[1]); }
-            else Logger.log("sys spot: unavailable");
+            boolean uninit = spt == null || (spt[0] == -1000 && spt[1] == -1000);   // cold auto-start: not initialized yet
+            if (!uninit) { rig.adoptSpot(spt[0], spt[1]); spotX = spt[0]; spotY = spt[1]; Logger.log("sys spot " + spt[0] + "," + spt[1]); }
+            else {
+                // use the spot the user last set in the app; default to centre
+                android.content.SharedPreferences pf = getPreferences(MODE_PRIVATE);
+                int sx = pf.getInt("spotx", 0), sy = pf.getInt("spoty", 0);
+                rig.setSpot(sx, sy);
+                spotNeedsPush = true;
+                spotX = sx; spotY = sy;
+                Logger.log("sys spot uninitialized -> " + sx + "," + sy);
+            }
             String sm = p.getSceneMode();                  // adopt the mode the system/firmware is currently in
             if (sm != null) {
                 for (int i = 0; i < SCENE_MODES.length; i++) {
@@ -1538,6 +1547,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         try {
             rig.camera().setPreviewDisplay(h);
             rig.startPreview();
+            if (spotNeedsPush) {                       // cold auto-start: the AF session is ready only now
+                spotNeedsPush = false;
+                rig.setSpot(spotX, spotY);
+            }
         } catch (Throwable t) {
             Logger.log("preview: " + t);
             setStatus("viewfinder fail: " + t);
@@ -3088,6 +3101,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             else if (scan == K_LEFT) spotX -= d;
             else if (scan == K_RIGHT) spotX += d;
             rig.setSpot(spotX, spotY);
+            saveSpot();
             if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.postInvalidate(); }
             return true;
         }
@@ -3172,6 +3186,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             try {
                 int[] spt2 = CameraRig.readSystemSpot(rig.camera().getParameters());
                 if (spt2 != null) { rig.adoptSpot(spt2[0], spt2[1]); spotX = spt2[0]; spotY = spt2[1]; }
+                else rig.setSpot(spotX, spotY);             // uninitialised system point: keep ours and write it back
             } catch (Throwable ig) {}
         }
         if (fbox != null) { fbox.spotOn = spotMode; fbox.spotX = spotX; fbox.spotY = spotY; }
@@ -3189,6 +3204,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         aelFired = true;   // release won't toggle focus-adjust mode
         spotX = 0; spotY = 0;
         rig.setSpot(spotX, spotY);
+        saveSpot();
         if (fbox != null) { fbox.spotX = spotX; fbox.spotY = spotY; fbox.postInvalidate(); }
         Logger.log("A: long (spot recentered)");
     } };
@@ -3215,6 +3231,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     } };
 
     private int spotX = 0, spotY = 0;
+    private boolean spotNeedsPush;             // retry after preview starts (cold auto-start has no AF session yet)
 
     private boolean adjOk(int idx) {
         switch (idx) {
@@ -3632,10 +3649,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 .putString("wmid", wmSel)
                 .putInt("printinfo", printInfo)
                 .putString("post", psb.toString())
-                .putInt("gfinder", ghostFinder);
+                .putInt("gfinder", ghostFinder)
+                .putInt("spotx", spotX)
+                .putInt("spoty", spotY);
         String nm = selName();                            // persist the selected film by NAME too (the index is unstable across list changes)
         if (nm.length() > 0) { wantFilm = nm; ed.putString("selfilm", nm); }
         ed.commit();
+    }
+
+    private void saveSpot() {
+        try { getPreferences(MODE_PRIVATE).edit().putInt("spotx", spotX).putInt("spoty", spotY).commit(); } catch (Throwable t) {}
     }
 
     private String selName() {
