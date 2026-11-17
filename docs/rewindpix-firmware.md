@@ -3,9 +3,16 @@
 This document is the complete, self-contained procedure for building and installing the
 OpenFilm6K companion firmware on a **Rewindpix PS135** camera. It expects no prior knowledge.
 
-> Current for release **v0.12.5**. All hashes below match the `patch_rewindpix.py` shipped
-> with that release. The script verifies every input and output itself and refuses anything
-> unexpected — treat its success lines as the authority over the hashes printed here.
+> Current for release **v0.12.5**. The sync runbook below is pinned to the
+> `patch_rewindpix.py` shipped with that release. The script verifies every input and output
+> itself and refuses anything unexpected — treat its success lines as the authority over the
+> hashes printed here.
+>
+> **V1.2.4 status (2026-11-14).** A separate **V1.2.4 base patch** now exists for the
+> hotspot + UDP discovery + H17 debug + marker-log chain; it auto-downloads the official updater and
+> extracts the 3,306,096-byte image. It does **not** yet include the OpenFilm6K film-sync
+> features, so the v0.12.5 1.2.1D/hfs43 procedure below remains the sync build.
+> V1.2.4 base: see §2b.
 
 ## How to use this document (agent operating contract)
 
@@ -72,6 +79,46 @@ sha256sum "Misfire FW/FW_X94A.bin"    # 2448d407cc558b8be4511cb3e6d7ffa4540efe4c
 **Do not use** the other firmware packages on that page (for example `FLASH_WB_update.zip`
 or `KILL_LAG_update.zip`): they carry different firmware versions and the build script
 refuses them.
+
+> This §2 path is the **1.2.1D sync** build. For the V1.2.4 hotspot/discovery/log base, skip to §2b;
+> do not feed V1.2.4 to `patch_rewindpix.py`.
+
+## 2b. V1.2.4 base patch (hotspot + UDP discovery + H17 debug + marker logs)
+
+This base patch is the Wi-Fi hotspot + UDP broadcast discovery + H17 debug + marker-log
+chain. It does **not** contain the OpenFilm6K film-sync features; keep the v0.12.5 1.2.1D
+build below for sync. The camera advertises itself every timer tick with `PS135 REG hfs7`
+to `255.255.255.255:8765`, so the app survives hotspot IP changes. It also writes
+`H17_SEND/OK/NONE/SOCK` send-state markers and a working `HFS124.TXT` version marker
+(hfs43's `HFS43.TXT` code was overwritten by its debug code and was not reliable).
+
+Official 1.2.4 has no direct `.bin` download — it is embedded in the official Windows
+updater tool. The internal patcher handles the official-page lookup, download/cache,
+extraction and patching end to end.
+
+1. Download `patch_rewindpix124.py` from the latest OpenFilm6K release assets:
+   `https://github.com/phaseneko/OpenFilm6K/releases/latest/download/patch_rewindpix124.py`
+   (sha256 `3abbde527bc0ae9b8f55dd06e7f5d5fd2952e73e13581f74764f310757c35dc4`).
+2. Run:
+
+   ```bash
+   python3 patch_rewindpix124.py -o FW_X94A_patched.bin
+   ```
+
+   It fetches the official page, downloads/caches the official WIN updater, extracts the
+   full **3,306,096-byte** V1.2.4 image (sha256
+   `02234d292ad3d9092876d324dfe59764fff2dd5d6df21deefb0de8321ac7c427`), patches it, and
+   verifies the output (sha256
+   `9e2e523b2cb7afa22f68ebd298de053232c8729038c616e8405b0b905d251ddc`). `--force-download`
+   bypasses the download cache; a local updater ZIP/exe, an already-extracted official
+   image, or a page URL is also accepted.
+3. Install as in §6. Success is shown by `HFS124.TXT`, the H17 send-state marker
+   (`H17_SEND.TXT` / `H17_OK.TXT` / `H17_NONE.TXT` / `H17_SOCK.TXT`) and the
+   `L_ENTER.TXT`, `L_OPEN.TXT`, `L_READ.TXT`, `L_SSID.TXT`, `L_PASS.TXT`, `L_SET.TXT`,
+   `L_RET1.TXT` markers (and failure variants) in the card root after pressing the Wi-Fi key.
+4. `wifi.txt` and the Wi-Fi-key behaviour are the same as §7. Roll back with the official
+   V1.2.4 image (3,306,096 bytes, sha256 `02234d29…`), **not** the 1.2.1D
+   `Misfire_FW.zip`.
 
 ## 3. Download the OpenFilm6K firmware patch (agent)
 

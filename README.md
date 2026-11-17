@@ -223,7 +223,9 @@ official firmware; it stores only the differences, so no official firmware is re
 
 The complete end-to-end guide — official download link, building, installing, Wi-Fi setup,
 rollback and emergency recovery, written so an AI agent can follow it on its own — lives in
-[`docs/rewindpix-firmware.md`](docs/rewindpix-firmware.md).
+[`docs/rewindpix-firmware.md`](docs/rewindpix-firmware.md). It also documents a **V1.2.4
+base patch** (hotspot + UDP discovery + H17 debug + marker logs, no film sync yet); its patcher auto-downloads the official
+updater and extracts the image. The v0.12.5 sync build remains on 1.2.1D.
 
 On the phone, Rewind mode keeps a roll in sync with that camera: enable **Rewind sync**, fill
 the three film slots and the three stamp + post-processing combos, and set the labels the body
