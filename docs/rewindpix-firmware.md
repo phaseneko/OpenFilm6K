@@ -60,6 +60,14 @@ sha256sum patch_rewindpix124.py
 If the hash differs, a newer release has shipped. Use the copy from the release page and
 re-read this guide; do not proceed with an unverifiable helper.
 
+**Manual official-firmware alternative:** V1.2.4 has no standalone `.bin` download. Open
+https://rewindpix.com/pages/faq-spec-manual, use **Firmware upgrade / Downloads**, and
+download `Rewindpix-Firmware_Auto_Update_Tool-WIN.zip` (the current direct link is
+`https://cdn.shopify.com/s/files/1/0928/9724/7554/files/Rewindpix-Firmware_Auto_Update_Tool-WIN.zip?v=1794119161`;
+use the page if the link changes). The official image is embedded in the updater EXE inside
+that ZIP. You can pass the downloaded ZIP or EXE to the helper instead of letting it download.
+The helper verifies the official image and prints its SHA-256 before patching.
+
 ## 3. Build the patched firmware (agent)
 
 Run in the directory holding the helper:
