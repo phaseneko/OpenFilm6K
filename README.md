@@ -217,15 +217,14 @@ Cameras without PlayMemories support can use the films too: they upload their sh
 
 ### Rewindpix camera (Rewind mode)
 
-The stock Rewindpix PS135 firmware does not carry the sync support the phone needs. Every
-release page includes a small script that derives that build from **your own** copy of the
-official firmware; it stores only the differences, so no official firmware is redistributed.
+The stock Rewindpix PS135 firmware does not carry the connection support the phone needs.
+The companion build is derived from **your own** copy of the official V1.2.4 firmware with
+`patch_rewindpix124.py` from the latest release; it stores only the differences, so no
+official firmware is redistributed. The helper downloads the official updater for you.
 
-The complete end-to-end guide — official download link, building, installing, Wi-Fi setup,
-rollback and emergency recovery, written so an AI agent can follow it on its own — lives in
-[`docs/rewindpix-firmware.md`](docs/rewindpix-firmware.md). It also documents a **V1.2.4
-base patch** (hotspot + UDP discovery + H17 debug + marker logs, no film sync yet); its patcher auto-downloads the official
-updater and extracts the image. The v0.12.5 sync build remains on 1.2.1D.
+The complete end-to-end guide — building, installing, Wi-Fi setup, rollback and emergency
+recovery, written so an AI agent can follow it on its own — lives in
+[`docs/rewindpix-firmware.md`](docs/rewindpix-firmware.md).
 
 On the phone, Rewind mode keeps a roll in sync with that camera: enable **Rewind sync**, fill
 the three film slots and the three stamp + post-processing combos, and set the labels the body
@@ -240,29 +239,19 @@ calibrations chosen from the shot itself and a **strength** slider (0 = off). **
 forgets the already-imported files of this mode and processes the card again after asking
 for confirmation.
 
-1. Get `patch_rewindpix.py` from the release page and have your own official 1.2.1D firmware
-   file (`FW_X94A.bin`) at hand.
-2. With Python 3 installed run `python3 patch_rewindpix.py FW_X94A.bin`. The script verifies
-   the official file byte for byte, refuses anything else, and writes
-   `FW_X94A_patched.bin`.
-3. Copy that file to the root of the camera's SD card under the short name `FW_X94A.BIN` and
-   power the camera on — it installs the file itself on boot. A `HFS43.TXT` file appearing
-   on the card afterwards confirms the new build is running.
-4. Tell the camera which network to join: put a plain-text `wifi.txt` in the SD card root
-   with two lines — the phone hotspot's name (2.4 GHz) and its password (up to 26
-   characters), e.g.
-
-   ```
-   MyPhoneHotspot
-   thepassword
-   ```
-
-   Without that file the camera stays in its own access-point mode; rename or delete
-   `wifi.txt` and reboot to go back to it.
-5. Power the camera on and long-press the Wi-Fi key so it joins the phone's hotspot. With
-   **Rewind mode** enabled on the phone the roll, watermark and post-processing settings are
-   pushed automatically, and shots are pulled back the same way.
-6. Keep your official firmware file: copying it to the card the same way restores the camera.
+1. Download `patch_rewindpix124.py` from the latest OpenFilm6K release assets.
+2. With Python 3 installed run `python3 patch_rewindpix124.py -o FW_X94A_patched.bin`. The
+   helper downloads the official updater, prepares the V1.2.4 image, and verifies the output.
+3. Copy the patched file to the card root as `FW_X94A.BIN` and power the camera on — it
+   installs the build while booting. New `HFS124.TXT` and `H17_*` files confirm it ran.
+4. Put a plain-text `wifi.txt` in the card root with two lines — the phone hotspot's name
+   (2.4 GHz) and its password (up to 26 characters). Without it the camera stays in its own
+   access-point mode.
+5. Power on and long-press the Wi-Fi key so it joins the hotspot. With **Rewind mode** enabled
+   on the phone the roll, watermark and post-processing settings are pushed automatically,
+   and shots are pulled back the same way.
+6. To restore the camera, reinstall the official firmware with the official updater. For an
+   emergency boot, remove every `FW_X94A*` file from the card root and power on.
 
 ### Films
 

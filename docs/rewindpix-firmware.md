@@ -1,34 +1,25 @@
 # Rewindpix custom firmware for OpenFilm6K — agent runbook
 
-This document is the complete, self-contained procedure for building and installing the
-OpenFilm6K companion firmware on a **Rewindpix PS135** camera. It expects no prior knowledge.
+This document is the complete procedure for preparing and installing the OpenFilm6K companion
+firmware on a **Rewindpix PS135** camera. It expects no prior knowledge.
 
-> Current for release **v0.12.5**. The sync runbook below is pinned to the
-> `patch_rewindpix.py` shipped with that release. The script verifies every input and output
-> itself and refuses anything unexpected — treat its success lines as the authority over the
-> hashes printed here.
->
-> **V1.2.4 status (2026-11-14).** A separate **V1.2.4 base patch** now exists for the
-> hotspot + UDP discovery + H17 debug + marker-log chain; it auto-downloads the official updater and
-> extracts the 3,306,096-byte image. It does **not** yet include the OpenFilm6K film-sync
-> features, so the v0.12.5 1.2.1D/hfs43 procedure below remains the sync build.
-> V1.2.4 base: see §2b.
+> Current for release **v0.12.9**. The released `patch_rewindpix124.py` builds on the user's
+> own copy of the official **V1.2.4** firmware and downloads the official updater when needed.
+> OpenFilm6K redistributes no official firmware.
 
 ## How to use this document (agent operating contract)
 
-If a user hands you this document with **no other instructions**, do exactly this, in order:
+If a user hands you this document with **no other instructions**, do this in order:
 
-1. **Build autonomously** — run §2, §3, §4 and §5 yourself, end to end, without asking the
-   user anything. Asking is only allowed when a verification step fails in a way §4 does not
-   cover, or when a prerequisite from §1 is missing.
-2. **Deliver** the two firmware files of §5 with their SHA-256 hashes.
-3. **Then** present the disclaimer (§0) and the rollback / emergency procedures (§8) to the
-   user in your own words, and get their explicit consent. Nothing has touched the camera up
-   to this point — the build only produces files.
-4. Only after consent, guide the user interactively through installing (§6) and Wi-Fi setup
-   (§7), and close with the checklist (§9).
+1. **Build autonomously** — run §2 and §3, without asking the user anything. Asking is only
+   allowed when a verification step fails.
+2. **Deliver** the patched firmware from §3 with its SHA-256 hash.
+3. **Then** present the disclaimer (§0) and the rollback / emergency procedures (§6) in your
+   own words and get explicit consent. Nothing has touched the camera up to this point.
+4. Only after consent, guide the user interactively through installing (§4) and Wi-Fi setup
+   (§5), and close with the checklist (§7).
 
-You never operate the camera yourself: §6–§8 are the user's hands, your instructions.
+You never operate the camera yourself: §4–§6 are the user's hands, your instructions.
 
 ## 0. Disclaimer — present to the user before any camera-side step
 
@@ -40,231 +31,128 @@ user's explicit consent before guiding any camera-side step:
 - Modifying the firmware **may void the camera's warranty**.
 - The authors of OpenFilm6K accept **no liability** for damaged hardware, lost data or lost
   warranty. Everything is done at the user's own risk.
-- Risk mitigations: the build script refuses every input it does not recognize byte-for-byte;
-  the official firmware re-flashes over the custom build (§8); and there is an emergency boot
-  path that skips card updates entirely (§8).
+- Risk mitigations: the helper refuses every input it does not recognize; the official updater
+  can reinstall the official firmware (§6); and the camera can boot with no card update file
+  present (§6).
 
 ## 1. What you need
 
 - A Rewindpix PS135 camera and its SD card (FAT32), plus an SD-card reader.
-- A computer with internet access, `curl` (or a browser), `unzip`, and **Python 3**
-  (standard library only; no pip packages).
-- The Android phone with the **OpenFilm6K Host** app installed (needed from §7 on) — it comes
+- A computer with internet access and **Python 3** (standard library only; no pip packages).
+- The Android phone with the **OpenFilm6K Host** app installed (needed from §5 on) — it comes
   from https://github.com/phaseneko/OpenFilm6K/releases if missing.
 
-## 2. Download the official firmware (agent)
-
-The patch is built **on top of the user's own copy of the official firmware**; OpenFilm6K
-redistributes no official image.
-
-1. Open the official page: **https://rewindpix.com/pages/faq-spec-manual**
-2. In the **“Firmware upgrade”** section download **`Misfire_FW.zip`**.
-   Headless (browser-less) agents: fetch the direct link —
-   `https://cdn.shopify.com/s/files/1/0928/9724/7554/files/Misfire_FW.zip?v=1790319975`
-   — and if that URL ever stops working, re-scrape the current link from the page itself:
-
-   ```bash
-   curl -sL https://rewindpix.com/pages/faq-spec-manual \
-     | grep -oE 'https://cdn\.shopify\.com/s/files/[^"]*Misfire_FW\.zip[^"]*' | head -1
-   ```
-3. Unzip it. The needed file is `Misfire FW/FW_X94A.bin` (note the space in the folder name —
-   quote the path in shell commands).
-4. Verify it is exactly the expected version:
-
-```bash
-ls -l "Misfire FW/FW_X94A.bin"        # size must be 3304240
-sha256sum "Misfire FW/FW_X94A.bin"    # 2448d407cc558b8be4511cb3e6d7ffa4540efe4c34e49dd9d56ccb3c72dbab09
-```
-
-**Do not use** the other firmware packages on that page (for example `FLASH_WB_update.zip`
-or `KILL_LAG_update.zip`): they carry different firmware versions and the build script
-refuses them.
-
-> This §2 path is the **1.2.1D sync** build. For the V1.2.4 hotspot/discovery/log base, skip to §2b;
-> do not feed V1.2.4 to `patch_rewindpix.py`.
-
-## 2b. V1.2.4 base patch (hotspot + UDP discovery + H17 debug + marker logs)
-
-This base patch is the Wi-Fi hotspot + UDP broadcast discovery + H17 debug + marker-log
-chain. It does **not** contain the OpenFilm6K film-sync features; keep the v0.12.5 1.2.1D
-build below for sync. The camera advertises itself every timer tick with `PS135 REG hfs7`
-to `255.255.255.255:8765`, so the app survives hotspot IP changes. It also writes
-`H17_SEND/OK/NONE/SOCK` send-state markers and a working `HFS124.TXT` version marker
-(hfs43's `HFS43.TXT` code was overwritten by its debug code and was not reliable).
-
-Official 1.2.4 has no direct `.bin` download — it is embedded in the official Windows
-updater tool. The internal patcher handles the official-page lookup, download/cache,
-extraction and patching end to end.
-
-1. Download `patch_rewindpix124.py` from the latest OpenFilm6K release assets:
-   `https://github.com/phaseneko/OpenFilm6K/releases/latest/download/patch_rewindpix124.py`
-   (sha256 `3abbde527bc0ae9b8f55dd06e7f5d5fd2952e73e13581f74764f310757c35dc4`).
-2. Run:
-
-   ```bash
-   python3 patch_rewindpix124.py -o FW_X94A_patched.bin
-   ```
-
-   It fetches the official page, downloads/caches the official WIN updater, extracts the
-   full **3,306,096-byte** V1.2.4 image (sha256
-   `02234d292ad3d9092876d324dfe59764fff2dd5d6df21deefb0de8321ac7c427`), patches it, and
-   verifies the output (sha256
-   `9e2e523b2cb7afa22f68ebd298de053232c8729038c616e8405b0b905d251ddc`). `--force-download`
-   bypasses the download cache; a local updater ZIP/exe, an already-extracted official
-   image, or a page URL is also accepted.
-3. Install as in §6. Success is shown by `HFS124.TXT`, the H17 send-state marker
-   (`H17_SEND.TXT` / `H17_OK.TXT` / `H17_NONE.TXT` / `H17_SOCK.TXT`) and the
-   `L_ENTER.TXT`, `L_OPEN.TXT`, `L_READ.TXT`, `L_SSID.TXT`, `L_PASS.TXT`, `L_SET.TXT`,
-   `L_RET1.TXT` markers (and failure variants) in the card root after pressing the Wi-Fi key.
-4. `wifi.txt` and the Wi-Fi-key behaviour are the same as §7. Roll back with the official
-   V1.2.4 image (3,306,096 bytes, sha256 `02234d29…`), **not** the 1.2.1D
-   `Misfire_FW.zip`.
-
-## 3. Download the OpenFilm6K firmware patch (agent)
+## 2. Download the firmware helper (agent)
 
 Latest release asset:
 
 ```
-https://github.com/phaseneko/OpenFilm6K/releases/latest/download/patch_rewindpix.py
+https://github.com/phaseneko/OpenFilm6K/releases/latest/download/patch_rewindpix124.py
 ```
 
-Pinned copy of v0.12.5 (use this when exact reproducibility matters):
-
-```
-https://github.com/phaseneko/OpenFilm6K/releases/download/v0.12.5/patch_rewindpix.py
-```
-
-Verify (v0.12.5 copy: 20,924 bytes):
+Verify (v0.12.9 copy: 24,753 bytes):
 
 ```bash
-sha256sum patch_rewindpix.py   # 36ab5c7f7c9ec4a04192dd8e403bc2d1e993f0162ff77e5e68ad1867e2cb5038
+sha256sum patch_rewindpix124.py
+# 3abbde527bc0ae9b8f55dd06e7f5d5fd2952e73e13581f74764f310757c35dc4
 ```
 
-If the **latest** asset's size or hash differs from the values above, a newer release has
-shipped — fall back to the pinned v0.12.5 URL, whose hash is the one documented here. If
-even the pinned copy no longer matches its documented hash, the release assets were replaced:
-**stop and report** — a fresh OpenFilm6K release is needed; do not proceed with an
-unverifiable script.
+If the hash differs, a newer release has shipped. Use the copy from the release page and
+re-read this guide; do not proceed with an unverifiable helper.
 
-## 4. Build the patched firmware (agent)
+## 3. Build the patched firmware (agent)
 
-Run in the directory holding both files:
+Run in the directory holding the helper:
 
 ```bash
-python3 patch_rewindpix.py "Misfire FW/FW_X94A.bin"
+python3 patch_rewindpix124.py -o FW_X94A_patched.bin
 ```
 
-Expected output — all four lines, no errors:
+The helper fetches the official download page, downloads/caches the official Windows updater,
+extracts the official V1.2.4 image, applies the companion patch, and verifies the result.
+
+Expected output:
 
 ```
-OFFICIAL 1.2.1D OK
+OFFICIAL 1.2.4 OK
 patched RTOS OK
-output: FW_X94A_patched.bin  size=3304240  sha256=a18b0d67cecca9407350ffcfe4ba8bf3939d73ff861c780574743c1092454180
-matches hfs43 OK
+output: FW_X94A_patched.bin  size=3306096  sha256=9e2e523b2cb7afa22f68ebd298de053232c8729038c616e8405b0b905d251ddc
+matches reference OK
 ```
 
 Verify independently:
 
 ```bash
-sha256sum FW_X94A_patched.bin   # a18b0d67cecca9407350ffcfe4ba8bf3939d73ff861c780574743c1092454180
+sha256sum FW_X94A_patched.bin
+# 9e2e523b2cb7afa22f68ebd298de053232c8729038c616e8405b0b905d251ddc
 ```
 
-**Failure handling.** The script stops by itself with a clear `ERROR:` line and writes no
-output when the input is the wrong version (size/SHA mismatch) or was modified:
+`--force-download` bypasses the download cache. A local updater ZIP or EXE, an already
+extracted official image, or an official download-page URL can also be passed as the input.
 
-- Wrong package (e.g. FLASH_WB, KILL_LAG): re-download the correct `Misfire_FW.zip` per §2.
-- Correct package but hash still mismatches: the vendor has likely replaced the package with
-  a newer firmware version. **Stop and report** — this patch is built for exactly the pinned
-  version; a newer official version needs an updated OpenFilm6K patch. Do not retry in a
-  loop, and never try to edit the official file by hand.
+**Failure handling.** The helper stops with an `ERROR:` line and writes no output when the
+official firmware changed or was modified. Re-download the official updater; if it still
+fails, stop and report — the helper and this guide are pinned to the tested V1.2.4 build.
 
-## 5. Deliverables (agent)
+## 4. Install the firmware on the camera (user hands, agent guides)
 
-Prepare a delivery folder for the user containing exactly:
+1. On the card root, remove any other `FW_X94A*` files so exactly one update file remains.
+2. Copy the patched file to the **root of the camera's SD card** as `FW_X94A.BIN` (short 8.3
+   name, upper case).
+3. Insert the card and power the camera on. It installs the file while booting; do not remove
+   the card or cut power while the red LED is active.
+4. **Success check:** after the camera starts, power it off and read the card. New
+   `HFS124.TXT`, `H17_SEND.TXT` / `H17_OK.TXT` / `H17_NONE.TXT` / `H17_SOCK.TXT`, and
+   `L_*.TXT` files confirm the new build ran. `HFS42.TXT` / `HFS43.TXT` are old markers and
+   must not be used as success checks.
 
-| File | Content | Purpose |
-|---|---|---|
-| `FW_X94A.BIN` | the patched firmware (renamed copy of `FW_X94A_patched.bin`) | copy to the SD-card root to install (§6) |
-| `FW_X94A_OFFICIAL.BIN` | the untouched official `FW_X94A.bin` | keep for rollback (§8) |
+If nothing changes, the file name or card format is wrong. If the camera stays black, follow
+§6.
 
-```bash
-mkdir -p delivery
-cp FW_X94A_patched.bin delivery/FW_X94A.BIN
-cp "Misfire FW/FW_X94A.bin" delivery/FW_X94A_OFFICIAL.BIN
-sha256sum delivery/*
-# FW_X94A.BIN        a18b0d67cecca9407350ffcfe4ba8bf3939d73ff861c780574743c1092454180
-# FW_X94A_OFFICIAL.BIN 2448d407cc558b8be4511cb3e6d7ffa4540efe4c34e49dd9d56ccb3c72dbab09
-```
+## 5. Configure the Wi-Fi connection (user hands, agent guides)
 
-Report both hashes to the user, state that the official copy is byte-identical to the
-vendor's published image, then continue with step 3 of the operating contract (§0 + §8,
-consent) before any camera-side step.
+The camera joins the **phone's hotspot (2.4 GHz)** to talk to the OpenFilm6K Host app.
 
-## 6. Install the firmware on the camera (user hands, agent guides)
+1. Create `wifi.txt` with exactly two lines — hotspot name, then password (each up to 26
+   characters). Use a command so the format is guaranteed (plain text, LF endings, no BOM):
 
-1. On the SD card, **delete any old `HFS43.TXT`** in the root first — the success check
-   below must not be fooled by a marker left over from an earlier install.
-2. Copy `delivery/FW_X94A.BIN` to the **root of the camera's SD card**. The name must stay
-   exactly `FW_X94A.BIN` (8.3 short name, upper case); replace any older same-name file.
-3. Make sure the camera battery is not empty, insert the card, power the camera on. It
-   installs the file by itself while booting.
-4. **Success check:** after the camera has fully started, power it off, move the card back
-   to the reader: a fresh **`HFS43.TXT`** in the card root confirms the new firmware is
-   running. This marker is written by this build only.
+   ```bash
+   printf 'MyPhoneHotspot\nthepassword\n' > wifi.txt
+   ```
 
-If the camera behaves exactly like before and no fresh marker appears, the file name on the
-card was wrong (recheck step 2) or the camera did not read the card.
-
-## 7. Configure the Wi-Fi connection (user hands, agent guides)
-
-The camera joins the **phone's hotspot (2.4 GHz band)** to talk to the OpenFilm6K Host app.
-
-1. Create `wifi.txt` with exactly two lines — hotspot name, then its password (each up to 26
-   characters). Create it with a command so the format is guaranteed (plain text, LF line
-   endings, no BOM):
-
-```bash
-printf 'MyPhoneHotspot\nthepassword\n' > wifi.txt     # replace both values
-```
-
-2. Put `wifi.txt` in the **card root**, reinsert the card, power the camera on.
-3. **Long-press the Wi-Fi key** on the camera so it joins the hotspot.
-4. On the phone: open OpenFilm6K, tap the 🎞️ **Rewind** button in the title bar, switch on
+2. Put `wifi.txt` in the card root, reinsert the card, and power the camera on.
+3. **Long-press the Wi-Fi key** so it joins the hotspot.
+4. On the phone, open OpenFilm6K, tap the 🎞️ **Rewind** button in the title bar, and switch on
    **Rewind sync**. The camera is detected automatically once connected; film slots,
    watermark and post-processing settings are pushed to it, and photos are pulled back the
    same way.
 
-Without a `wifi.txt` the camera stays in its own access-point mode; rename or delete the
-file and reboot to return to that mode.
+Without `wifi.txt` the camera stays in its own access-point mode; rename or delete the file
+and reboot to return to it. If it does not join, recreate `wifi.txt` with the command above,
+confirm the hotspot is 2.4 GHz with a password of at most 26 characters, and long-press the
+Wi-Fi key again.
 
-If the camera does not join: re-create `wifi.txt` with the command above (rules out editor
-problems), confirm the hotspot is 2.4 GHz with a visible name and a password of at most 26
-characters, and long-press the Wi-Fi key again.
+## 6. Rollback and emergency recovery (present with §0)
 
-## 8. Rollback and emergency recovery (present together with §0)
+**Rollback to official firmware (camera works):** reinstall the official V1.2.4 firmware with
+the official updater tool. Do not redistribute that tool or the official image; the user
+obtains it from the vendor. After rollback, delete the `HFS124.TXT` / `H17_*.TXT` markers so
+later success checks start clean.
 
-**Rollback to official firmware (camera works):** copy `FW_X94A_OFFICIAL.BIN` to the card
-root **renamed to `FW_X94A.BIN`** (same short name — there is only room for one firmware
-file), then boot the camera: it reinstalls the official firmware over the custom one. Also
-delete the `HFS43.TXT` marker afterwards so later success checks start clean.
+**Emergency (camera stays black / never finishes booting):** power off, remove the card, and
+delete every `FW_X94A*` file from the card root. Reinsert the card and power on: with no
+update file present the camera boots the firmware already in its flash. From there retry §4
+with a correctly built file or reinstall the official firmware as above.
 
-**Emergency (camera stays black / never finishes booting after an update):** power the
-camera off, remove the SD card, and on the computer **delete every `FW_X94A*` file from the
-card root**. Reinsert the card and power on: with no firmware file present the camera boots
-the firmware already installed in its flash, skipping any update. From there either retry
-§6 with a correctly built file or roll back to official as above.
+**Build problems:** always a changed or modified official input. Never edit firmware files by
+hand.
 
-**Build problems:** see §4 — always a wrong or modified official input file; never edit the
-firmware files by hand.
-
-## 9. Acceptance checklist (go through with the user)
+## 7. Acceptance checklist
 
 - [ ] §0 disclaimer shown and consent given
-- [ ] official `FW_X94A.bin` matched size 3304240 and SHA-256 `2448d407…`
-- [ ] build printed all four success lines; patched file SHA-256 `a18b0d67…`
-- [ ] delivery folder holds `FW_X94A.BIN` and `FW_X94A_OFFICIAL.BIN` with matching hashes
-- [ ] card root holds `FW_X94A.BIN`; after boot a **fresh** `HFS43.TXT` appeared
-- [ ] `wifi.txt` (two lines) in card root; camera joined the hotspot after a long press on
-      the Wi-Fi key
-- [ ] OpenFilm6K Rewind sync on; the camera shows up and the settings were pushed
+- [ ] helper hash matched `3abb…`; build printed all four success lines
+- [ ] patched file size 3,306,096 and SHA-256 `9e2e…`
+- [ ] card root holds `FW_X94A.BIN`; after boot new `HFS124.TXT` and H17 markers appeared
+- [ ] `wifi.txt` (two lines) in card root; camera joined the hotspot after a long press
+- [ ] OpenFilm6K Rewind sync on; camera shows up and settings were pushed
 - [ ] a test shot arrives on the phone and is rendered into the album
